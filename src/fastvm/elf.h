@@ -110,6 +110,18 @@ typedef struct
   Elf64_Half	e_shstrndx;		/* Section header string table index */
 } Elf64_Ehdr;
 
+typedef struct 
+{
+  unsigned char magic[4]; /* 0x07 followed by ELF(45 4c 46) in ASCII; these four bytes constitue the magic number */
+  unsigned char class;  /* This byte is set to either 1 or 2 to signify 32- or 64- bit format, respectively */
+  unsigned char data;   /* This byte is set to either 1 or 2 to signify little or big endianness, respectively, 
+                          This affects interpretation of multi-byte fields  start with offset 0x10 */
+  unsigned char version; /* Set to 1 for the original and current version of ELF */
+  unsigned char osabi;
+  unsigned char abiversion;
+  unsigned char pad[7];
+} Elf_Indent;
+
 /* Fields in the e_ident array.  The EI_* macros are indices into the
    array.  The macros under each EI_* macro are the values the byte
    may have.  */
@@ -3300,5 +3312,9 @@ typedef Elf32_Addr Elf32_Conflict;
 
 #define R_RISCV_NUM		58
 
+char *elf_osabi2str(int osabi);
+char *elf_objtype2str(int objtype);
+char *elf_machine2str(int machine);
+char *elf_version2str(int version);
 
 #endif	/* elf.h */
