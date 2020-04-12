@@ -9,7 +9,7 @@ void help()
 
 int fastvm_run(int argc, char **argv)
 {
-    struct vmelf *ve;
+    struct VMElf *ve;
 
     ve = vmelf_load(argv[1]);
 

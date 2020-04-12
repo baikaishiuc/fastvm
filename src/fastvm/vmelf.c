@@ -10,7 +10,6 @@ struct VMElf *vmelf_new()
 struct VMElf *vmelf_load(const char *filename)
 {
     struct VMElf *ve;
-    int len;
 
     ve = (struct VMElf *)calloc(1, sizeof (ve[0]));
     if (!ve) {
@@ -25,7 +24,7 @@ struct VMElf *vmelf_load(const char *filename)
     return ve;
 }
 
-void vmelf_unload(struct vmelf *elf)
+void vmelf_unload(struct VMElf *elf)
 {
     if (!elf)
         return;
@@ -55,7 +54,7 @@ void elf32_dump(struct VMElf *elf)
     printf("  Entry point address:                  %d\n", hdr->e_entry);
     printf("  Start of program header:              %d (bytes into file)\n", hdr->e_phoff);
     printf("  Start of section header:              %d (bytes into file)\n", hdr->e_shoff);
-    printf("  Flags:                                %08x, %s \n", hdr->e_flags);
+    printf("  Flags:                                %08x\n", hdr->e_flags);
     printf("  Size of this header:                  %d (bytes) \n", hdr->e_ehsize);
     printf("  Size of program header:               %d (bytes) \n", hdr->e_phentsize);
     printf("  Number of program header:             %d\n", hdr->e_phnum);
@@ -74,7 +73,7 @@ void vmelf_dump(struct VMElf *elf)
     int i;
     Elf_Indent *indent = (Elf_Indent *)elf->data;
 
-    if (memcmp(indent->magic, "\x7felf", 4)) {
+    if (memcmp(indent->magic, "\x7f""elf", 4)) {
         printf("%s magic is wrong [%02x %02x %02x %02x]\n", elf->filename, 
             indent->magic[0], indent->magic[1], indent->magic[2], indent->magic[3]);
         return;

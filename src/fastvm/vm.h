@@ -35,29 +35,6 @@
 #include "elf.h"
 
 
-struct VMElf {
-    unsigned char*  data;
-    int data_len;
-    char *filename;
-
-    Section  **sections;
-    int nb_sections;
-
-    Section **priv_sections;
-    int nb_priv_sections;
-
-    Section *got;
-    Section *plt;
-
-    Section *text_section;
-    Section *data_section;
-    Section *bss_section;
-    Section *cur_text_section;
-
-    Section *symtab_section;
-    Section *stab_section;
-};
-
 typedef struct VMState {
     struct VMElf *elf;
 
@@ -87,9 +64,33 @@ typedef struct Section {
     char name[1];           /* section name */
 } Section;
 
-struct vmelf *vmelf_load(const char *filename);
-void vmelf_unload(struct vmelf *elf);
-void vmelf_dump(struct vmelf *elf);
+struct VMElf {
+    unsigned char*  data;
+    int data_len;
+    char *filename;
+
+    Section  **sections;
+    int nb_sections;
+
+    Section **priv_sections;
+    int nb_priv_sections;
+
+    Section *got;
+    Section *plt;
+
+    Section *text_section;
+    Section *data_section;
+    Section *bss_section;
+    Section *cur_text_section;
+
+    Section *symtab_section;
+    Section *stab_section;
+};
+
+
+struct VMElf *vmelf_load(const char *filename);
+void vmelf_unload(struct VMElf *elf);
+void vmelf_dump(struct VMElf*elf);
 
 #define VM_SET_STATE(fn)    fn        
 
@@ -98,7 +99,7 @@ void vmelf_dump(struct vmelf *elf);
 #define vm_warning          VM_SET_STATE(_vm_warning)
 
 void _vm_error_noabort(const char *fmt, ...);
-NORETURN _vm_error(const char *fmt, ...);
+void _vm_error(const char *fmt, ...);
 void _vm_warning(const char *fmt, ...);
 
 #endif

@@ -3,9 +3,9 @@
 
 struct arm_emu {
     struct {
-        u1* data;
-        s4  len;
-        s4  pos;
+        unsigned char*  data;
+        int             len;
+        int             pos;
     } code;
 };
 
@@ -20,17 +20,20 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
     return emu;
 }
 
-int             arm_emu_destroy(struct arm_emu *)
+int             arm_emu_destroy(struct arm_emu *vm)
 {
+    return 0;
 }
 
 
 int             arm_emu_run(struct arm_emu *vm)
 {
+    return 0;
 }
 
-int             arm_emu_run_once(struct arm_emu *vm, u1 *code, s4 code_len)
+int             arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len)
 {
+    return 0;
 }
 
 
