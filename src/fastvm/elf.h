@@ -1,4 +1,4 @@
-/* This file defines standard ELF types, structures, and macros.
+﻿/* This file defines standard ELF types, structures, and macros.
    Copyright (C) 1995-2012 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -3312,9 +3312,10 @@ typedef Elf32_Addr Elf32_Conflict;
 
 #define R_RISCV_NUM		58
 
-char *elf_osabi2str(int osabi);
-char *elf_objtype2str(int objtype);
-char *elf_machine2str(int machine);
-char *elf_version2str(int version);
+const char *elf_osabi2str(int osabi);
+const char *elf_objtype2str(int objtype);
+const char *elf_machine2str(int machine);
+const char *elf_version2str(int version);
+const char *elf_progtype2str(int progtype);
 
 #endif	/* elf.h */

@@ -1,4 +1,4 @@
-
+﻿
 #include "mcore/mcore.h"
 #include "vm.h"
 
@@ -21,6 +21,8 @@ struct VMElf *vmelf_load(const char *filename)
         vm_error("load file(%s) failure.", filename);
     }
 
+    ve->filename = strdup(filename);
+
     return ve;
 }
 
@@ -34,6 +36,11 @@ void vmelf_unload(struct VMElf *elf)
         elf->data = NULL;
     }
 
+    if (elf->filename) {
+        free(elf->filename);
+        elf->filename = NULL;
+    }
+
     free (elf);
 }
 
@@ -41,6 +48,8 @@ void elf32_dump(struct VMElf *elf)
 {
     Elf_Indent *indent = (Elf_Indent *)elf->data;
     Elf32_Ehdr *hdr = (Elf32_Ehdr *)elf->data;
+    Elf32_Phdr *phdr;
+    int i;
 
     printf("  Class:                                Elf32\n");
     printf("  Data:                                 2's complement, %s\n", 
@@ -61,6 +70,20 @@ void elf32_dump(struct VMElf *elf)
     printf("  Size of section header:               %d\n", hdr->e_shentsize);
     printf("  Number of section header:             %d\n", hdr->e_shnum);
     printf("  Section header string table index:    %d\n", hdr->e_shstrndx);
+
+    printf("\n\n");
+    printf("Program Headers:\n");
+        printf("  Type            Offset     VirtAddr     PhysAddr   FileSiz MemSiz  Flg Align\n");
+    for (i = 0; i < hdr->e_phnum; i++) {
+        phdr = ((Elf32_Phdr *)(elf->data + hdr->e_phoff)) + i;
+
+        printf("  %-16s0x%06x   0x%08x   %08x   0x%05x 0x%05x %c%c%c  %x\n", 
+            elf_progtype2str(phdr->p_type), phdr->p_offset, phdr->p_vaddr, phdr->p_paddr, phdr->p_filesz, phdr->p_memsz, 
+			(phdr->p_flags & PF_R) ? 'R':' ',
+			(phdr->p_flags & PF_W) ? 'W':' ',
+			(phdr->p_flags & PF_X) ? 'X':' ',
+			phdr->p_align);
+    }
 }
 
 void elf64_dump(struct VMElf *elf)
@@ -73,7 +96,7 @@ void vmelf_dump(struct VMElf *elf)
     int i;
     Elf_Indent *indent = (Elf_Indent *)elf->data;
 
-    if (memcmp(indent->magic, "\x7f""elf", 4)) {
+    if (memcmp(indent->magic, "\x7f""ELF", 4)) {
         printf("%s magic is wrong [%02x %02x %02x %02x]\n", elf->filename, 
             indent->magic[0], indent->magic[1], indent->magic[2], indent->magic[3]);
         return;

@@ -7,6 +7,7 @@
 #define inline      __inline
 #define snprintf    _snprintf
 #define vsnprintf   _vsnprintf
+#define strdup      _strdup
 
 #ifndef __GNUC__
 #define strtold     (long double)strtod

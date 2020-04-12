@@ -1,4 +1,4 @@
-
+﻿
 #include "elf.h"
 
 #define count_of_array(_a)  (sizeof (_a) / sizeof (_a[0]))
@@ -26,7 +26,7 @@ const char *objtypestr[] = {
     "NUM (Num Of defined type)"
 };
 
-char *elf_osabi2str(int osabi)
+const char *elf_osabi2str(int osabi)
 {
     if (osabi <= ELFOSABI_OPENBSD) {
         return osabistr[osabi];
@@ -39,7 +39,7 @@ char *elf_osabi2str(int osabi)
     return "Unknown";
 }
 
-char *elf_objtype2str(int objtype)
+const char *elf_objtype2str(int objtype)
 {
     if (objtype <= 5)
         return objtypestr[objtype];
@@ -136,7 +136,7 @@ struct _machinestr {
     {0x9c60, "C60"},
 };
 
-char * elf_machine2str(int machine)
+const char * elf_machine2str(int machine)
 {
     int i;
 
@@ -148,15 +148,53 @@ char * elf_machine2str(int machine)
     return "Unknown";
 }
 
-char *elf_flags2str(int flags)
+const char *elf_flags2str(int flags)
 {
+	return "Unknown";
 }
 
-char *elf_version2str(int version)
+const char *elf_version2str(int version)
 {
     if (version == EV_NONE)     return "NONE";
     if (version == EV_CURRENT)  return "Current";
     if (version == EV_NUM)      return "Num";
+
+    return "Unknown";
+}
+
+struct progtype {
+    int id;
+    const char *str;
+} progtypelist[] = {
+    {PT_NULL,           "NULL"},
+    {PT_LOAD,           "LOAD"},
+    {PT_DYNAMIC,        "DYNAMIC"},
+    {PT_INTERP,         "INTERP"},
+    {PT_NOTE,           "NOTE"},
+    {PT_SHLIB,          "SHLIB"},
+    {PT_PHDR,           "PHDR"},
+    {PT_TLS,            "TLS"},
+    {PT_NUM,            "NUM"},
+    {PT_LOOS,           "LOOS"},
+    {PT_GNU_EH_FRAME,   "GNU_EH_FRARME"},
+    {PT_GNU_STACK,      "GNU_STACK"},
+    {PT_GNU_RELRO,      "GNU_RELRO"},
+    {PT_LOSUNW,         "LOSUNW"},
+    {PT_SUNWBSS,        "SUNWBSS"},
+    {PT_SUNWSTACK,      "SUNWSTACK"},
+    {PT_HISUNW,         "HISUNW"},
+    {PT_HIOS,           "HIOS"},
+    {PT_LOPROC,         "LOPROC"},
+    {PT_HIPROC,         "HIPROC"},
+};
+
+const char *elf_progtype2str(int progtype)
+{
+    int i;
+    for (i = 0; i < count_of_array(progtypelist); i++) {
+        if (progtypelist[i].id == progtype)
+            return progtypelist[i].str;
+    }
 
     return "Unknown";
 }
