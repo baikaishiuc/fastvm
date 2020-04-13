@@ -49,6 +49,7 @@ void elf32_dump(struct VMElf *elf)
     Elf_Indent *indent = (Elf_Indent *)elf->data;
     Elf32_Ehdr *hdr = (Elf32_Ehdr *)elf->data;
     Elf32_Phdr *phdr;
+	Elf32_Shdr *shdr, *shstrdr;
     int i;
 
     printf("  Class:                                Elf32\n");
@@ -75,7 +76,7 @@ void elf32_dump(struct VMElf *elf)
     printf("Program Headers:\n");
         printf("  Type            Offset     VirtAddr     PhysAddr   FileSiz MemSiz  Flg Align\n");
     for (i = 0; i < hdr->e_phnum; i++) {
-        phdr = ((Elf32_Phdr *)(elf->data + hdr->e_phoff)) + i;
+		phdr = (Elf32_Phdr *)(elf->data + hdr->e_phoff + i * hdr->e_phentsize);
 
         printf("  %-16s0x%06x   0x%08x   %08x   0x%05x 0x%05x %c%c%c  %x\n", 
             elf_progtype2str(phdr->p_type), phdr->p_offset, phdr->p_vaddr, phdr->p_paddr, phdr->p_filesz, phdr->p_memsz, 
@@ -84,6 +85,18 @@ void elf32_dump(struct VMElf *elf)
 			(phdr->p_flags & PF_X) ? 'X':' ',
 			phdr->p_align);
     }
+
+	shstrdr = (Elf32_Shdr *)(elf->data + hdr->e_phoff) + hdr->e_shstrndx;
+	printf("\n\n");
+	printf("Section Headers:\n");
+	printf("  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al\n");
+	printf("  [ 0]                   NULL            00000000 000000 000000 00      0   0  0");
+	for (i = 1; i < hdr->e_shnum; i++) {
+		shdr = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + i;
+
+		const char *name = (char *)elf->data + (shstrdr->sh_offset + shdr->sh_name);
+		//printf("  [%02d] %s\n", i, name);
+	}
 }
 
 void elf64_dump(struct VMElf *elf)
