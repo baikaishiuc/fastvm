@@ -86,16 +86,20 @@ void elf32_dump(struct VMElf *elf)
 			phdr->p_align);
     }
 
-	shstrdr = (Elf32_Shdr *)(elf->data + hdr->e_phoff) + hdr->e_shstrndx;
+	shstrdr = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + hdr->e_shstrndx;
 	printf("\n\n");
 	printf("Section Headers:\n");
 	printf("  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al\n");
-	printf("  [ 0]                   NULL            00000000 000000 000000 00      0   0  0");
+	printf("  [ 0]                   NULL            00000000 000000 000000 00      0   0  0\n");
 	for (i = 1; i < hdr->e_shnum; i++) {
 		shdr = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + i;
 
 		const char *name = (char *)elf->data + (shstrdr->sh_offset + shdr->sh_name);
-		//printf("  [%02d] %s\n", i, name);
+		printf("  [%2d] %-16s  %s  %08x %06x %06x %02x %s %2x %2x %2x\n", 
+			i, name, elf_sectype2str(shdr->sh_type),
+			shdr->sh_addr, shdr->sh_offset, shdr->sh_size, shdr->sh_entsize,
+			elf_secflag2str(shdr->sh_flags), 
+			shdr->sh_link, shdr->sh_info, shdr->sh_addralign);
 	}
 }
 

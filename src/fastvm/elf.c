@@ -150,7 +150,7 @@ const char * elf_machine2str(int machine)
 
 const char *elf_flags2str(int flags)
 {
-	return "Unknown";
+    return "Unknown";
 }
 
 const char *elf_version2str(int version)
@@ -197,4 +197,80 @@ const char *elf_progtype2str(int progtype)
     }
 
     return "Unknown";
+}
+
+struct {
+    char *str;
+    int id;
+} sectypelist[] = {
+	{ "NULL",			0 },
+	{ "PROGBITS",		1 },
+	{"SYMTAB",			2 },        
+	{"STRTAB",			3 },       
+	{"RELA",			4 }, 
+	{"HASH",			5 },
+	{"DYNAMIC",			6 },
+	{"NOTE",			7 },
+	{"NOBITS",			8 },
+	{"REL",				9 },
+	{"SHLIB",			10},
+	{"DYNSYM",			11},
+	{"INIT_ARRAY",      14},
+	{"FINI_ARRAY",      15},
+	{"PREINIT_ARRAY",	16},
+	{"GROUP",			17},
+	{"SYMTAB_SHNDX",	18},
+	{"NUM",				19},
+	{"LOOS",			0x60000000},
+	{"GNU_ATTRIBUTES",	0x6ffffff5},
+	{"GNU_HASH",		0x6ffffff6},
+	{"GNU_LIBLIST",     0x6ffffff7},
+	{"CHECKSUM",		0x6ffffff8},
+	{"LOSUNW",			0x6ffffffa},
+	{"SUNW_move",		0x6ffffffa},
+	{"SUNW_COMDAT",		0x6ffffffb},
+	{"SUNW_syminfo",	0x6ffffffc},
+	{"GNU_verdef",      0x6ffffffd},
+	{"GNU_verneed",     0x6ffffffe},
+	{"GNU_versym",      0x6fffffff},
+	{"HISUNW",			0x6fffffff },
+	{"HIOS",			0x6fffffff},
+	{"LOPROC",			0x70000000},
+	{"HIPROC",			0x7fffffff},
+	{"LOUSER",			0x80000000},
+	{"HIUSER",			0x8fffffff},
+	{"ARM_EXIDX",		0x70000001},
+	{"ARM_ATTRIBUTES",	0x70000003},
+};
+
+const char *elf_sectype2str(int sectype)
+{
+	int i;
+
+	for (i = 0; i < count_of_array(sectypelist); i++) {
+		if (sectypelist[i].id == sectype)
+			return sectypelist[i].str;
+	}
+
+	return "Unknown";
+}
+
+const char *elf_secflag2str(int flags)
+{
+	static char buf[128];
+	int i = 0;
+
+	if (flags & SHF_WRITE) buf[i++] = 'W';
+	if (flags & SHF_ALLOC) buf[i++] = 'A';
+	if (flags & SHF_EXECINSTR) buf[i++] = 'E';
+	if (flags & SHF_MERGE) buf[i++] = 'M';
+	if (flags & SHF_STRINGS) buf[i++] = 'S';
+	if (flags & SHF_INFO_LINK) buf[i++] = 'I';
+	if (flags & SHF_LINK_ORDER) buf[i++] = 'L';
+	if (flags & SHF_OS_NONCONFORMING) buf[i++] = 'O';
+
+	buf[i] = 0;
+
+	return buf;
+
 }

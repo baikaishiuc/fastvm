@@ -3317,5 +3317,7 @@ const char *elf_objtype2str(int objtype);
 const char *elf_machine2str(int machine);
 const char *elf_version2str(int version);
 const char *elf_progtype2str(int progtype);
+const char *elf_sectype2str(int sectype);
+const char *elf_secflag2str(int flags);
 
 #endif	/* elf.h */
