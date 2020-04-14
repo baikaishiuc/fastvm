@@ -95,7 +95,7 @@ void elf32_dump(struct VMElf *elf)
 		shdr = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + i;
 
 		const char *name = (char *)elf->data + (shstrdr->sh_offset + shdr->sh_name);
-		printf("  [%2d] %-16s  %s  %08x %06x %06x %02x %s %2x %2x %2x\n", 
+		printf("  [%2d] %-16.16s  %-14s  %08x %06x %06x %02x %-3s %2d %2d %2d\n", 
 			i, name, elf_sectype2str(shdr->sh_type),
 			shdr->sh_addr, shdr->sh_offset, shdr->sh_size, shdr->sh_entsize,
 			elf_secflag2str(shdr->sh_flags), 

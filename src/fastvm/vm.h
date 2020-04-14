@@ -1,6 +1,8 @@
-
+﻿
 #ifndef __vm_h__
 #define __vm_h__ 1
+
+#include "config.h"
 
 #ifdef _WIN32
 #include <windows.h>

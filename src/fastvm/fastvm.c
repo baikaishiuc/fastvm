@@ -1,8 +1,20 @@
-
+﻿
 #include "mcore/mcore.h"
 #include "vm.h"
 
-void help()
+static const char help[] = {
+	"fastvm "FASTVM_VERSION" - Copyright (C) 2020-2025 Zhengxianwei\n"
+	"Usage: fastvm [options ...] [-o outfile] [-c] infiles\n"
+	"General options:\n"
+	"	-c \n"
+	"	-o outfile	set output filename\n"
+	"	-ds			dump ELF symbol file\n"
+	"	-dh			Display the ELF file header\n"
+	"	-dl			Display the program headers\n"
+	" 	-dS			Display the sections's header\n"
+};
+
+void help1()
 {
     printf("Usage: fastvm [filename]\n");
 }
