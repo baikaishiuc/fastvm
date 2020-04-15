@@ -273,11 +273,21 @@ const char *elf_secflag2str(int flags)
     buf[i] = 0;
 
     return buf;
-
 }
 
-unsigned char *elf_getsec(int type, unsigned char *data, int len)
+Elf32_Shdr *elf32_shdr_get(int type, unsigned char *data, int len)
 {
+	int i;
+	Elf32_Ehdr *hdr = (Elf32_Ehdr *)data;
+	Elf32_Shdr *shdr;
+
+	for (i = 1; i < hdr->e_shnum; i++) {
+		shdr = (Elf32_Shdr *)(data + hdr->e_shoff) + i;
+
+		if (shdr->sh_type == type)
+			return shdr;
+	}
+
     return NULL;
 }
 
@@ -335,6 +345,16 @@ const char *elf_symbindtype(int bindtype)
 		if (symbindlist[i].id == bindtype)
 			return symbindlist[i].str;
 	}
+
+	return "Unknown";
+}
+
+const char *elf_symvis(int visibility)
+{
+	if (visibility == STV_DEFAULT)		return "DEFAULT";
+	if (visibility == STV_HIDDEN)		return "HIDDEN";
+	if (visibility == STV_INTERNAL)		return "INTERNAL";
+	if (visibility == STV_PROTECTED)	return "PROTECTED";
 
 	return "Unknown";
 }

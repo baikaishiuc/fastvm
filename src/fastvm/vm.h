@@ -38,13 +38,6 @@
 #include "elf.h"
 
 
-typedef struct VMState {
-    struct VMElf *elf;
-
-    void *error_opaque;
-    void (*error_func)(void *opaque, const char *msg);
-} VMState;
-
 /* Section definition */
 typedef struct Section {
     unsigned long data_offset;
@@ -67,7 +60,16 @@ typedef struct Section {
     char name[1];           /* section name */
 } Section;
 
-struct VMElf {
+typedef struct VMState {
+
+	int dump_elf_header;
+	int dump_elf_prog_header;
+	int dump_elf_section;
+	int dump_elf_dynsym;
+
+    void *error_opaque;
+    void (*error_func)(void *opaque, const char *msg);
+
     unsigned char*  data;
     int data_len;
     char *filename;
@@ -88,12 +90,12 @@ struct VMElf {
 
     Section *symtab_section;
     Section *stab_section;
-};
+} VMState;
 
 
-struct VMElf *vmelf_load(const char *filename);
-void vmelf_unload(struct VMElf *elf);
-void vmelf_dump(struct VMElf*elf);
+int vmelf_load(VMState *s);
+void vmelf_unload(struct VMState *s);
+void vmelf_dump(struct VMState*s);
 
 #define VM_SET_STATE(fn)    fn        
 
@@ -104,5 +106,8 @@ void vmelf_dump(struct VMElf*elf);
 void _vm_error_noabort(const char *fmt, ...);
 void _vm_error(const char *fmt, ...);
 void _vm_warning(const char *fmt, ...);
+
+VMState *vm_new(void);
+void vm_delete(VMState *s);
 
 #endif

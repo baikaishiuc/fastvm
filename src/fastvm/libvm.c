@@ -29,6 +29,7 @@ void error1(int mode, const char *fmt, va_list ap)
     char buf[2048];
     VMState *s1 = vm_state;
 
+	buf[0] = 0;
     if (mode == ERROR_WARN) {
         strcat_printf(buf, sizeof (buf), "warnings: ");
     }
@@ -76,4 +77,37 @@ void _vm_error(const char *fmt, ...)
     va_start(ap, fmt);
     error1(ERROR_ERROR, fmt, ap);
     va_end(ap);
+}
+
+void *vm_malloc(unsigned long size)
+{
+	void *ptr;
+	ptr = malloc(size);
+	if (!ptr && size)
+		_vm_error("memory full (malloc)");
+	return ptr;
+}
+
+void *vm_mallocz(unsigned long size)
+{
+	void *ptr;
+	ptr = vm_malloc(size);
+	memset(ptr, 0, size);
+	return ptr;
+}
+
+VMState *vm_new(void)
+{
+	VMState *s;
+
+	s = (VMState *)calloc(1, sizeof (s[0]));
+	if (!s)
+		vm_error("calloc failure");
+
+	return s;
+}
+
+void vm_delete(VMState *s)
+{
+	free(s);
 }

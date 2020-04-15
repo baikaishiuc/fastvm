@@ -19,26 +19,48 @@ void help1()
     printf("Usage: fastvm [filename]\n");
 }
 
-int fastvm_run(int argc, char **argv)
+int fastvm_run(VMState *s, int argc, char **argv)
 {
-    struct VMElf *ve;
+    vmelf_load(s);
 
-    ve = vmelf_load(argv[1]);
+    vmelf_dump(s);
 
-    vmelf_dump(ve);
-
-    vmelf_unload(ve);
+    vmelf_unload(s);
 
     return 0;
 }
 
+int fastvm_parse_args(VMState *s, int argc, char **argv)
+{
+	int i;
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "-dh")) {
+			s->dump_elf_header = 1;
+		}
+		else if (!strcmp(argv[i], "-dl")) {
+			s->dump_elf_prog_header = 1;
+		}
+		else if (!strcmp(argv[i], "-dS")) {
+			s->dump_elf_section = 1;
+		}
+		else if (!strcmp(argv[i], "-ds")) {
+			s->dump_elf_dynsym = 1;
+		}
+		else {
+			s->filename = strdup(argv[i]);
+		}
+	}
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        printf("Usage: fastvm [filename]\n");
-        return -1;
-    }
+	VMState *s = vm_new();
+	fastvm_parse_args(s, argc, argv);
 
-    fastvm_run(argc, argv);
+    fastvm_run(s, argc, argv);
+
     return 0;
 }
