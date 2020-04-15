@@ -49,8 +49,10 @@ void elf32_dump(struct VMElf *elf)
     Elf_Indent *indent = (Elf_Indent *)elf->data;
     Elf32_Ehdr *hdr = (Elf32_Ehdr *)elf->data;
     Elf32_Phdr *phdr;
-	Elf32_Shdr *shdr, *shstrdr;
-    int i;
+	Elf32_Shdr *shdr, *shstrdr, *dynsymsh, *link_scn;
+	Elf32_Sym *sym;
+    int i, num;
+	const char *name;
 
     printf("  Class:                                Elf32\n");
     printf("  Data:                                 2's complement, %s\n", 
@@ -94,12 +96,30 @@ void elf32_dump(struct VMElf *elf)
 	for (i = 1; i < hdr->e_shnum; i++) {
 		shdr = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + i;
 
-		const char *name = (char *)elf->data + (shstrdr->sh_offset + shdr->sh_name);
+		name = (char *)elf->data + (shstrdr->sh_offset + shdr->sh_name);
 		printf("  [%2d] %-16.16s  %-14s  %08x %06x %06x %02x %-3s %2d %2d %2d\n", 
 			i, name, elf_sectype2str(shdr->sh_type),
 			shdr->sh_addr, shdr->sh_offset, shdr->sh_size, shdr->sh_entsize,
 			elf_secflag2str(shdr->sh_flags), 
 			shdr->sh_link, shdr->sh_info, shdr->sh_addralign);
+
+		if (shdr->sh_type == SHT_DYNSYM)	dynsymsh = shdr;
+	}
+
+	if (dynsymsh) {
+		num = dynsymsh->sh_size / dynsymsh->sh_entsize;
+		link_scn = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + dynsymsh->sh_link;
+		printf("\n\n");
+		printf("Symbol table '.dynsym' contains %d entries\n", num);
+		printf(" Num:    Value  Size Type    Bind   Vis      Ndx Name\n");
+		for (i = 0; i < num; i++) {
+			sym = (Elf32_Sym *)(elf->data + dynsymsh->sh_offset) + i;
+			name = (char *)elf->data + (link_scn->sh_offset + sym->st_name);
+			printf("  %02d: %08x %0-5d %-6s  %s %s\n", i, sym->st_value, sym->st_size, 
+				elf_symtype(ELF32_ST_TYPE(sym->st_info)), 
+				elf_symbindtype(ELF32_ST_BIND(sym->st_info)),
+				name);
+		}
 	}
 }
 

@@ -3319,5 +3319,8 @@ const char *elf_version2str(int version);
 const char *elf_progtype2str(int progtype);
 const char *elf_sectype2str(int sectype);
 const char *elf_secflag2str(int flags);
+unsigned char *elf_getsec(int type, unsigned char *data, int len);
+const char *elf_symtype(int type);
+const char *elf_symbindtype(int bindtype);
 
 #endif	/* elf.h */
