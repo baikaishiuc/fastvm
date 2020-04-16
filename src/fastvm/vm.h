@@ -66,6 +66,8 @@ typedef struct VMState {
 	int dump_elf_prog_header;
 	int dump_elf_section;
 	int dump_elf_dynsym;
+	int dump_elf_code;
+	unsigned long code_addr;
 
     void *error_opaque;
     void (*error_func)(void *opaque, const char *msg);

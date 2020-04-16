@@ -1,6 +1,7 @@
 ﻿
 #include "mcore/mcore.h"
 #include "vm.h"
+#include "arm_emu.h"
 
 int vmelf_new(VMState *s)
 {
@@ -39,7 +40,7 @@ void elf32_dump(VMState *elf)
     Elf32_Phdr *phdr;
 	Elf32_Shdr *shdr, *shstrdr, *dynsymsh, *link_scn;
 	Elf32_Sym *sym;
-    int i, num;
+    int i, num, ret;
 	const char *name;
 
 	if (elf->dump_elf_header) {
@@ -98,7 +99,7 @@ void elf32_dump(VMState *elf)
 		}
 	}
 
-	if (elf->dump_elf_dynsym && (dynsymsh = elf32_shdr_get(SHT_DYNSYM, elf->data, elf->data_len))) {
+	if (elf->dump_elf_dynsym && (dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM))) {
 		num = dynsymsh->sh_size / dynsymsh->sh_entsize;
 		link_scn = (Elf32_Shdr *)(elf->data + hdr->e_shoff) + dynsymsh->sh_link;
 		printf("\n\n");
@@ -113,6 +114,35 @@ void elf32_dump(VMState *elf)
 				elf_symvis(ELF32_ST_VISIBILITY(sym->st_other)),
 				sym->st_shndx,
 				name);
+		}
+	}
+
+	if (elf->dump_elf_code) {
+		Elf32_Sym *func = elf32_sym_get(hdr, elf->code_addr);
+		if (!func) {
+			vm_error("not found code addr[%x] symbol\n", elf->code_addr);
+		}
+		unsigned char *code = elf->data + elf->code_addr - 1;
+
+		struct arm_emu_create_param param = {0};
+		param.code = code;
+		param.code_len = func->st_size;
+
+		struct arm_emu *emu = arm_emu_create(&param);
+
+		ret = 0;
+		while (ret == 0) {
+			ret = arm_emu_run(emu);
+			switch (ret) {
+			case 0:
+				break;
+			case 1:
+				printf("code parse finish\n");
+				break;
+
+			default:
+				break;
+			}
 		}
 	}
 }

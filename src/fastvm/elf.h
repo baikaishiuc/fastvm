@@ -3319,7 +3319,10 @@ const char *elf_version2str(int version);
 const char *elf_progtype2str(int progtype);
 const char *elf_sectype2str(int sectype);
 const char *elf_secflag2str(int flags);
-Elf32_Shdr *elf32_shdr_get(int type, unsigned char *data, int len);
+
+Elf32_Shdr *elf32_shdr_get(Elf32_Ehdr *hdr, int type);
+Elf32_Sym *elf32_sym_get(Elf32_Ehdr *hdr, unsigned long sym_val);
+
 const char *elf_symtype(int type);
 const char *elf_symbindtype(int bindtype);
 const char *elf_symvis(int visibility);

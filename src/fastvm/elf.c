@@ -275,14 +275,13 @@ const char *elf_secflag2str(int flags)
     return buf;
 }
 
-Elf32_Shdr *elf32_shdr_get(int type, unsigned char *data, int len)
+Elf32_Shdr *elf32_shdr_get(Elf32_Ehdr *hdr, int type)
 {
 	int i;
-	Elf32_Ehdr *hdr = (Elf32_Ehdr *)data;
 	Elf32_Shdr *shdr;
 
 	for (i = 1; i < hdr->e_shnum; i++) {
-		shdr = (Elf32_Shdr *)(data + hdr->e_shoff) + i;
+		shdr = (Elf32_Shdr *)((char *)hdr + hdr->e_shoff) + i;
 
 		if (shdr->sh_type == type)
 			return shdr;
@@ -290,7 +289,6 @@ Elf32_Shdr *elf32_shdr_get(int type, unsigned char *data, int len)
 
     return NULL;
 }
-
 
 struct {
     const char *str;
@@ -359,3 +357,22 @@ const char *elf_symvis(int visibility)
 	return "Unknown";
 }
 
+Elf32_Sym *elf32_sym_get(Elf32_Ehdr *hdr, unsigned long sym_val)
+{
+	Elf32_Shdr *dynsymsh;
+	Elf32_Sym *sym;
+	int i, num;
+
+	dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM);
+	if (!dynsymsh)
+		return NULL;
+
+	num = dynsymsh->sh_size / dynsymsh->sh_entsize;
+	for (i = 0; i < num; i++) {
+		sym = (Elf32_Sym *)((char *)hdr + dynsymsh->sh_offset) + i;
+		if (sym->st_value == sym_val)
+			return sym;
+	}
+
+	return NULL;
+}
