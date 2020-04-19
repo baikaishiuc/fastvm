@@ -7,8 +7,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #define inline      __inline
-#define snprintf    _snprintf
-#define vsnprintf   _vsnprintf
 #define strdup      _strdup
 
 #ifndef __GNUC__

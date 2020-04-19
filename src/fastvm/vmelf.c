@@ -133,6 +133,8 @@ void elf32_dump(VMState *elf)
 		ret = 0;
 		while (ret == 0) {
 			ret = arm_emu_run(emu);
+			break;
+
 			switch (ret) {
 			case 0:
 				break;
@@ -144,6 +146,8 @@ void elf32_dump(VMState *elf)
 				break;
 			}
 		}
+
+		arm_emu_destroy(emu);
 	}
 }
 
