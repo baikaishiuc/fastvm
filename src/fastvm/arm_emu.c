@@ -248,13 +248,27 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, arm_inst_fu
 
 static struct arm_inst_engine *g_eng = NULL;
 
+static struct inst_node *inst_node_find(struct inst_tree *tree, struct dynarray *arr)
+{
+	struct inst_node *node;
+	int i;
+	for (i = 0; i < tree->arr.len; i++) {
+		node = (struct inst_node *)tree->arr.ptab[i];
+		if (0 == dynarray_cmp(arr, &node->set))
+			return node;
+	}
+
+	return NULL;
+}
+
 static int arm_insteng_gen_dfa(struct arm_inst_engine *eng)
 {
     struct inst_node *nfa_root = &eng->enfa.root;
 
     struct inst_node *dfa_root = &eng->dfa.root;
     struct inst_node *node_stack[512], *droot, *nroot, *dnode1, *nnode;
-    int stack_top = -1, i, j;
+	struct dynarray set = {0};
+    int stack_top = -1, i, j, need_split;
 
 #define istack_push(a)            (node_stack[++stack_top] = a)
 #define istack_pop()            node_stack[stack_top--]        
@@ -262,27 +276,39 @@ static int arm_insteng_gen_dfa(struct arm_inst_engine *eng)
 
 	dynarray_add(&dfa_root->set, nfa_root);
     istack_push(dfa_root);
+	dynarray_reset(&set);
 
     while (!istack_is_empty()) {
         droot = istack_pop();
 
-		for (i = 0; i < 2; i++) {
+		for (i = need_split = 0; i < droot->set.len; i++) {
+			nroot = (struct inst_node *)droot->set.ptab[i];
+			if (nroot->childs[0] || nroot->childs[1]) {
+				need_split = 1;
+				break;
+			}
+		}
+
+		for (i = need_split ? 0:2; i < (3 - need_split); i++) {
 			dnode1 = NULL;
+
 			for (j = 0; j < droot->set.len; j++) {
 				if (!(nroot = (struct inst_node *)droot->set.ptab[j]))
 					continue;
 
-				if (nroot->childs[i] || nroot->childs[2]) {
-					if (!droot->childs[i]) {
-						droot->childs[i] = inst_node_new(&eng->dfa, droot);
-						istack_push(droot->childs[i]);
-					}
+				if (nroot->childs[i])	dynarray_add(&set, nroot->childs[i]);
+				if ((i != 2) && nroot->childs[2])	dynarray_add(&set, nroot->childs[2]);
+			}
 
-					dnode1 = droot->childs[i];
-
-					if (nroot->childs[i])	dynarray_add(&dnode1->set, nroot->childs[i]);
-					if (nroot->childs[2])	dynarray_add(&dnode1->set, nroot->childs[2]);
+			if (!dynarray_is_empty(&set)) {
+				dnode1 = inst_node_find(&eng->dfa, &set);
+				if (!dnode1) {
+					dnode1 = inst_node_new(&eng->dfa, droot);
+					dynarray_copy(&dnode1->set, &set);
+					istack_push(dnode1);
 				}
+
+				droot->childs[i] = dnode1;
 			}
 
 			/* 检查生成的DFA节点中包含的NFA节点，是否有多个终结态，有的话报错，没有的话把NFA的
@@ -298,26 +324,19 @@ static int arm_insteng_gen_dfa(struct arm_inst_engine *eng)
 					inst_node_copy(dnode1, nnode);
 				}
 			}
+
+			dynarray_reset(&set);
 		}
     }
 
     return 0;
 }
 
-static void arm_insteng_trav_tree(struct arm_inst_engine *eng, struct inst_node *root)
-{
-	int i;
-
-	for (i = 0; i < 2; i++) {
-		if (!root->childs[i]) continue;
-
-		eng->trans2d[eng->width * i + root->id] = root->childs[i]->id;
-        arm_insteng_trav_tree(eng, root->childs[i]);
-	}
-}
-
 static int arm_insteng_gen_trans2d(struct arm_inst_engine *eng)
 {
+	int i;
+	struct inst_tree *tree = &eng->dfa;
+	struct inst_node *node;
     eng->width = eng->dfa.counts;
     eng->height = 2;
 
@@ -325,7 +344,23 @@ static int arm_insteng_gen_trans2d(struct arm_inst_engine *eng)
     if (!eng->trans2d)
         vm_error("trans2d calloc failure");
 
-	arm_insteng_trav_tree(eng, &eng->dfa.root);
+	for (i = 0; i < tree->arr.len; i++) {
+		node = (struct inst_node *)tree->arr.ptab[i];
+
+		if (node->childs[2]) {
+			eng->trans2d[eng->width + node->id] = node->childs[2]->id;
+			eng->trans2d[node->id] = node->childs[2]->id;
+			continue;
+		}
+
+		if (node->childs[0]) {
+			eng->trans2d[node->id] = node->childs[0]->id;
+		}
+
+		if (node->childs[1]) {
+			eng->trans2d[eng->width + node->id] = node->childs[1]->id;
+		}
+	}
 
     return 0;
 }
@@ -398,17 +433,19 @@ static int arm_insteng_uninit()
 static int arm_insteng_decode(uint8_t *code, int len)
 {
     struct inst_node *node;
-    int i, j, from, to, bit;
+    int i, j, from = 0, to, bit;
     if (!g_eng) {
         arm_insteng_init();
     }
 
     /* arm 解码时，假如第一个16bit没有解码到对应的thumb指令终结态，则认为是thumb32，开始进入
     第2轮的解码 */
+
+	printf("start state:%d\n", from);
     for (i = from = 0; i < 2; i++) {
         uint16_t inst = ((uint16_t *)code)[i];
         for (j = 0; j < 16; j++) {
-            bit = !!(inst & (1 << (15 - i)));
+            bit = !!(inst & (1 << (15 - j)));
             to = g_eng->trans2d[g_eng->width * bit + from];
 
             if (!to) 
@@ -416,11 +453,14 @@ static int arm_insteng_decode(uint8_t *code, int len)
 
             node = ((struct inst_node *)g_eng->dfa.arr.ptab[to]);
             from = node->id;
+
+			printf("%d ", from);
         }
 
         if (node->func)
             break;
     }
+	printf("\n");
 
     if (!node->func) {
         printf("arm_insteng_decode() meet unkown instruction, code[%02x %02x]\n", code[0], code[1]);
