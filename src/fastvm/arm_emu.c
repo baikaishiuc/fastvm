@@ -5,6 +5,29 @@
 #include <math.h>
 
 
+#define ARM_REG_R0      0
+#define ARM_REG_R1      1
+#define ARM_REG_R2      2
+#define ARM_REG_R3      3
+#define ARM_REG_R4      4
+#define ARM_REG_R5      5
+#define ARM_REG_R6      6
+#define ARM_REG_R7      7
+#define ARM_REG_R8      8
+#define ARM_REG_R9      9
+#define ARM_REG_R10     10
+#define ARM_REG_R11     11
+#define ARM_REG_R12     12
+#define ARM_REG_R13     13
+#define ARM_REG_R14     14
+#define ARM_REG_R15     15
+
+#define ARM_REG_PC      ARM_REG_R15
+#define ARM_REG_LR      ARM_REG_R14
+#define ARM_REG_SP      ARM_REG_R13
+
+typedef int         reg_t;
+
 struct arm_emu {
     struct {
         unsigned char*  data;
@@ -27,123 +50,159 @@ struct arm_emu {
     } inst;
 };
 
-typedef int(*arm_inst_func)    (uint8_t *inst, int inst_len, char *obuf);
+static const char *regstr[] = {
+    "r0",
+    "r1",
+    "r2",
+    "r3",
+    "r4",
+    "r5",
+    "r6",
+    "r7",
+    "r8",
+    "r9",
+    "r10",
+    "r11",
+    "r12",
+    "r13",
+    "r14",
+    "r15",
+};
 
-static int t1_inst_lsl(uint8_t *code, int len, char *obuf)
+struct arm_inst_context {
+    reg_t   Rd;
+    reg_t   lm;
+    reg_t   ln;
+    int     imm;
+};
+
+typedef int(*arm_inst_func)    (struct arm_emu *emu, uint8_t *inst, int inst_len);
+
+static int t1_inst_lsl(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_lsr(uint8_t *code, int len, char *obuf)
+static int t1_inst_lsr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_asr(uint8_t *code, int len, char *obuf)
+static int t1_inst_asr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int thumb_inst_push(uint8_t *code, int len, char *obuf)
+static int t1_inst_push(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int thumb_inst_pop(uint8_t *code, int len, char *obuf)
+static int t1_inst_pop(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t2_inst_push(uint8_t *code, int len, char *obuf)
+static int t2_inst_push(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_add(uint8_t *code, int len, char *obuf)
+static int t1_inst_add(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_sub(uint8_t *code, int len, char *obuf)
+static int t1_inst_sub(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_mov(uint8_t *code, int len, char *obuf)
+static int t1_inst_mov(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_cmp(uint8_t *code, int len, char *obuf)
+static int t1_inst_cmp(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_and(uint8_t *code, int len, char *obuf)
+static int t1_inst_and(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_eor(uint8_t *code, int len, char *obuf)
+static int t1_inst_eor(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_adc(uint8_t *code, int len, char *obuf)
+static int t1_inst_adc(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_sbc(uint8_t *code, int len, char *obuf)
+static int t1_inst_sbc(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_ror(uint8_t *code, int len, char *obuf)
+static int t1_inst_ror(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_tst(uint8_t *code, int len, char *obuf)
+static int t1_inst_tst(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_neg(uint8_t *code, int len, char *obuf)
+static int t1_inst_neg(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_cmn(uint8_t *code, int len, char *obuf)
+static int t1_inst_cmn(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_orr(uint8_t *code, int len, char *obuf)
+static int t1_inst_orr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_mul(uint8_t *code, int len, char *obuf)
+static int t1_inst_mul(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_bic(uint8_t *code, int len, char *obuf)
+static int t1_inst_bic(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_mvn(uint8_t *code, int len, char *obuf)
+static int t1_inst_mvn(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
-static int t1_inst_cpy(uint8_t *code, int len, char *obuf)
+static int t1_inst_cpy(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 {
     return 0;
 }
 
+/*
+
+definition about inst reg rule
+o:      operate 
+i:      immediate
+m:      link register
+rl:     register list
+l:      register(r0-r14)
+lh:     high part register
+*/
 struct arm_inst_desc {
     const char *regexp;
     arm_inst_func    funclist[4];
@@ -161,8 +220,8 @@ struct arm_inst_desc {
     {"0100    0011 o2 l3 l3",               {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
     {"0100    0110 00 l3 l3",               {t1_inst_cpy}, {"cpy"}},
     {"0100    01 o1 0 01 l3 l3",            {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
-    {"1011    o1    i5 l3 l3",            {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
-    {"1110 1001 0010 1101 0 m1 0 l13",    {t2_inst_push}, "push.w"},
+    {"1011    o1 10 m1 rl8",              {t1_inst_push, t1_inst_pop}, {"push", "pop"}},
+    {"1110 1001 0010 1101 0 m1 0 rl13",    {t2_inst_push}, "push.w"},
 };
 
 static int init_inst_map = 0;
