@@ -28,11 +28,23 @@
 
 typedef int         reg_t;
 
+struct arm_inst_context {
+    reg_t   ld;
+    reg_t   lm;
+    reg_t   ln;
+    int     register_list;
+    int     imm;
+    int     m;
+};
+
+
 struct arm_emu {
     struct {
         unsigned char*  data;
         int             len;
         int             pos;
+
+        struct arm_inst_context ctx;
     } code;
 
     int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
@@ -65,130 +77,157 @@ static const char *regstr[] = {
     "r11",
     "r12",
     "r13",
-    "r14",
-    "r15",
-};
-
-struct arm_inst_context {
-    reg_t   Rd;
-    reg_t   lm;
-    reg_t   ln;
-    int     imm;
+    "lr",
+    "pc",
 };
 
 typedef int(*arm_inst_func)    (struct arm_emu *emu, uint8_t *inst, int inst_len);
+
+static char* reglist2str(int reglist, char *buf)
+{
+    int i, start_reg = -1, len;
+    buf[0] = 0;
+
+    strcat(buf, "{");
+    for (i = 0; i < 16; ) {
+        if (reglist & (1 << i)) {
+            strcat(buf, regstr[i]);
+
+            start_reg = i++;
+            while (reglist & (1 << i)) i++;
+
+            if (i != (start_reg + 1)) {
+                strcat(buf, "-");
+                strcat(buf, regstr[i - 1]);
+            }
+
+            strcat(buf, ",");
+        }
+        else
+            i++;
+    }
+    len = strlen(buf);
+    if (buf[len - 1] == ',')  buf[len - 1] = 0;
+    strcat(buf, "}");
+
+    return buf;
+}
 
 static int t1_inst_lsl(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_lsr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_lsr(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_asr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_asr(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_push(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_push(struct arm_emu *emu, uint8_t *code, int len)
+{
+    char buf[128];
+
+    printf("push %s\n", reglist2str(emu->code.ctx.register_list, buf));
+
+    return 0;
+}
+
+static int t1_inst_pop(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_pop(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t2_inst_push(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t2_inst_push(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_add(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_add(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_sub(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_sub(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_mov(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_mov(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_cmp(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_cmp(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_and(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_and(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_eor(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_eor(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_adc(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_adc(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_sbc(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_sbc(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_ror(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_ror(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_tst(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_tst(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_neg(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_neg(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_cmn(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_cmn(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_orr(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_orr(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_mul(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_mul(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_bic(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_bic(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_mvn(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_mvn(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
-{
-    return 0;
-}
-
-static int t1_inst_cpy(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
+static int t1_inst_cpy(struct arm_emu *emu, uint8_t *code, int len)
 {
     return 0;
 }
@@ -196,32 +235,32 @@ static int t1_inst_cpy(struct arm_emu *emu, uint8_t *code, int len, char *obuf)
 /*
 
 definition about inst reg rule
-o:      operate 
-i:      immediate
-m:      link register
-rl:     register list
-l:      register(r0-r14)
-lh:     high part register
+o[num]:      operate 
+i[num]:      immediate
+m[num]:      link register
+rl[num]:     register list
+lm[num]:     src register
+hm[num]:     high register
 */
 struct arm_inst_desc {
     const char *regexp;
     arm_inst_func    funclist[4];
     const char        *desc[4];
 } desclist[]= {
-    {"0000    o1    i5 l3 l3",              {t1_inst_lsl, t1_inst_lsr}, {"lsl", "lsr"}},
-    {"0001    0    i5 l3 l3",               {t1_inst_asr}, {"asr"}},
-    {"0001    10 o1 l3 l3 l3",              {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
-    {"0001    11 o1 i3 l3 l3",              {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
-    {"0010    o1 l3 i8",                    {t1_inst_mov, t1_inst_cmp}, {"mov", "cmp"}},
-    {"0011    o1 l3 i8",                    {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
-    {"0100    0000 o2 l3 l3",               {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
-    {"0100    0001 o2 l3 l3",               {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
-    {"0100    0010 o2 l3 l3",               {t1_inst_tst, t1_inst_neg, t1_inst_cmp, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
-    {"0100    0011 o2 l3 l3",               {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
-    {"0100    0110 00 l3 l3",               {t1_inst_cpy}, {"cpy"}},
-    {"0100    01 o1 0 01 l3 l3",            {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
-    {"1011    o1 10 m1 rl8",              {t1_inst_push, t1_inst_pop}, {"push", "pop"}},
-    {"1110 1001 0010 1101 0 m1 0 rl13",    {t2_inst_push}, "push.w"},
+    {"0000    o1    i5  lm3 ld3",           {t1_inst_lsl, t1_inst_lsr}, {"lsl", "lsr"}},
+    {"0001    0     i5  lm3 ld3",           {t1_inst_asr}, {"asr"}},
+    {"0001    10 o1 lm3 ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
+    {"0001    11 o1 i3  ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
+    {"0010    o1 ld3    i8",                {t1_inst_mov, t1_inst_cmp}, {"mov", "cmp"}},
+    {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
+    {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
+    {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
+    {"0100    0010 o2 lm3 ld3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
+    {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
+    {"0100    0110 00 lm3 ld3",             {t1_inst_cpy}, {"cpy"}},
+    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
+    {"1011    o1 10 m1 rl8",                {t1_inst_push, t1_inst_pop}, {"push", "pop"}},
+    {"1110 1001 0010 1101 0 m1 0 rl13",     {t2_inst_push}, "push.w"},
 };
 
 static int init_inst_map = 0;
@@ -369,11 +408,9 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
             /* immediate */
         case 'i':
 
-            /* register */
-        case 'l':
-
             /* more register，一般是对寄存器列表的补充 */
         case 'm':
+loop_label:
             rep = atoi(&s[1]);
             if (!rep) 
                 goto fail_label;
@@ -385,6 +422,28 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
 
             while (s[1] && isdigit(s[1])) s++;
             break;
+
+        case 'r':
+            if (s[1] != 'l')
+                goto fail_label;
+
+            s++;
+            goto loop_label;
+
+            /* register */
+        case 'l':
+            if (s[1] != 'm' && s[1] != 'd' && s[1] != 'n')
+                goto fail_label;
+
+            s++;
+            goto loop_label;
+
+        case 'h':
+            if (s[1] != 'm')
+                goto fail_label;
+
+            s++;
+            goto loop_label;
 
     fail_label:
         default:
@@ -590,7 +649,16 @@ static int arm_insteng_uninit()
 {
 }
 
-static int arm_insteng_decode(uint8_t *code, int len)
+static int arm_insteng_retrieve_context(struct arm_emu *emu, struct inst_node *inst_node, uint8_t *code, int code_len);
+
+static void arm_inst_contenxt_init(struct arm_inst_context *ctx)
+{
+    memset(ctx, -1, sizeof (ctx[0]));
+    ctx->register_list = 0;
+    ctx->m = 0;
+}
+
+static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 {
     struct inst_node *node;
     int i, j, from = 0, to, bit;
@@ -601,7 +669,7 @@ static int arm_insteng_decode(uint8_t *code, int len)
     /* arm 解码时，假如第一个16bit没有解码到对应的thumb指令终结态，则认为是thumb32，开始进入
     第2轮的解码 */
 
-    printf("start state:%d\n", from);
+    //printf("start state:%d\n", from);
     for (i = from = 0; i < 2; i++) {
         uint16_t inst = ((uint16_t *)code)[i];
         for (j = 0; j < 16; j++) {
@@ -614,22 +682,110 @@ static int arm_insteng_decode(uint8_t *code, int len)
             node = ((struct inst_node *)g_eng->dfa.arr.ptab[to]);
             from = node->id;
 
-            printf("%d ", from);
+            //printf("%d ", from);
         }
 
         if (node->func)
             break;
     }
-    printf("\n");
+    //printf("\n");
 
     if (!node->func) {
         printf("arm_insteng_decode() meet unkown instruction, code[%02x %02x]\n", code[0], code[1]);
         return 1;
     }
 
-    node->func(code, len, NULL);
+
+    arm_insteng_retrieve_context(emu, node, code, i * 2);
+    node->func(emu, code, len);
 
     return i * 2;
+}
+
+#define BITS_GET(a,offset,len)   ((a >> (offset )) & ((1 << len) - 1))
+
+/*
+
+@inst[in]   DFA inst node
+@code[in]   binary code ptr
+@len[in]    code len
+*/
+static int arm_insteng_retrieve_context(struct arm_emu *emu, struct inst_node *inst_node, uint8_t *code, int code_len)
+{
+    int i, len, c;
+    char *exp = inst_node->exp;
+    struct arm_inst_context *ctx = &emu->code.ctx;
+
+    uint16_t inst = *(uint16_t *)code;
+
+    i = 0;
+    while(*exp) {
+        switch ((c = *exp)) {
+        case '0': case '1':
+            exp++; i++; 
+            break;
+        case ' ':
+            exp++;
+            break;
+
+        case 'm':
+            ctx->m = BITS_GET(inst, 16 - i - 1, 1);
+            if (ctx->m) {
+                ctx->register_list |= (1 << ARM_REG_LR);
+            }
+            exp += 2; i++;
+            break;
+
+        case 'h':
+        case 'l':
+            exp++;
+            len = atoi(exp + 1);
+            switch (*exp++) {
+            case 'n':
+                ctx->ln = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8;
+                break;
+
+            case 'm':
+                ctx->lm = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8;
+                break;
+
+            case 'd':
+                ctx->ld = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8;
+                break;
+
+            default:
+                goto fail_label;
+            }
+            i += len;
+
+            while (isdigit(*exp)) exp++;
+            break;
+
+        case 'r':
+            exp++;
+            if (*exp == 'l') {
+                len = atoi(++exp);
+                ctx->register_list |= BITS_GET(inst, 16 - i - len, len);
+            }
+            else
+                goto fail_label;
+            while (isdigit(*exp)) exp++;
+            i += len;
+            break;
+
+        fail_label:
+        default:
+            vm_error("inst exp [%s], un-expect token[%s]\n", inst_node->exp, exp);
+            break;
+        }
+
+        if ((i == 16) && (code_len == 4)) {
+            i = 0;
+            inst = *(uint16_t *)(code + 2);
+        }
+    }
+
+    return 0;
 }
 
 struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
@@ -657,7 +813,7 @@ int        arm_emu_run(struct arm_emu *emu)
     int len = emu->code.len - emu->code.pos;
     int ret;
 
-    ret = arm_insteng_decode(emu->code.data, emu->code.len);
+    ret = arm_insteng_decode(emu, emu->code.data, emu->code.len);
     if (ret < 0) {
         return -1;
     }
