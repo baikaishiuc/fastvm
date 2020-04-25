@@ -14,6 +14,13 @@ struct arm_emu_create_param
     int             code_len;
 	void			*user_ctx;
 	int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
+
+    int             dump_dfa;
+    int             dump_enfa;
+    /* function base address */
+    int             baseaddr;
+    /* is thumb instruction */
+    int             thumb;
 };
 
 struct arm_emu*		arm_emu_create(struct arm_emu_create_param *param);

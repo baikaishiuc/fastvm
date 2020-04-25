@@ -127,13 +127,14 @@ void elf32_dump(VMState *elf)
 		struct arm_emu_create_param param = {0};
 		param.code = code;
 		param.code_len = func->st_size;
+        param.baseaddr = elf->code_addr - 1;
+        param.thumb = elf->code_addr & 1;
 
 		struct arm_emu *emu = arm_emu_create(&param);
 
 		ret = 0;
 		while (ret == 0) {
 			ret = arm_emu_run(emu);
-			break;
 
 			switch (ret) {
 			case 0:
