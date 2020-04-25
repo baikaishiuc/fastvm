@@ -38,8 +38,27 @@ struct arm_inst_context {
     int     register_list;
     int     imm;
     int     m;
+    int     setflags;
 };
 
+struct arm_cpsr {
+    unsigned m:  5;
+    unsigned t : 1;
+    unsigned f : 1;
+    unsigned i : 1;
+    unsigned a : 1;
+    unsigned e : 1;
+    unsigned it1 : 6;
+    unsigned ge : 4;
+    unsigned reserved : 4;
+    unsigned j : 1;
+    unsigned it2 : 2;
+    unsigned q : 1;
+    unsigned v : 1;
+    unsigned c : 1;
+    unsigned z : 1;
+    unsigned n : 1;
+};
 
 struct arm_emu {
     struct {
@@ -126,12 +145,54 @@ static char* reglist2str(int reglist, char *buf)
     return buf;
 }
 
-static int sign_extend(int a, int size)
+static int SignExtend(int a, int size)
 {
     if (a & (1 << (size - 1)))
         return (-1 & ((1 << size) - 1)) | a;
 
     return a;
+}
+
+static int ROR_C32(int x, int n)
+{
+    return x;
+}
+
+/* Thumb-2SupplementReferceManual P93 */
+static int ThumbExpandImmWithC(struct arm_emu *e, int imm)
+{
+    int t, m, imm32, c = 0;
+    if (BITS_GET(imm, 10, 2) == 0) {
+        t = BITS_GET(imm, 0, 8);
+        m = BITS_GET(imm, 8, 2);
+
+        if (m && !t)
+            vm_error("arm unpredictable");
+
+        switch (m) {
+        case 0:
+            imm32 = t;
+            break;
+
+        case 1:
+            imm32 = t << 16 | t;
+            break;
+
+        case 2:
+            imm32 = t << 24 | t << 8;
+            break;
+
+        case 3:
+            imm32 = t << 24 | t << 16 | t << 8 | t ;
+            break;
+        }
+    }
+    else {
+        t = BITS_GET(imm, 0, 7) | 0x80;
+        imm32 = ROR_C32(t, BITS_GET(imm, 7, 5));
+    }
+
+    return imm32;
 }
 
 static void arm_dump_inst(struct arm_emu *emu, const char *fmt, ...)
@@ -238,6 +299,12 @@ static int t1_inst_sub1(struct arm_emu *emu, uint16_t *code, int len)
 
 static int t1_inst_mov(struct arm_emu *emu, uint16_t *code, int len)
 {
+    return 0;
+}
+
+static int t1_inst_mov_0100(struct arm_emu *emu, uint16_t *code, int len)
+{
+    arm_dump_inst(emu, "mov %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
     return 0;
 }
 
@@ -371,6 +438,15 @@ static int t1_inst_movw(struct arm_emu *emu, uint16_t *inst, int inst_len)
     return 0;
 }
 
+static int t1_inst_mov_w(struct arm_emu *emu, uint16_t *inst, int inst_len)
+{
+    int imm = BITS_GET_SH(inst[0], 10, 1, 11) + BITS_GET_SH(inst[1], 12, 3, 8) + BITS_GET_SH(inst[1], 0, 8, 0);
+
+    arm_dump_inst(emu, "mov.w %s, #0x%x", regstr[emu->code.ctx.ld], ThumbExpandImmWithC(emu, imm));
+
+    return 0;
+}
+
 static int t1_inst_bx_0100(struct arm_emu *emu, uint16_t *code, int len)
 {
     arm_dump_inst(emu, "bx %s", regstr[emu->code.ctx.lm]);
@@ -386,7 +462,7 @@ static int t1_inst_blx_0100(struct arm_emu *emu, uint16_t *code, int len)
 
 static int t1_inst_b(struct arm_emu *emu, uint16_t *code, int len)
 {
-    arm_dump_inst(emu, "b 0x%x", emu->baseaddr + emu->code.pos + 4 + sign_extend(emu->code.ctx.imm, 11) * 2);
+    arm_dump_inst(emu, "b 0x%x", emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 11) * 2);
 
     return 0;
 }
@@ -418,8 +494,8 @@ struct arm_inst_desc {
     {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
     {"0100    0110 00 lm3 ld3",             {t1_inst_cpy}, {"cpy"}},
     {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov}, {"add", "mov"}},
-    {"0100    01 o1 0 10 hm3 ld3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
-    {"0100    01 o1 0 11 hm3 ld3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
+    {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
+    {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
     {"0100    1 ld3 i8",                    {t1_inst_ldr1}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
     {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, t1_inst_ldr2},      {"str", "ldr"}},
@@ -429,6 +505,7 @@ struct arm_inst_desc {
     {"1011    0000 o1 i7",                  {t1_inst_add3, t1_inst_sub1}, {"add", "sub"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
     {"1110 1001 0010 1101 0 m1 0 rl13",     {t2_inst_push}, "push.w"},
+    {"1111 0i1 00010 s1 11110 i3 ld4 i8",   {t1_inst_mov_w}, "mov.w"},
     {"1111 0i1 101100 i4 0 i3 ld4 i8",      {t1_inst_movt}, "movt"},
     {"1111 0i1 100100 i4 0 i3 ld4 i8",      {t1_inst_movw}, "movw"},
 };
@@ -575,6 +652,8 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
             root = root->childs[idx];
             break;
 
+            /* setflags */
+        case 's':
             /* immediate */
         case 'i':
 
@@ -610,7 +689,7 @@ loop_label:
             goto loop_label;
 
         case 'h':
-            if (s[1] != 'm')
+            if (s[1] != 'm' && s[1] != 'd' && s[1] != 'n')
                 goto fail_label;
 
             s++;
@@ -827,9 +906,10 @@ static int arm_insteng_retrieve_context(struct arm_emu *emu, struct inst_node *i
 
 static void arm_inst_contenxt_init(struct arm_inst_context *ctx)
 {
-    memset(ctx, -1, sizeof (ctx[0]));
-    ctx->register_list = 0;
-    ctx->m = 0;
+    memset(ctx, 0, sizeof (ctx[0]));
+    ctx->ld = -1;
+    ctx->lm = -1;
+    ctx->ln = -1;
 }
 
 static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
@@ -902,9 +982,14 @@ static int arm_insteng_retrieve_context(struct arm_emu *emu, struct inst_node *i
             exp++;
             break;
 
+        case 's':
         case 'i':
             len = atoi(++exp);
-            ctx->imm = BITS_GET(inst, 16 -i - len, len);
+
+            if (*exp == 's')
+                ctx->setflags = BITS_GET(inst, 16 - i - len, len);
+            else
+                ctx->imm = BITS_GET(inst, 16 -i - len, len);
             while (isdigit(*exp)) exp++;
             i += len;
             break;
