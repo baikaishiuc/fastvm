@@ -115,6 +115,8 @@ static const char *regstr[] = {
 
 typedef int(*arm_inst_func)    (struct arm_emu *emu, uint16_t *inst, int inst_len);
 
+#include "arm_op.h"
+
 static char* reglist2str(int reglist, char *buf)
 {
     int i, start_reg = -1, len;
@@ -143,56 +145,6 @@ static char* reglist2str(int reglist, char *buf)
     strcat(buf, "}");
 
     return buf;
-}
-
-static int SignExtend(int a, int size)
-{
-    if (a & (1 << (size - 1)))
-        return (-1 & ((1 << size) - 1)) | a;
-
-    return a;
-}
-
-static int ROR_C32(int x, int n)
-{
-    return x;
-}
-
-/* Thumb-2SupplementReferceManual P93 */
-static int ThumbExpandImmWithC(struct arm_emu *e, int imm)
-{
-    int t, m, imm32, c = 0;
-    if (BITS_GET(imm, 10, 2) == 0) {
-        t = BITS_GET(imm, 0, 8);
-        m = BITS_GET(imm, 8, 2);
-
-        if (m && !t)
-            vm_error("arm unpredictable");
-
-        switch (m) {
-        case 0:
-            imm32 = t;
-            break;
-
-        case 1:
-            imm32 = t << 16 | t;
-            break;
-
-        case 2:
-            imm32 = t << 24 | t << 8;
-            break;
-
-        case 3:
-            imm32 = t << 24 | t << 16 | t << 8 | t ;
-            break;
-        }
-    }
-    else {
-        t = BITS_GET(imm, 0, 7) | 0x80;
-        imm32 = ROR_C32(t, BITS_GET(imm, 7, 5));
-    }
-
-    return imm32;
 }
 
 static void arm_prepare_dump(struct arm_emu *emu, const char *fmt, ...)
@@ -340,6 +292,12 @@ static int t1_inst_cmp(struct arm_emu *emu, uint16_t *code, int len)
     return 0;
 }
 
+static int t1_inst_cmp_0100(struct arm_emu *emu, uint16_t *code, int len)
+{
+    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.lm], regstr[emu->code.ctx.ld]);
+    return 0;
+}
+
 static int t1_inst_and(struct arm_emu *emu, uint16_t *code, int len)
 {
     return 0;
@@ -438,6 +396,10 @@ static int t1_inst_str_10010(struct arm_emu *emu, uint16_t *code, int len)
 
 static int t1_inst_ldr_10011(struct arm_emu *emu, uint16_t *code, int len)
 {
+    if (emu->code.ctx.imm)
+        arm_prepare_dump(emu, "ldr %s, [sp, #0x%x]", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+    else
+        arm_prepare_dump(emu, "ldr %s, [sp]");
     return 0;
 }
 
@@ -511,9 +473,9 @@ struct arm_inst_desc {
     {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
     {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
-    {"0100    0010 o2 lm3 ld3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
+    {"0100    0010 o2 lm3 ld3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp_0100, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
     {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
-    {"0100    0110 00 lm3 ld3",             {t1_inst_cpy}, {"cpy"}},
+    {"0100    0110 00 lm3 ld3",             {t1_inst_mov_0100}, {"mov"}},
     {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov}, {"add", "mov"}},
     {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
