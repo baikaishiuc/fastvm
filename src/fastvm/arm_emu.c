@@ -26,10 +26,28 @@
 #define ARM_REG_LR      ARM_REG_R14
 #define ARM_REG_SP      ARM_REG_R13
 
+#define ARM_COND_EQ     0
+#define ARM_COND_NE     1
+#define ARM_COND_CS     2
+#define ARM_COND_CC     3
+#define ARM_COND_MI     4
+#define ARM_COND_PL     5
+#define ARM_COND_VS     6
+#define ARM_COND_VC     7
+#define ARM_COND_HI     8
+#define ARM_COND_LS     9
+#define ARM_COND_GE     10
+#define ARM_COND_LT     11
+#define ARM_COND_GT     12
+#define ARM_COND_LE     13
+#define ARM_COND_AL     14
+
 typedef int         reg_t;
 
 #define BITS_GET(a,offset,len)   ((a >> (offset )) & ((1 << len) - 1))
-#define BITS_GET_SH(a, offset, len, sh)      (BITS_GET(a, offset, len) << sh)
+#define BITS_GET_SHL(a, offset, len, sh)      (BITS_GET(a, offset, len) << sh)
+
+#define ARM_UNPREDICT()   vm_error("arm unpredictable. %s:%d", __FILE__, __LINE__)
 
 struct arm_inst_context {
     reg_t   ld;
@@ -39,6 +57,7 @@ struct arm_inst_context {
     int     imm;
     int     m;
     int     setflags;
+    int     cond;
 };
 
 struct arm_cpsr {
@@ -111,6 +130,24 @@ static const char *regstr[] = {
     "r13",
     "lr",
     "pc",
+};
+
+static const char *condstr[] = {
+    "eq",
+    "ne",
+    "cs",
+    "cc",
+    "mi",
+    "pl",
+    "vs",
+    "vc",
+    "hi",
+    "ls",
+    "ge",
+    "lt",
+    "gt",
+    "le",
+    "{al}"
 };
 
 typedef int(*arm_inst_func)    (struct arm_emu *emu, uint16_t *inst, int inst_len);
@@ -294,7 +331,7 @@ static int t1_inst_cmp(struct arm_emu *emu, uint16_t *code, int len)
 
 static int t1_inst_cmp_0100(struct arm_emu *emu, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.lm], regstr[emu->code.ctx.ld]);
+    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
     return 0;
 }
 
@@ -405,7 +442,7 @@ static int t1_inst_ldr_10011(struct arm_emu *emu, uint16_t *code, int len)
 
 static int t1_inst_movt(struct arm_emu *emu, uint16_t *inst, int inst_len)
 {
-    int imm = BITS_GET_SH(inst[0], 10, 1, 11) + BITS_GET_SH(inst[0], 0, 4, 12) + BITS_GET_SH(inst[1], 12, 3, 8) + BITS_GET_SH(inst[1], 0, 8, 0);
+    int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[0], 0, 4, 12) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
 
     arm_prepare_dump(emu, "movt %s, #0x%x", regstr[emu->code.ctx.ld], imm);
 
@@ -414,7 +451,7 @@ static int t1_inst_movt(struct arm_emu *emu, uint16_t *inst, int inst_len)
 
 static int t1_inst_movw(struct arm_emu *emu, uint16_t *inst, int inst_len)
 {
-    int imm = BITS_GET_SH(inst[0], 10, 1, 11) + BITS_GET_SH(inst[0], 0, 4, 12) + BITS_GET_SH(inst[1], 12, 3, 8) + BITS_GET_SH(inst[1], 0, 8, 0);
+    int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[0], 0, 4, 12) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
 
     arm_prepare_dump(emu, "movw %s, #0x%x", regstr[emu->code.ctx.ld], imm);
 
@@ -423,7 +460,7 @@ static int t1_inst_movw(struct arm_emu *emu, uint16_t *inst, int inst_len)
 
 static int t1_inst_mov_w(struct arm_emu *emu, uint16_t *inst, int inst_len)
 {
-    int imm = BITS_GET_SH(inst[0], 10, 1, 11) + BITS_GET_SH(inst[1], 12, 3, 8) + BITS_GET_SH(inst[1], 0, 8, 0);
+    int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
 
     arm_prepare_dump(emu, "mov.w %s, #0x%x", regstr[emu->code.ctx.ld], ThumbExpandImmWithC(emu, imm));
 
@@ -446,6 +483,23 @@ static int t1_inst_blx_0100(struct arm_emu *emu, uint16_t *code, int len)
 static int t1_inst_b(struct arm_emu *emu, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "b 0x%x", emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 11) * 2);
+
+    return 0;
+}
+
+static int t_swi(struct arm_emu *emu, uint16_t *code, int len)
+{
+    return 0;
+}
+
+static int t_bcond(struct arm_emu *emu, uint16_t *code, int len)
+{
+    if (emu->code.ctx.cond == 0xe)
+        ARM_UNPREDICT();
+    else if (emu->code.ctx.cond == 0xf)
+        return t_swi(emu, code, len);
+
+    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 11) * 2);
 
     return 0;
 }
@@ -486,6 +540,7 @@ struct arm_inst_desc {
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add2}, {"add", "add"}},
     {"1011    o1 10 m1 rl8",                {t1_inst_push, t1_inst_pop}, {"push", "pop"}},
     {"1011    0000 o1 i7",                  {t1_inst_add3, t1_inst_sub1}, {"add", "sub"}},
+    {"1101    c4 i8",                       {t_bcond}, {"b<cond>"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
     {"1110 1001 0010 1101 0 m1 0 rl13",     {t2_inst_push}, "push.w"},
     {"1111 0i1 00010 s1 11110 i3 ld4 i8",   {t1_inst_mov_w}, "mov.w"},
@@ -569,33 +624,47 @@ void    inst_node_delete(struct inst_node *root)
     free(root);
 }
 
-void inst_node__dump_dot(FILE *fp, struct inst_node *root)
+void inst_node__dump_dot(FILE *fp, struct inst_tree *tree)
 {
-    int i;
+    struct inst_node *node, *root;
+    int i, j;
 
-    for (i = 0; i < count_of_array(root->childs); i++) {
-        if (!root->childs[i])
-            continue;
+    for (j = 0; j < tree->arr.len; j++) {
+        root = (struct inst_node *)tree->arr.ptab[j];
 
-        fprintf(fp, "%d -> %d [label = \"%d\"]\n", root->id, root->childs[i]->id, i);
-        inst_node__dump_dot(fp, root->childs[i]);
-    }
+        for (i = 0; i < count_of_array(root->childs); i++) {
+            if (!root->childs[i])
+                continue;
 
-    if (root->func) {
-        fprintf(fp, "%d [shape=Msquare, label=\"%s\"];\n", root->id, root->desc);
+            fprintf(fp, "%d -> %d [label = \"%d\"]\n", root->id, root->childs[i]->id, i);
+        }
+
+        if (root->set.len) {
+            fprintf(fp, "%d [label=\"%d (", root->id, root->id);
+            for (i = 0; i < root->set.len; i++) {
+                node = (struct inst_node *)root->set.ptab[i];
+                fprintf(fp, "%d ", node->id);
+            }
+            fprintf(fp, ")\"]\n");
+        }
+
+
+        if (root->func) {
+            fprintf(fp, "%d [shape=Msquare, label=\"%s\"];\n", root->id, root->desc);
+        }
     }
 }
 
-void inst_node_dump_dot(const char *filename, struct inst_node *root)
+void inst_node_dump_dot(const char *filename, struct inst_tree *tree)
 {
     char buf[128];
     FILE *fp = fopen(filename, "w");
 
     fprintf(fp, "digraph G {\n");
 
-    inst_node__dump_dot(fp, root);
+    inst_node__dump_dot(fp, tree);
 
-    fprintf(fp, "%d [shape=Mdiamond];\n", root->id);
+    fprintf(fp, "%d [shape=Mdiamond];\n", tree->root.id);
 
     fprintf(fp, "}\n");
 
@@ -639,6 +708,8 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
         case 's':
             /* immediate */
         case 'i':
+            /* condition */
+        case 'c':
 
             /* more register，一般是对寄存器列表的补充 */
         case 'm':
@@ -770,7 +841,10 @@ static int arm_insteng_gen_dfa(struct arm_inst_engine *eng)
                     if (!(nnode = (struct inst_node *)dnode1->set.ptab[j]) || !nnode->func)    continue;
 
                     if (dnode1->func) {
-                        vm_error("conflict end state\n");
+                        if (!strcmp(dnode1->desc, nnode->desc))
+                            continue;
+
+                        vm_error("conflict end state[%s] [%s]\n", dnode1->desc, nnode->desc);
                     }
 
                     inst_node_copy(dnode1, nnode);
@@ -865,14 +939,13 @@ static int arm_insteng_init(struct arm_emu *emu)
             arm_insteng_add_exp(g_eng, buf, desclist[i].desc[0], desclist[i].funclist[0]);
     }
 
+    if (emu->dump_enfa)
+        inst_node_dump_dot("enfa.dot", &g_eng->enfa);
 
     arm_insteng_gen_dfa(g_eng);
 
-    if (emu->dump_enfa)
-        inst_node_dump_dot("enfa.dot", &g_eng->enfa.root);
-
     if (emu->dump_dfa)
-        inst_node_dump_dot("dfa.dot", &g_eng->dfa.root);
+        inst_node_dump_dot("dfa.dot", &g_eng->dfa);
 
     arm_insteng_gen_trans2d(g_eng);
 
@@ -897,7 +970,7 @@ static void arm_inst_contenxt_init(struct arm_inst_context *ctx)
 
 static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 {
-    struct inst_node *node = NULL;
+    struct inst_node *node = NULL, *p_end_node = NULL;
     int i, j, from = 0, to, bit;
     if (!g_eng) {
         arm_insteng_init(emu);
@@ -906,6 +979,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
     /* arm 解码时，假如第一个16bit没有解码到对应的thumb指令终结态，则认为是thumb32，开始进入
     第2轮的解码 */
 
+    /* 搜索指令时采取最长匹配原则 */
     //printf("start state:%d\n", from);
     for (i = from = 0; i < 2; i++) {
         uint16_t inst = ((uint16_t *)code)[i];
@@ -913,8 +987,8 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
             bit = !!(inst & (1 << (15 - j)));
             to = g_eng->trans2d[g_eng->width * bit + from];
 
-            if (!to) 
-                vm_error("arm_insteng_decode() run on un-support state, code[%02x %02x]\n", code[0], code[1]);
+            if (!to)
+                goto exit;
 
             node = ((struct inst_node *)g_eng->dfa.arr.ptab[to]);
             from = node->id;
@@ -923,15 +997,16 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
         }
 
         if (node->func)
-            break;
+            p_end_node = node;
     }
+    exit:
     //printf("\n");
 
-    if (!node->func) {
+    node = p_end_node;
+
+    if (!node || !node->func) {
         vm_error("arm_insteng_decode() meet unkown instruction, code[%02x %02x]\n", code[0], code[1]);
     }
-
-    ++i;
 
     arm_insteng_retrieve_context(emu, node, code, i * 2);
     node->func(emu, (uint16_t *)code, i);
@@ -969,15 +1044,19 @@ static int arm_insteng_retrieve_context(struct arm_emu *emu, struct inst_node *i
 
         case 's':
         case 'i':
+        case 'c':
             len = atoi(++exp);
 
-            if (*exp == 's')
+            if (c == 's')
                 ctx->setflags = BITS_GET(inst, 16 - i - len, len);
-            else
+            else if (c == 'i')
                 ctx->imm = BITS_GET(inst, 16 -i - len, len);
+            else
+                ctx->cond = BITS_GET(inst, 16 -i - len, len);
             while (isdigit(*exp)) exp++;
             i += len;
             break;
+
 
         case 'm':
             len = 1;
