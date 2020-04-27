@@ -19,7 +19,7 @@ struct bits {
 static inline int SignExtend(int a, int size)
 {
     if (a & (1 << (size - 1)))
-        return (-1 & ((1 << size) - 1)) | a;
+        return (~((1 << size) - 1)) | a;
 
     return a;
 }

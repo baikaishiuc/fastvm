@@ -499,7 +499,7 @@ static int t_bcond(struct arm_emu *emu, uint16_t *code, int len)
     else if (emu->code.ctx.cond == 0xf)
         return t_swi(emu, code, len);
 
-    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 11) * 2);
+    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 8) * 2);
 
     return 0;
 }
