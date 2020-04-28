@@ -16,12 +16,45 @@ struct bits {
 
 #define ZeroExtend(a)           a
 
+static inline int RightMostBitPos(int a, int size)
+{
+    int i;
+
+    if (a == 0)
+        return -1;
+
+    for (i = 0; i < size; i++) {
+        if (a & (1 << i))
+            return i;
+    }
+
+    return -1;
+}
+
 static inline int SignExtend(int a, int size)
 {
     if (a & (1 << (size - 1)))
         return (~((1 << size) - 1)) | a;
 
     return a;
+}
+
+static inline int InITBlock(struct arm_emu *e)
+{
+    return e->in_it_block;
+}
+
+static inline int BitCount(int v)
+{
+    int c;
+
+    c = (v & 0x55555555) + ((v >> 1) & 0x55555555);
+    c = (c & 0x33333333) + ((c >> 2) & 0x33333333);
+    c = (c & 0x0F0F0F0F) + ((c >> 4) & 0x0F0F0F0F);
+    c = (c & 0x00FF00FF) + ((c >> 8) & 0x00FF00FF);
+    c = (c & 0x0000FFFF) + ((c >> 16) & 0x0000FFFF);
+
+    return c;
 }
 
 static inline struct bits LSL_C(struct bits x, int n)

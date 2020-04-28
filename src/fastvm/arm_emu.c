@@ -154,6 +154,24 @@ typedef int(*arm_inst_func)    (struct arm_emu *emu, uint16_t *inst, int inst_le
 
 #include "arm_op.h"
 
+char *it2str(int firstcond, int mask)
+{
+    int i, j;
+    static char buf[32];
+    int c0 = firstcond & 1;
+
+    buf[0] = 0;
+    i = RightMostBitPos(mask, 4);
+    if (i == -1)
+        ARM_UNPREDICT();
+
+    for (j = 0; j < (3 - i); j++) {
+        strcat(buf, ((mask >> (3 - j)) & 1) == c0 ? "t":"e");
+    }
+
+    return buf;
+}
+
 static char* reglist2str(int reglist, char *buf)
 {
     int i, start_reg = -1, len;
@@ -324,19 +342,37 @@ static int t1_inst_mov1(struct arm_emu *emu, uint16_t *code, int len)
     return 0;
 }
 
-static int t1_inst_cmp(struct arm_emu *emu, uint16_t *code, int len)
+static int t1_inst_cmp_imm(struct arm_emu *emu, uint16_t *code, int len)
 {
+    arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm);
     return 0;
 }
 
 static int t1_inst_cmp_0100(struct arm_emu *emu, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.lm], regstr[emu->code.ctx.ld]);
     return 0;
 }
 
 static int t1_inst_and(struct arm_emu *emu, uint16_t *code, int len)
 {
+    return 0;
+}
+
+static int t1_inst_it(struct arm_emu *emu, uint16_t *code, int len)
+{
+    int firstcond = emu->code.ctx.ld;
+    int mask = emu->code.ctx.lm;
+
+    if (0 == mask) ARM_UNPREDICT();
+    if (0xf == firstcond) ARM_UNPREDICT();
+    if ((0xe == firstcond) && (BitCount(mask) != 1)) ARM_UNPREDICT();
+    if (InITBlock(emu)) ARM_UNPREDICT();
+
+    arm_prepare_dump(emu, "it%s %s", it2str(firstcond, mask), condstr[firstcond]);
+
+    emu->in_it_block = 5 - RightMostBitPos(mask, 4);
+
     return 0;
 }
 
@@ -523,17 +559,17 @@ struct arm_inst_desc {
     {"0001    0     i5  lm3 ld3",           {t1_inst_asr}, {"asr"}},
     {"0001    10 o1 lm3 ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
     {"0001    11 o1 i3  ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
-    {"0010    o1 ld3    i8",                {t1_inst_mov1, t1_inst_cmp}, {"mov", "cmp"}},
+    {"0010    o1 ld3    i8",                {t1_inst_mov1, t1_inst_cmp_imm}, {"mov", "cmp"}},
     {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
     {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
-    {"0100    0010 o2 lm3 ld3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp_0100, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
+    {"0100    0010 o2 ld3 lm3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp_0100, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
     {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
     {"0100    0110 00 lm3 ld3",             {t1_inst_mov_0100}, {"mov"}},
-    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov}, {"add", "mov"}},
+    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
-    {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov}, {"add", "mov"}},
-    {"0100    0101 01 hd3 hm3",             {t1_inst_cmp_0100}, {"cmp"}},
+    {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
+    {"0100    0101 01 hd3 lm3",             {t1_inst_cmp_0100}, {"cmp"}},
     {"0100    0101 10 ld3 hm3",             {t1_inst_cmp_0100}, {"cmp"}},
     {"0100    0101 11 hd3 hm3",             {t1_inst_cmp_0100}, {"cmp"}},
     {"0100    1 ld3 i8",                    {t1_inst_ldr1}, {"ldr"}},
@@ -543,6 +579,7 @@ struct arm_inst_desc {
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add2}, {"add", "add"}},
     {"1011    o1 10 m1 rl8",                {t1_inst_push, t1_inst_pop}, {"push", "pop"}},
     {"1011    0000 o1 i7",                  {t1_inst_add3, t1_inst_sub1}, {"add", "sub"}},
+    {"1011    1111 ld4 lm4",                {t1_inst_it}, {"it"}},
     {"1101    c4 i8",                       {t_bcond}, {"b<cond>"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
     {"1110 1001 0010 1101 0 m1 0 rl13",     {t2_inst_push}, "push.w"},
@@ -1014,6 +1051,9 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
     arm_insteng_retrieve_context(emu, node, code, i * 2);
     node->func(emu, (uint16_t *)code, i);
     arm_dump_inst(emu, (uint16_t *)code, i);
+
+    if (emu->in_it_block > 0)
+        emu->in_it_block--;
 
     return i * 2;
 }
