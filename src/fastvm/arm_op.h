@@ -41,7 +41,12 @@ static inline int SignExtend(int a, int size)
 
 static inline int InITBlock(struct arm_emu *e)
 {
-    return e->in_it_block;
+    return e->it.inblock;
+}
+
+static inline int LastInITBlock(struct arm_emu *e)
+{
+    return e->it.inblock == 1;
 }
 
 static inline int BitCount(int v)
