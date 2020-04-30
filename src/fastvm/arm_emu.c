@@ -111,6 +111,7 @@ struct arm_emu {
 
     int             baseaddr;
     int             thumb;
+    int             meet_blx;
 
     struct {
         int     inblock;
@@ -532,6 +533,8 @@ static int t1_inst_blx_0100(struct arm_emu *emu, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "blx %s", regstr[emu->code.ctx.lm]);
 
+    emu->meet_blx = 1;
+
     return 0;
 }
 
@@ -619,6 +622,8 @@ static int thumb_inst_pop(struct arm_emu *emu, uint16_t *code, int len)
 static int thumb_inst_blx(struct arm_emu *emu, uint16_t *code, int len)
 {
     if (InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+
+    arm_prepare_dump(emu, "blx");
 
     return 0;
 }
@@ -1279,7 +1284,7 @@ int        arm_emu_run(struct arm_emu *emu)
     int len = emu->code.len - emu->code.pos;
     int ret;
 
-    if (len == 0)
+    if ((len == 0) || emu->meet_blx)
         return 1;
 
     ret = arm_insteng_decode(emu, emu->code.data + emu->code.pos, emu->code.len - emu->code.pos);
