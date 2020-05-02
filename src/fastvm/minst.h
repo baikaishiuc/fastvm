@@ -23,15 +23,22 @@ struct minst_blk {
     struct dynarray allinst;
 };
 
+struct minst_node {
+    struct minst *minst;
+    struct minst_node *next;
+};
+
 struct minst {
     char *addr;
     int len;
 
     struct bitset use;
     struct bitset def;
+    struct bitset in;
+    struct bitset out;
 
-    struct minst *pred;
-    struct minst *succ;
+    struct dynarray preds;
+    struct dynarray succs;
 };
 
 struct minst_var {
@@ -75,6 +82,7 @@ struct minst_var*   minst_blk_find_stack_var(struct minst_blk *blk, int top);
 /* 当调用比如pop弹出堆栈时，也删除对应的临时变量 */
 int                 minst_blk_delete_stack_var(struct minst_blk *blk, int top);
 
+int                 minst_blk_liveness_calc(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }

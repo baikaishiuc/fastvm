@@ -50,6 +50,14 @@ typedef int         reg_t;
 
 #define ARM_UNPREDICT()   vm_error("arm unpredictable. %s:%d", __FILE__, __LINE__)
 
+#define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
+#define live_use_set(reg)       bitset_set(&minst->use, reg, 1)
+
+#define liveness_set(_def, _use)    do { \
+        bitset_set(&minst->def, _def, 1); \
+        bitset_set(&minst->use, _use, 1); \
+    } while (0)
+
 struct arm_inst_context {
     reg_t   ld;
     reg_t   lm;
@@ -91,6 +99,7 @@ struct arm_emu {
     } code;
 
     char inst_fmt[64];
+    int regs[16];
 
     int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
     void *user_ctx;
@@ -282,27 +291,32 @@ static int t1_inst_asr(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     return 0;
 }
 
-static int t1_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     char buf[32];
-    int reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
+    int i, reglist;
+    struct minst_var *var;
 
-    arm_prepare_dump(emu, "push %s", reglist2str(reglist, buf));
+    if (len == 2) {
+        reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
+        arm_prepare_dump(emu, "push %s", reglist2str(reglist, buf));
+    } else {
+        reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
+        arm_prepare_dump(emu, "push.w %s", reglist2str(emu->code.ctx.register_list, buf));
+    }
+
+    for (i = 0; i < 16; i++) {
+        if (reglist & (1 << i)) {
+            var = minst_blk_new_stack_var(&emu->mblk, emu->regs[ARM_REG_SP]++);
+            liveness_set(var->t, i);
+        }
+    }
 
     return 0;
 }
 
 static int t1_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    return 0;
-}
-
-static int t2_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    char buf[32];
-    int reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
-
-    arm_prepare_dump(emu, "push.w %s", reglist2str(emu->code.ctx.register_list, buf));
     return 0;
 }
 
@@ -320,12 +334,15 @@ static int t1_inst_add2(struct arm_emu *emu, struct minst *minst, uint16_t *code
 {
     arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
 
+    liveness_set(emu->code.ctx.ld, ARM_REG_SP);
+
     return 0;
 }
 
 static int t1_inst_add4(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+
     return 0;
 }
 
@@ -337,6 +354,9 @@ static int t1_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 static int t1_inst_sub1(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "sub sp, #0x%x", emu->code.ctx.imm * 4);
+
+    liveness_set(ARM_REG_SP, ARM_REG_SP);
+
     return 0;
 }
 
@@ -348,6 +368,7 @@ static int t1_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+
     return 0;
 }
 
@@ -361,18 +382,16 @@ static int t1_inst_mov1(struct arm_emu *emu, struct minst *minst, uint16_t *code
 static int t1_inst_cmp_imm(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm);
+
+    liveness_set(-1, emu->code.ctx.ld);
+
     return 0;
 }
 
-static int t1_inst_cmp_0100(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.lm], regstr[emu->code.ctx.ld]);
-    return 0;
-}
+    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
-static int t1_inst_cmp2(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
     return 0;
 }
 
@@ -462,6 +481,9 @@ static int t1_inst_cpy(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 static int t1_inst_ldr1(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "ldr %s, [pc, #0x%x] ", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+
+    liveness_set(emu->code.ctx.ld, ARM_REG_PC);
+
     return 0;
 }
 
@@ -536,7 +558,6 @@ static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 {
     arm_prepare_dump(emu, "blx %s", regstr[emu->code.ctx.lm]);
 
-    emu->meet_blx = 1;
 
     return 0;
 }
@@ -628,6 +649,8 @@ static int thumb_inst_blx(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     arm_prepare_dump(emu, "blx");
 
+    emu->meet_blx = 1;
+
     return 0;
 }
 
@@ -654,27 +677,28 @@ struct arm_inst_desc {
     {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
     {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
-    {"0100    0010 o2 lm3 ld3",             {t1_inst_tst, t1_inst_neg, t1_inst_cmp2, t1_inst_cmn}, {"tst", "neg", "cmp", "cmn"}},
+    {"0100    0010 0o1 lm3 ld3",            {t1_inst_tst, t1_inst_neg}, {"tst", "neg"}},
+    {"0100    0010 1o1 lm3 ln3",            {thumb_inst_cmp, t1_inst_cmn}, {"cmp", "cmn"}},
     {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
     {"0100    0110 00 lm3 ld3",             {t1_inst_mov_0100}, {"mov"}},
     {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
-    {"0100    0101 01 hd3 lm3",             {t1_inst_cmp_0100}, {"cmp"}},
-    {"0100    0101 10 ld3 hm3",             {t1_inst_cmp_0100}, {"cmp"}},
-    {"0100    0101 11 hd3 hm3",             {t1_inst_cmp_0100}, {"cmp"}},
+    {"0100    0101 01 lm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
+    {"0100    0101 10 hm3 ln3 ",            {thumb_inst_cmp}, {"cmp"}},
+    {"0100    0101 11 hm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    1 ld3 i8",                    {t1_inst_ldr1}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
     {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, t1_inst_ldr2},      {"str", "ldr"}},
     {"1001    o1 ld3 i8",                   {t1_inst_str_10010, t1_inst_ldr_10011}, {"str", "ldr"}},
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add2}, {"add", "add"}},
-    {"1011    o1 10 m1 rl8",                {t1_inst_push, thumb_inst_pop}, {"push", "pop"}},
+    {"1011    o1 10 m1 rl8",                {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
     {"1011    0000 o1 i7",                  {thumb_inst_add_sp_imm, t1_inst_sub1}, {"add", "sub"}},
     {"1011    1111 ld4 lm4",                {t1_inst_it}, {"it"}},
     {"1101    c4 i8",                       {t_bcond}, {"b<cond>"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
 
-    {"1110 1001 0010 1101 0 m1 0 rl13",     {t2_inst_push}, "push.w"},
+    {"1110 1001 0010 1101 0 m1 0 rl13",     {thumb_inst_push}, "push.w"},
     {"1110 1000 1011 1101 i1 m1 0 rl13",    {thumb_inst_pop}, "pop.w"},
 
     {"1111 0i1 i10 11 i1 0 i1 i10 0",       {thumb_inst_blx}, "blx"},
@@ -1098,12 +1122,24 @@ static int arm_insteng_uninit()
 
 static int arm_insteng_retrieve_context(struct arm_emu *emu, struct reg_node *reg_node, uint8_t *code, int code_len);
 
-static void arm_inst_contenxt_init(struct arm_inst_context *ctx)
+static void arm_inst_context_init(struct arm_inst_context *ctx)
 {
     memset(ctx, 0, sizeof (ctx[0]));
     ctx->ld = -1;
     ctx->lm = -1;
     ctx->ln = -1;
+}
+
+static void arm_minst_init(struct minst *minst, struct arm_inst_context *ctx)
+{
+    if (ctx->ld >= 0)
+        live_def_set(ctx->ld);
+
+    if (ctx->lm >= 0)
+        live_use_set(ctx->lm);
+
+    if (ctx->ln >= 0)
+        live_use_set(ctx->ln);
 }
 
 static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
@@ -1150,6 +1186,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 
     minst = minst_new(&emu->mblk, code, i);
 
+    arm_minst_init(minst, &emu->code.ctx);
     node->func(emu, minst, (uint16_t *)code, i);
     arm_dump_inst(emu, (uint16_t *)code, i);
 
@@ -1166,7 +1203,7 @@ static int arm_insteng_retrieve_context(struct arm_emu *emu, struct reg_node *re
     char *exp = reg_node->exp;
     struct arm_inst_context *ctx = &emu->code.ctx;
 
-    arm_inst_contenxt_init(ctx);
+    arm_inst_context_init(ctx);
 
     uint16_t inst = *(uint16_t *)code;
 

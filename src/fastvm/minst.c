@@ -37,7 +37,7 @@ void                minst_blk_delete(struct minst_blk *blk)
     }
 
     for (i = 0; i < blk->allinst.len; i++) {
-        free(blk->allinst.ptab[i]);
+        minst_delete(blk->allinst.ptab[i]);
     }
 
     free(blk);
@@ -111,12 +111,55 @@ struct minst*       minst_new(struct minst_blk *blk, char *code, int len)
         vm_error("minst_new() failure");
 
     dynarray_add(&blk->allinst, minst);
+    bitset_init(&minst->use, 32);
+    bitset_init(&minst->def, 32);
+    bitset_init(&minst->in, 32);
+    bitset_init(&minst->out, 32);
 
     return minst;
+}
+
+void                minst_delete(struct minst *minst)
+{
+    bitset_uninit(&minst->use);
+    bitset_uninit(&minst->def);
+    bitset_uninit(&minst->in);
+    bitset_uninit(&minst->out);
+
+    free(minst);
 }
 
 struct minst*       minst_blk_find(struct minst_blk *blk, char *addr)
 {
     return dynarray_find(&blk->allinst, addr);
+}
+
+int                 minst_blk_liveness_calc(struct minst_blk *blk)
+{
+    struct minst *minst, *succ;
+    struct bitset in = { 0 }, out = { 0 };
+    int i, j, update = 1;
+
+    while (update) {
+        update = 0;
+        for (i = 0; i < blk->allinst.len; i++) {
+            minst = blk->allinst.ptab[i];
+
+            bitset_clone(&in, &minst->in);
+            bitset_clone(&out, &minst->out);
+
+            bitset_or(&minst->use, bitset_sub(&minst->out, &minst->def));
+
+            for (j = 0; j < minst->succs.len; j ++) {
+                succ = minst->succs.ptab[j];
+                bitset_or(&minst->out, &succ->in);
+            }
+
+            if (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out))
+                update = 1;
+        }
+    }
+
+    return 0;
 }
 
