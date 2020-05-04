@@ -12,9 +12,16 @@ struct bits {
     int v;
     char n;
     char carry_out;
+    char overflow;
+    char resv;
 };
 
 #define ZeroExtend(a)           a
+
+#define NOT(a)              (~(a))
+#define INT_TOPMOSTBIT(a)   ((a >> 31) & 1)
+#define IsZeroBit(a)        (a == 0)
+
 
 static inline int RightMostBitPos(int a, int size)
 {
@@ -47,6 +54,69 @@ static inline int InITBlock(struct arm_emu *e)
 static inline int LastInITBlock(struct arm_emu *e)
 {
     return e->it.inblock == 1;
+}
+
+static inline int _ConditionPassed(struct arm_emu *e, int cond)
+{
+    switch (cond) {
+    case ARM_COND_EQ:
+        return e->apsr.z == 1;
+
+    case ARM_COND_NE:  
+        return e->apsr.z == 0;
+
+    case ARM_COND_CS:  
+        return e->apsr.c == 1;
+
+    case ARM_COND_CC:  
+        return e->apsr.c == 0;
+
+    case ARM_COND_MI:  
+        return e->apsr.n == 1;
+
+    case ARM_COND_PL:  
+        return e->apsr.n == 0;
+
+    case ARM_COND_VS:  
+        return e->apsr.v == 1;
+
+    case ARM_COND_VC:  
+        return e->apsr.v == 0;
+
+    case ARM_COND_HI:  
+        return (e->apsr.c == 1) && (e->apsr.z == 0);
+
+    case ARM_COND_LS:  
+        return (e->apsr.c == 0) || (e->apsr.z == 1);
+
+    case ARM_COND_GE:  
+        return e->apsr.n == e->apsr.v;
+
+    case ARM_COND_LT:
+        return e->apsr.n != e->apsr.v;
+
+    case ARM_COND_GT:  
+        return (e->apsr.z == 0) && (e->apsr.n == e->apsr.v);
+
+    case ARM_COND_LE:  
+        return (e->apsr.z == 1) || (e->apsr.n != e->apsr.v);
+
+    case ARM_COND_AL:  
+        return 1;
+
+    default:
+        return 1;
+    }
+}
+
+static inline int ConditionPassed(struct arm_emu *e)
+{
+    if (!e->it.inblock)
+        return 1;
+
+    int cond = (e->it.et[e->it.num - e->it.inblock] == 't') ? e->it.cond:((e->it.cond & 1) ? (e->it.cond - 1):(e->it.cond + 1));
+
+    return _ConditionPassed(e, cond);
 }
 
 static inline int BitCount(int v)
@@ -269,4 +339,21 @@ static inline struct bits Shift_C(struct bits value, enum SRType type, int amoun
     case SRType_RRX:
         return RRX_C(value, amount);
     }
+}
+
+/* http://www.c-jump.com/CIS77/CPU/Overflow/lecture.html */
+static inline struct bits AddWithCarry(int x, int y, int carry_in)
+{
+    struct bits result = { 0 };
+
+    result.v = x + y + carry_in;
+
+    if ((x > 0 && y > 0 && result.v < 0) || (x < 0 && y < 0 && result.v > 0))
+        result.overflow = 1;
+
+    unsigned int s = (unsigned)x + (unsigned)y + carry_in;
+    if (s < (unsigned)x || s < (unsigned)y || s < (unsigned)carry_in)
+        result.carry_out = 1;
+
+    return result;
 }

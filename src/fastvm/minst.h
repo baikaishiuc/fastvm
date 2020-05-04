@@ -29,7 +29,7 @@ struct minst_node {
 };
 
 struct minst {
-    char *addr;
+    unsigned char *addr;
     int len;
 
     struct bitset use;
@@ -37,8 +37,14 @@ struct minst {
     struct bitset in;
     struct bitset out;
 
-    struct dynarray preds;
-    struct dynarray succs;
+    struct minst_node preds;
+    struct minst_node succs;
+
+    struct {
+        unsigned b : 1;         // is jump inst?
+    } flag;
+
+    void *reg_node;
 };
 
 struct minst_var {
@@ -48,26 +54,19 @@ struct minst_var {
     int     t;
 };
 
-#define minst_succ_add(m, n)     do { \
-        n->succ = m->succ; \
-        m->succ = n; \
-    } while (0)
-
-#define minst_pred_add(m, n)    do { \
-        n->pred = m->pred; \
-        m->pred = n; \
-    } while (0)
-
 struct minst_blk*   minst_blk_new(char *funcname);
 void                minst_blk_delete(struct minst_blk *mblk);
 
 void                minst_blk_init(struct minst_blk *blk, char *funcname);
 void                minst_blk_uninit(struct minst_blk *blk);
 
-struct minst*       minst_new(struct minst_blk *blk, char *code, int len);
+struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 void                minst_delete(struct minst *inst);
 
 struct minst*       minst_blk_find(struct minst_blk *blk, char *addr);
+
+void                minst_succ_add(struct minst *minst, struct minst *succ);
+void                minst_pred_add(struct minst *minst, struct minst *pred);
 
 /* 当我们往堆栈里push一个值时，就调用此函数，生成一个临时变量
 
@@ -78,6 +77,7 @@ struct minst*       minst_blk_find(struct minst_blk *blk, char *addr);
 struct minst_var*   minst_blk_new_stack_var(struct minst_blk *blk, int top);
 
 struct minst_var*   minst_blk_find_stack_var(struct minst_blk *blk, int top);
+struct minst_var*   minst_blk_top_stack_var(struct minst_blk *blk);
 
 /* 当调用比如pop弹出堆栈时，也删除对应的临时变量 */
 int                 minst_blk_delete_stack_var(struct minst_blk *blk, int top);

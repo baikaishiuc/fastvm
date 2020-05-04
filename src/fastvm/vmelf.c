@@ -40,7 +40,7 @@ void elf32_dump(VMState *elf)
     Elf32_Phdr *phdr;
 	Elf32_Shdr *shdr, *shstrdr, *dynsymsh, *link_scn;
 	Elf32_Sym *sym;
-    int i, num, ret;
+    int i, num;
 	const char *name;
 
 	if (elf->dump_elf_header) {
@@ -132,21 +132,7 @@ void elf32_dump(VMState *elf)
 
 		struct arm_emu *emu = arm_emu_create(&param);
 
-		ret = 0;
-		while (ret == 0) {
-			ret = arm_emu_run(emu);
-
-			switch (ret) {
-			case 0:
-				break;
-			case 1:
-				printf("code parse finish\n");
-				break;
-
-			default:
-				break;
-			}
-		}
+        arm_emu_run(emu);
 
 		arm_emu_destroy(emu);
 	}

@@ -3,6 +3,8 @@
 #include "vm.h"
 #include "minst.h"
 
+#define TVAR_BASE       32
+
 static inline int minst_cmp(void *a, void *b, void *ref)
 {
     long l = (unsigned long)a;
@@ -26,19 +28,9 @@ struct minst_blk*   minst_blk_new(char *funcname)
 
 void                minst_blk_delete(struct minst_blk *blk)
 {
-    int i;
-
     if (!blk)   return;
 
-    if (blk->funcname)  free(blk->funcname);
-
-    for (i = 0; i < blk->tvar.len; i++) {
-        free(blk->tvar.ptab[i]);
-    }
-
-    for (i = 0; i < blk->allinst.len; i++) {
-        minst_delete(blk->allinst.ptab[i]);
-    }
+    minst_blk_uninit(blk);
 
     free(blk);
 }
@@ -54,7 +46,18 @@ void                minst_blk_init(struct minst_blk *blk, char *funcname)
 
 void                minst_blk_uninit(struct minst_blk *blk)
 {
+    int i;
+
     if (blk->funcname)  free(blk->funcname);
+
+    for (i = 0; i < blk->tvar.len; i++) {
+        free(blk->tvar.ptab[i]);
+    }
+    dynarray_reset(&blk->tvar);
+
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst_delete(blk->allinst.ptab[i]);
+    }
 
     memset(blk, 0, sizeof (blk[0]));
 }
@@ -63,8 +66,8 @@ struct minst_var*   minst_blk_new_stack_var(struct minst_blk *blk, int top)
 {
     struct minst_var *var;
     /* 每次分配堆栈变量都是从栈顶开始分配，所以新分配的变量一定比老的栈顶大 */
-    if (blk->tvar.len && (var = blk->tvar.ptab[blk->tvar.len - 1]) && var->top >= top) {
-        vm_error("alloc stack variable failed with top error [%d >= %d]", var->top, top);
+    if (blk->tvar.len && (var = blk->tvar.ptab[blk->tvar.len - 1]) && var->top < top) {
+        vm_error("alloc stack variable failed with top error [%d < %d]", var->top, top);
     }
 
     var = calloc(1, sizeof (var[0]));
@@ -72,11 +75,19 @@ struct minst_var*   minst_blk_new_stack_var(struct minst_blk *blk, int top)
         vm_error("stack_var calloc failure");
 
     var->top = top;
-    var->t = blk->tvar_id++;
+    var->t = TVAR_BASE + blk->tvar_id++;
 
     dynarray_add(&blk->tvar, var);
 
     return var;
+}
+
+struct minst_var*   minst_blk_top_stack_var(struct minst_blk *blk)
+{
+    if (!blk->tvar.len)
+        return NULL;
+
+    return blk->tvar.ptab[blk->tvar.len - 1];
 }
 
 struct minst_var*   minst_blk_find_stack_var(struct minst_blk *blk, int top)
@@ -102,13 +113,17 @@ int                 minst_blk_delete_stack_var(struct minst_blk *blk, int top)
     return 0;
 }
 
-struct minst*       minst_new(struct minst_blk *blk, char *code, int len)
+struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node)
 {
     struct minst *minst;
 
     minst = calloc(1, sizeof (minst[0]));
     if (!minst)
         vm_error("minst_new() failure");
+
+    minst->addr = code;
+    minst->len = len;
+    minst->reg_node = reg_node;
 
     dynarray_add(&blk->allinst, minst);
     bitset_init(&minst->use, 32);
@@ -121,10 +136,26 @@ struct minst*       minst_new(struct minst_blk *blk, char *code, int len)
 
 void                minst_delete(struct minst *minst)
 {
+    struct minst_node *node, *next;
+
     bitset_uninit(&minst->use);
     bitset_uninit(&minst->def);
     bitset_uninit(&minst->in);
     bitset_uninit(&minst->out);
+
+    node = minst->succs.next;
+    while (node) {
+        next = node->next;
+        free(node);
+        node = next;
+    }
+
+    node = minst->preds.next;
+    while (node) {
+        next = node->next;
+        free(node);
+        node = next;
+    }
 
     free(minst);
 }
@@ -136,13 +167,14 @@ struct minst*       minst_blk_find(struct minst_blk *blk, char *addr)
 
 int                 minst_blk_liveness_calc(struct minst_blk *blk)
 {
-    struct minst *minst, *succ;
+    struct minst_node *succ;
+    struct minst *minst;
     struct bitset in = { 0 }, out = { 0 };
-    int i, j, update = 1;
+    int i, update = 1;
 
     while (update) {
         update = 0;
-        for (i = 0; i < blk->allinst.len; i++) {
+        for (i = blk->allinst.len - 1; i >= 0; i--) {
             minst = blk->allinst.ptab[i];
 
             bitset_clone(&in, &minst->in);
@@ -150,9 +182,9 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 
             bitset_or(&minst->use, bitset_sub(&minst->out, &minst->def));
 
-            for (j = 0; j < minst->succs.len; j ++) {
-                succ = minst->succs.ptab[j];
-                bitset_or(&minst->out, &succ->in);
+            for (succ = &minst->succs; succ; succ = succ->next) {
+                if (succ->minst)
+                    bitset_or(&minst->out, &succ->minst->in);
             }
 
             if (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out))
@@ -160,6 +192,49 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
         }
     }
 
+    bitset_uninit(&in);
+    bitset_uninit(&out);
+
     return 0;
 }
 
+void                minst_succ_add(struct minst *minst, struct minst *succ)
+{
+    struct minst_node *tnode;
+    if (!minst || !succ)
+        return;
+
+    if (minst->succs.minst)
+        minst->succs.minst = succ;
+    else {
+        tnode = calloc(1, sizeof (tnode[0]));
+        if (!tnode)
+            vm_error("minst_succ_add() calloc failure");
+
+        tnode->minst = succ;
+        tnode->next = minst->succs.next;
+
+        minst->succs.next = tnode;
+    }
+}
+
+void                 minst_pred_add(struct minst *minst, struct minst *pred)
+{
+    struct minst_node *tnode;
+
+    if (!minst || !pred)
+        return;
+
+    if (minst->preds.minst)
+        minst->preds.minst = pred;
+    else {
+        tnode = calloc(1, sizeof (tnode[0]));
+        if (!tnode)
+            vm_error("minst_succ_add() calloc failure");
+
+        tnode->minst = pred;
+        tnode->next = minst->preds.next;
+
+        minst->preds.next = tnode;
+    }
+}
