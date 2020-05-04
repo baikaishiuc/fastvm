@@ -109,9 +109,9 @@ void                minst_delete(struct minst *minst)
     free(minst);
 }
 
-struct minst*       minst_blk_find(struct minst_blk *blk, char *addr)
+struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr)
 {
-    return dynarray_find(&blk->allinst, addr);
+    return dynarray_find(&blk->allinst, (void *)addr);
 }
 
 void                minst_succ_add(struct minst *minst, struct minst *succ)

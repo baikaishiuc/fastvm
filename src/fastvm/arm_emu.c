@@ -47,7 +47,7 @@
 #define ARM_COND_AL     14
 
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
-#define ARM_PC_VAL(e)   (e->code.pos + 4)
+#define ARM_PC_VAL(e)   (e->baseaddr + e->code.pos + 4)
 
 #define KB          (1024)
 #define MB          (1024 * 1024)
@@ -160,6 +160,7 @@ struct arm_emu {
     int             dump_enfa;
     int             dump_inst;
 
+    /* target machine内的函数起始位置 */
     int             baseaddr;
     int             thumb;
     int             meet_blx;
@@ -702,11 +703,17 @@ static int t1_inst_cpy(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 }
 
 /* */
-static int check_mem_type(struct arm_emu *emu, unsigned long addr)
+static unsigned long emu_addr_target2host(struct arm_emu *emu, unsigned long addr)
 {
     return 0;
 }
 
+static unsigned long emu_addr_host2target(struct arm_emu *emu, unsigned long addr)
+{
+    addr -= emu->baseaddr;
+
+    return (unsigned long)emu->code.data + addr;
+}
 
 static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
@@ -824,8 +831,6 @@ static int t1_inst_mov_w(struct arm_emu *emu, struct minst *minst, uint16_t *ins
     if (IS_DISABLE_EMU(emu))
         return 0;
 
-    live_def_set(emu->code.ctx.ld);
-
     return 0;
 }
 
@@ -835,8 +840,6 @@ static int t1_inst_bx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
     if (IS_DISABLE_EMU(emu))
         return 0;
-
-    live_use_set(emu->code.ctx.lm);
 
     return 0;
 }
@@ -848,14 +851,12 @@ static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
     if (IS_DISABLE_EMU(emu))
         return 0;
 
-    live_use_clear(minst);
-
     return 0;
 }
 
 static int t1_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "b 0x%x", emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 11) * 2);
+    arm_prepare_dump(emu, "b 0x%x", ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 11) * 2);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
@@ -880,17 +881,24 @@ static int t_swi(struct arm_emu *emu, struct minst *minst, uint16_t *code, int l
     return 0;
 }
 
-static int t_bcond(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     if (emu->code.ctx.cond == 0xe)
         ARM_UNPREDICT();
     else if (emu->code.ctx.cond == 0xf)
         return t_swi(emu, minst, code, len);
 
-    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], emu->baseaddr + emu->code.pos + 4 + SignExtend(emu->code.ctx.imm, 8) * 2);
+    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2));
 
     if (IS_DISABLE_EMU(emu))
         return 0;
+
+    if (InITBlock(emu))
+        ARM_UNPREDICT();
+
+    minst->flag.b = 1;
+    minst->flag.b_al = (emu->code.ctx.cond == ARM_COND_AL);
+    minst->flag.b_need_fixed = 1;
 
     return 0;
 }
@@ -956,7 +964,7 @@ struct arm_inst_desc {
     {"1011    o1 10 m1 rl8",                {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
     {"1011    0000 o1 i7",                  {thumb_inst_add_sp_imm, thumb_inst_sub}, {"add", "sub"}},
     {"1011    1111 ld4 lm4",                {t1_inst_it}, {"it"}},
-    {"1101    c4 i8",                       {t_bcond}, {"b<cond>"}},
+    {"1101    c4 i8",                       {thumb_inst_b}, {"b<cond>"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
 
     {"1110 1001 0010 1101 0 m1 0 rl13",     {thumb_inst_push}, "push.w"},
@@ -1476,8 +1484,10 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 
     arm_minst_do(emu, minst);
 
-    minst_succ_add(emu->prev_minst, minst);
-    minst_pred_add(minst, emu->prev_minst);
+    if (!emu->prev_minst || !emu->prev_minst->flag.b || !emu->prev_minst->flag.b_al) {
+        minst_succ_add(emu->prev_minst, minst);
+        minst_pred_add(minst, emu->prev_minst);
+    }
 
     emu->prev_minst = minst;
 
@@ -1644,11 +1654,37 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
     return 0;
 }
 
+/* 在第一遍pass中 */
+static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
+{
+    int i;
+    struct minst *minst, *b_minst;
+
+    for (i = 0; i < emu->mblk.allinst.len; i++) {
+        minst = emu->mblk.allinst.ptab[i];
+        if (minst->flag.b && minst->flag.b_need_fixed) {
+            unsigned long target_addr = emu_addr_host2target(emu, minst->host_addr);
+
+            b_minst = minst_blk_find(&emu->mblk, target_addr);
+            if (!b_minst)
+                vm_error("arm emu host_addr[0x%x] target_addr[0x%x] not found", minst->host_addr, target_addr);
+
+            minst_succ_add(minst, b_minst);
+            minst_pred_add(b_minst, minst);
+
+            minst->flag.b_need_fixed = 0;
+        }
+    }
+
+    return 0;
+}
+
 int         arm_emu_run(struct arm_emu *emu)
 {
     int ret;
 
     emu->meet_blx = 0;
+    /* first pass */
     for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
         if (emu->meet_blx)
             break;
@@ -1659,7 +1695,10 @@ int         arm_emu_run(struct arm_emu *emu)
         }
         emu->code.pos += ret;
     }
+    /* second pass */
+    arm_emu_mblk_fix_pos(emu);
 
+    /* third pass */
     minst_blk_liveness_calc(&emu->mblk);
 
     arm_emu_dump_mblk(emu);

@@ -8,6 +8,7 @@ extern "C" {
 
 #include "vm.h"
 
+    /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
 struct arm_emu_create_param
 {
     unsigned char*  code;

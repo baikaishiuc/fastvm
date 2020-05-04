@@ -42,8 +42,12 @@ struct minst {
 
     struct {
         unsigned b : 1;         // is jump inst?
+        unsigned b_al : 1;      // jmp always
+        unsigned b_need_fixed : 1;   
         unsigned dead_code : 1;
     } flag;
+
+    unsigned long host_addr;            // jump address, need be fixed in second pass
 
     void *reg_node;
 };
@@ -57,7 +61,7 @@ void                minst_blk_uninit(struct minst_blk *blk);
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 void                minst_delete(struct minst *inst);
 
-struct minst*       minst_blk_find(struct minst_blk *blk, char *addr);
+struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 
 void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
