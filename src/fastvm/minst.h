@@ -42,6 +42,7 @@ struct minst {
 
     struct {
         unsigned b : 1;         // is jump inst?
+        unsigned dead_code : 1;
     } flag;
 
     void *reg_node;
@@ -61,21 +62,9 @@ struct minst*       minst_blk_find(struct minst_blk *blk, char *addr);
 void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
 
-/* 当我们往堆栈里push一个值时，就调用此函数，生成一个临时变量
-
-@top        stack depth
-@return     != NULL         temporary variable
-            NULL            error
-*/
-struct minst_var*   minst_blk_new_stack_var(struct minst_blk *blk, int top);
-
-struct minst_var*   minst_blk_find_stack_var(struct minst_blk *blk, int top);
-struct minst_var*   minst_blk_top_stack_var(struct minst_blk *blk);
-
-/* 当调用比如pop弹出堆栈时，也删除对应的临时变量 */
-int                 minst_blk_delete_stack_var(struct minst_blk *blk, int top);
-
 int                 minst_blk_liveness_calc(struct minst_blk *blk);
+
+int                 minst_blk_dead_code_elim(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }

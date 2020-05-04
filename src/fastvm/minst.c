@@ -114,41 +114,6 @@ struct minst*       minst_blk_find(struct minst_blk *blk, char *addr)
     return dynarray_find(&blk->allinst, addr);
 }
 
-int                 minst_blk_liveness_calc(struct minst_blk *blk)
-{
-    struct minst_node *succ;
-    struct minst *minst;
-    struct bitset in = { 0 }, out = { 0 }, use = {0};
-    int i, update = 1;
-
-    while (update) {
-        update = 0;
-        for (i = blk->allinst.len - 1; i >= 0; i--) {
-            minst = blk->allinst.ptab[i];
-
-            bitset_clone(&in, &minst->in);
-            bitset_clone(&out, &minst->out);
-            bitset_clone(&use, &minst->use);
-
-            bitset_clone(&minst->in, bitset_or(&use, bitset_sub(&minst->out, &minst->def)));
-
-            for (succ = &minst->succs; succ; succ = succ->next) {
-                if (succ->minst)
-                    bitset_or(&minst->out, &succ->minst->in);
-            }
-
-            if (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out))
-                update = 1;
-        }
-    }
-
-    bitset_uninit(&in);
-    bitset_uninit(&out);
-    bitset_uninit(&use);
-
-    return 0;
-}
-
 void                minst_succ_add(struct minst *minst, struct minst *succ)
 {
     struct minst_node *tnode;
@@ -188,4 +153,70 @@ void                 minst_pred_add(struct minst *minst, struct minst *pred)
 
         minst->preds.next = tnode;
     }
+}
+
+
+int                 minst_blk_liveness_calc(struct minst_blk *blk)
+{
+    struct minst_node *succ;
+    struct minst *minst;
+    struct bitset in = { 0 }, out = { 0 }, use = {0};
+    int i, changed = 1;
+
+    while (changed) {
+        changed = 0;
+        for (i = blk->allinst.len - 1; i >= 0; i--) {
+            minst = blk->allinst.ptab[i];
+
+            bitset_clone(&in, &minst->in);
+            bitset_clone(&out, &minst->out);
+            bitset_clone(&use, &minst->use);
+
+            bitset_clone(&minst->in, bitset_or(&use, bitset_sub(&minst->out, &minst->def)));
+
+            for (succ = &minst->succs; succ; succ = succ->next) {
+                if (succ->minst)
+                    bitset_or(&minst->out, &succ->minst->in);
+            }
+
+            if (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out))
+                changed = 1;
+        }
+    }
+
+    bitset_uninit(&in);
+    bitset_uninit(&out);
+    bitset_uninit(&use);
+
+    return 0;
+}
+
+int                 minst_blk_dead_code_elim(struct minst_blk *blk)
+{
+    struct minst *minst;
+    int changed = 1, i;
+    struct bitset def = { 0 };
+
+    while (changed) {
+        changed = 0;
+        minst_blk_liveness_calc(blk);
+        for (i = 0; i < blk->allinst.len; i++) {
+            minst = blk->allinst.ptab[i];
+            if (minst->flag.dead_code)
+                continue;
+
+            if (bitset_is_empty(&minst->def))
+                continue;
+
+            bitset_clone(&def, &minst->def);
+            if (!bitset_is_equal(bitset_and(&def, &minst->out), &minst->def)) {
+                minst->flag.dead_code = 1;
+                changed = 1;
+            }
+        }
+    }
+
+    bitset_uninit(&def);
+
+    return 0;
 }

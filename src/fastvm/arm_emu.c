@@ -71,6 +71,11 @@ typedef int         reg_t;
 
 #define ARM_UNPREDICT()   vm_error("arm unpredictable. %s:%d", __FILE__, __LINE__)
 
+#define IDUMP_BINCODE           0x01
+#define IDUMP_STACK_HEIGHT      0x02    
+#define IDUMP_LIVE              0x04
+#define IDUMP_DEFAULT           -1
+
 #define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
 #define live_use_set(reg)       bitset_set(&minst->use, reg, 1)
 #define live_use_clear(_m)      bitset_clear(&_m->use)
@@ -286,11 +291,11 @@ static void arm_prepare_dump(struct arm_emu *emu, const char *fmt, ...)
     va_end(ap);
 }
 
-static void arm_dump_temp_reglist(struct bitset *v)
+static void arm_dump_temp_reglist(const char *desc, struct bitset *v)
 {
     int i, j;
     /* dump liveness calculate result */
-    printf("[");
+    printf("[%s: ", desc);
     if (v->len4) {
         for (i = 0; i < 16; i++) {
             if (v->data[0] & (1 << i))
@@ -307,7 +312,7 @@ static void arm_dump_temp_reglist(struct bitset *v)
     printf("]");
 }
 
-static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
+static void arm_dump_inst(struct arm_emu *emu, struct minst *minst, unsigned int flag)
 {
     int i, len;
     char *buf, *param;
@@ -324,10 +329,15 @@ static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
         while (isblank(*param)) param++;
     }
 
-    printf("%08x %03x ", emu->baseaddr + (minst->addr - emu->code.data), MEM_STACK_TOP1(emu));
+    printf("%08x ", emu->baseaddr + (minst->addr - emu->code.data));
 
-    for (i = 0; i < minst->len; i++) {
-        printf("%02x ", (unsigned char)minst->addr[i]);
+    if (flag & IDUMP_STACK_HEIGHT)
+        printf("%03x ", MEM_STACK_TOP1(emu));
+
+    if (flag & IDUMP_BINCODE) {
+        for (i = 0; i < minst->len; i++) {
+            printf("%02x ", (unsigned char)minst->addr[i]);
+        }
     }
 
     for (; i < 6; i++) {
@@ -337,8 +347,12 @@ static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
     printf("%-10s %-16s  ", buf, param);
 
     /* dump liveness calculate result */
-    arm_dump_temp_reglist(&minst->def);
-    arm_dump_temp_reglist(&minst->use);
+    if (flag & IDUMP_LIVE) {
+        arm_dump_temp_reglist("def", &minst->def);
+        arm_dump_temp_reglist("use", &minst->use);
+        arm_dump_temp_reglist("in", &minst->in);
+        arm_dump_temp_reglist("out", &minst->out);
+    }
 
     printf("\n");
     emu->inst_fmt[0] = 0;
@@ -1624,7 +1638,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        arm_dump_inst(emu, minst);
+        arm_dump_inst(emu, minst, -1);
     }
 
     return 0;
