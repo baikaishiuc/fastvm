@@ -23,6 +23,9 @@
 #define ARM_REG_R14     14
 #define ARM_REG_R15     15
 
+#define SYS_REG_NUM     32
+
+
 #define ARM_REG_PC      ARM_REG_R15
 #define ARM_REG_LR      ARM_REG_R14
 #define ARM_REG_SP      ARM_REG_R13
@@ -46,19 +49,20 @@
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
 #define ARM_PC_VAL(e)   (e->code.pos + 4)
 
+#define KB          (1024)
+#define MB          (1024 * 1024)
 
-#define MEM_STACK_BASE     0x10000000
+#define PROCESS_STACK_SIZE          (256 * KB)
+#define PROCESS_STACK_BASE          0x10000000
+#define IN_PROCESS_STACK_RANGE(a)   (((a) < PROCESS_STACK_BASE) && (a >= (PROCESS_STACK_BASE - PROCESS_STACK_SIZE)))
 
 #define MEM_ERROR           -1
 #define MEM_CODE            0       // [0 - 64M)
 #define MEM_STACK           1       // [254 - 256M)
 #define MEM_HEAP            2       // ?
 
-#define MEM_STACK_TOP(e)        (MEM_STACK_BASE - e->regs[ARM_REG_SP])
-#define MEM_STACK_TOP1(e)       (MEM_STACK_BASE - e->prev_regs[ARM_REG_SP])
-
-#define KB          (1024)
-#define MB          (1024 * 1024)
+#define MEM_STACK_TOP(e)        (PROCESS_STACK_BASE - e->regs[ARM_REG_SP])
+#define MEM_STACK_TOP1(e)       (PROCESS_STACK_BASE - e->prev_regs[ARM_REG_SP])
 
 typedef int         reg_t;
 
@@ -113,6 +117,14 @@ struct arm_cpsr {
     unsigned n : 1;
 };
 
+struct emu_temp_var
+{
+    /* temp variable id */
+    int     t;
+    /* stack address */
+    int     top;
+};
+
 struct arm_emu {
     struct {
         unsigned char*  data;
@@ -150,6 +162,10 @@ struct arm_emu {
     /* P26 */
     struct arm_cpsr apsr;
 
+    /* 生成IR时，会产生大量的临时变量，这个是临时变量计数器 */
+    struct dynarray tvars;
+    int             tvar_id;
+
     struct {
         int     inblock;
         int     num;
@@ -175,7 +191,7 @@ static const char *regstr[] = {
     "r10",
     "r11",
     "r12",
-    "r13",
+    "sp",
     "lr",
     "pc",
 };
@@ -270,6 +286,27 @@ static void arm_prepare_dump(struct arm_emu *emu, const char *fmt, ...)
     va_end(ap);
 }
 
+static void arm_dump_temp_reglist(struct bitset *v)
+{
+    int i, j;
+    /* dump liveness calculate result */
+    printf("[");
+    if (v->len4) {
+        for (i = 0; i < 16; i++) {
+            if (v->data[0] & (1 << i))
+                printf("%s ", regstr[i]);
+        }
+
+        for (i = 1; i < v->len4; i++) {
+            for (j = 0; j < 32; j++) {
+                if (v->data[i] & (1 << j))
+                    printf("t%d ", i * 32 + j);
+            }
+        }
+    }
+    printf("]");
+}
+
 static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
 {
     int i, len;
@@ -287,7 +324,7 @@ static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
         while (isblank(*param)) param++;
     }
 
-    printf("%08x %03x ", emu->baseaddr + emu->code.pos, MEM_STACK_TOP1(emu));
+    printf("%08x %03x ", emu->baseaddr + (minst->addr - emu->code.data), MEM_STACK_TOP1(emu));
 
     for (i = 0; i < minst->len; i++) {
         printf("%02x ", (unsigned char)minst->addr[i]);
@@ -297,17 +334,53 @@ static void arm_dump_inst(struct arm_emu *emu, struct minst *minst)
         printf("   ");
     }
 
-    printf("%-10s %s  ", buf, param);
+    printf("%-10s %-16s  ", buf, param);
 
     /* dump liveness calculate result */
-    printf("[");
-    printf("]\n");
+    arm_dump_temp_reglist(&minst->def);
+    arm_dump_temp_reglist(&minst->use);
 
+    printf("\n");
     emu->inst_fmt[0] = 0;
 }
 
-static struct minst_var* emu_stack_push(struct arm_emu *emu, int val)
+static struct emu_temp_var *emu_alloc_temp_var(struct arm_emu *emu, unsigned long addr)
 {
+    struct emu_temp_var *var;
+
+    /* 所有对进程堆栈的操作，都要转换成临时变量，假如这个地址不是堆栈内，直接报错 */
+    if (!IN_PROCESS_STACK_RANGE(addr))
+        vm_error("%ul not in process range", addr);
+
+    var = calloc(1, sizeof (var[0]));
+    if (!var)
+        vm_error("stack_var calloc failure");
+
+    var->top = addr;
+    var->t = SYS_REG_NUM + emu->tvar_id++;
+
+    dynarray_add(&emu->tvars, var);
+
+    return var;
+}
+
+static struct emu_temp_var *emu_find_temp_var(struct arm_emu *emu, unsigned long addr)
+{
+    struct emu_temp_var *tvar;
+    int i;
+
+    for (i = emu->tvars.len - 1; i >= 0; i--) {
+        tvar = emu->tvars.ptab[i];
+        if (tvar->top == addr)
+            return tvar;
+    }
+
+    return NULL;
+}
+
+static struct emu_temp_var* emu_stack_push(struct arm_emu *emu, int val)
+{
+
     int top = MEM_STACK_TOP(emu);;
 
     if (top >= emu->stack.size)
@@ -317,27 +390,28 @@ static struct minst_var* emu_stack_push(struct arm_emu *emu, int val)
 
     *(int *)(emu->stack.base - MEM_STACK_TOP(emu)) = val;
 
-    return minst_blk_new_stack_var(&emu->mblk, emu->regs[ARM_REG_SP]);
+    return emu_alloc_temp_var(emu, ARM_SP_VAL(emu));
 }
 
-static struct minst_var* emu_stack_top(struct arm_emu *emu)
+static struct emu_temp_var* emu_stack_top(struct arm_emu *emu)
 {
     int top = MEM_STACK_TOP(emu);
     
-    if (top == 0)
+    if ((top == 0) || !emu->tvars.len)
         vm_error("arm emulator stack empty");
 
-    return minst_blk_top_stack_var(&emu->mblk);
+    return emu->tvars.ptab[emu->tvars.len - 1];
 }
 
 static void emu_stack_pop(struct arm_emu *emu)
 {
     int top = MEM_STACK_TOP(emu);
 
-    if (top == 0)
+    if ((top == 0) || !emu->tvars.len)
         vm_error("arm emulator stack empty");
 
-    minst_blk_delete_stack_var(&emu->mblk, emu->regs[ARM_REG_SP]);
+    free(emu->tvars.ptab[emu->tvars.len - 1]);
+    emu->tvars.len--;
 
     emu->regs[ARM_REG_SP] += 4;
 }
@@ -361,7 +435,7 @@ static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *c
 {
     char buf[32];
     int i, reglist;
-    struct minst_var *var;
+    struct emu_temp_var *var;
 
     if (len == 1) {
         reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
@@ -388,7 +462,7 @@ static int thumb_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     char buf[32];
     int reglist, i;
-    struct minst_var *var;
+    struct emu_temp_var *var;
 
     if (len == 2) {
         reglist = code[1] & 0xdfff;
@@ -423,31 +497,24 @@ static int t1_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     return 0;
 }
 
-static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    return 0;
-}
-
 static int t1_inst_add1(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     return 0;
 }
 
-static int t1_inst_add2(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+    if (((code[0] >> 12) & 0xf) == 0b1010) {
+        arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+        liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
+    }
+    else {
+        arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+        liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, emu->code.ctx.lm);
+    }
 
     if (IS_DISABLE_EMU(emu))
         return 0;
-
-    liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
-
-    return 0;
-}
-
-static int t1_inst_add4(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
     return 0;
 }
@@ -626,16 +693,12 @@ static int check_mem_type(struct arm_emu *emu, unsigned long addr)
     return 0;
 }
 
-static struct minst_var *arm_get_minst_stack_var(struct arm_emu *emu, unsigned long addr)
-{
-    return NULL;
-}
 
 static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     int sigcode = (code[0] >> 12) & 0xf, lm;
     unsigned long addr = 0;
-    struct minst_var *var;
+    struct emu_temp_var *var;
 
     if (len == 1) {
         if (sigcode == 0b0100) {
@@ -645,7 +708,7 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
         }
         else if (sigcode == 0b1001) {
             if (emu->code.ctx.imm)
-                arm_prepare_dump(emu, "ldr %s, [sp, #0x%x]", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+                arm_prepare_dump(emu, "ldr %s, [sp,#0x%x]", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
             else
                 arm_prepare_dump(emu, "ldr %s, [sp]");
 
@@ -679,7 +742,7 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
         return 0;
     
     if (addr) {
-        if ((var = arm_get_minst_stack_var(emu, addr))) 
+        if ((var = emu_find_temp_var(emu, addr))) 
             liveness_set(emu->code.ctx.ld, var->t);
         else 
             liveness_set(emu->code.ctx.ld, lm);
@@ -696,21 +759,25 @@ static int t1_inst_str_01101(struct arm_emu *emu, struct minst *minst, uint16_t 
 static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     unsigned long addr;
-    struct minst_var *var;
+    struct emu_temp_var *var;
 
     if (emu->code.ctx.imm) 
-        arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+        arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[emu->code.ctx.lm], emu->code.ctx.imm * 4);
     else
-        arm_prepare_dump(emu, "str %s, [sp]");
+        arm_prepare_dump(emu, "str %s, [sp]", regstr[emu->code.ctx.lm]);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
 
     addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
-    if ((var = arm_get_minst_stack_var(emu, addr)))
-        liveness_set(var->t, emu->code.ctx.ld);
+    if ((var = emu_find_temp_var(emu, addr)))
+        liveness_set(var->t, emu->code.ctx.lm);
+    else if (IN_PROCESS_STACK_RANGE(addr)) {
+        var = emu_alloc_temp_var(emu, addr);
+        liveness_set(var->t, emu->code.ctx.lm);
+    }
     else
-        liveness_set(-1, emu->code.ctx.ld);
+        liveness_set(-1, emu->code.ctx.lm);
 
     return 0;
 }
@@ -860,7 +927,7 @@ struct arm_inst_desc {
     {"0100    0010 1o1 lm3 ln3",            {thumb_inst_cmp, t1_inst_cmn}, {"cmp", "cmn"}},
     {"0100    0011 o2 lm3 ld3",             {t1_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
     {"0100    0110 00 lm3 ld3",             {t1_inst_mov_0100}, {"mov"}},
-    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add4, t1_inst_mov_0100}, {"add", "mov"}},
+    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    0101 01 lm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
@@ -869,8 +936,9 @@ struct arm_inst_desc {
     {"0100    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
     {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, thumb_inst_ldr},      {"str", "ldr"}},
-    {"1001    o1 ld3 i8",                   {t1_inst_str_10010, thumb_inst_ldr}, {"str", "ldr"}},
-    {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add2}, {"add", "add"}},
+    {"1001    0 lm3 i8",                    {t1_inst_str_10010}, {"str"}},
+    {"1001    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
+    {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add}, {"add", "add"}},
     {"1011    o1 10 m1 rl8",                {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
     {"1011    0000 o1 i7",                  {thumb_inst_add_sp_imm, thumb_inst_sub}, {"add", "sub"}},
     {"1011    1111 ld4 lm4",                {t1_inst_it}, {"it"}},
@@ -1397,6 +1465,8 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
     minst_succ_add(emu->prev_minst, minst);
     minst_pred_add(minst, emu->prev_minst);
 
+    emu->prev_minst = minst;
+
     return i * 2;
 }
 
@@ -1501,6 +1571,9 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
 {
     memset(emu->regs, 0 , sizeof (emu->regs));
     memset(emu->prev_regs, 0, sizeof (emu->prev_regs));
+
+    emu->regs[ARM_REG_SP] = PROCESS_STACK_BASE;
+
     return 0;
 }
 
@@ -1519,14 +1592,14 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
 
     minst_blk_init(&emu->mblk, NULL);
 
-    emu->regs[ARM_REG_SP] = MEM_STACK_BASE;
-
-    emu->stack.size = 256 * KB;
+    emu->stack.size = PROCESS_STACK_SIZE;
     emu->stack.data = calloc(1, emu->stack.size);
     if (NULL == emu->stack.data)
         vm_error("arm alloc stack size[%d] failure", emu->stack.size);
 
     emu->stack.base = emu->stack.data + emu->stack.size;
+
+    arm_emu_cpu_reset(emu);
 
     return emu;
 }

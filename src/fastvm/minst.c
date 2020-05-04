@@ -62,57 +62,6 @@ void                minst_blk_uninit(struct minst_blk *blk)
     memset(blk, 0, sizeof (blk[0]));
 }
 
-struct minst_var*   minst_blk_new_stack_var(struct minst_blk *blk, int top)
-{
-    struct minst_var *var;
-    /* 每次分配堆栈变量都是从栈顶开始分配，所以新分配的变量一定比老的栈顶大 */
-    if (blk->tvar.len && (var = blk->tvar.ptab[blk->tvar.len - 1]) && var->top < top) {
-        vm_error("alloc stack variable failed with top error [%d < %d]", var->top, top);
-    }
-
-    var = calloc(1, sizeof (var[0]));
-    if (!var)
-        vm_error("stack_var calloc failure");
-
-    var->top = top;
-    var->t = TVAR_BASE + blk->tvar_id++;
-
-    dynarray_add(&blk->tvar, var);
-
-    return var;
-}
-
-struct minst_var*   minst_blk_top_stack_var(struct minst_blk *blk)
-{
-    if (!blk->tvar.len)
-        return NULL;
-
-    return blk->tvar.ptab[blk->tvar.len - 1];
-}
-
-struct minst_var*   minst_blk_find_stack_var(struct minst_blk *blk, int top)
-{
-    struct minst_var *tvar;
-    int i;
-
-    for (i = blk->tvar.len - 1; i >= 0; i++) {
-        tvar = blk->tvar.ptab[i];
-        if (tvar->top < top)
-            return NULL;
-
-        if (tvar->top == top)
-            return tvar;
-    }
-
-    return NULL;
-}
-
-/* 当调用比如pop弹出堆栈时，也删除对应的临时变量 */
-int                 minst_blk_delete_stack_var(struct minst_blk *blk, int top)
-{
-    return 0;
-}
-
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node)
 {
     struct minst *minst;
@@ -169,7 +118,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 {
     struct minst_node *succ;
     struct minst *minst;
-    struct bitset in = { 0 }, out = { 0 };
+    struct bitset in = { 0 }, out = { 0 }, use = {0};
     int i, update = 1;
 
     while (update) {
@@ -179,8 +128,9 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 
             bitset_clone(&in, &minst->in);
             bitset_clone(&out, &minst->out);
+            bitset_clone(&use, &minst->use);
 
-            bitset_or(&minst->use, bitset_sub(&minst->out, &minst->def));
+            bitset_clone(&minst->in, bitset_or(&use, bitset_sub(&minst->out, &minst->def)));
 
             for (succ = &minst->succs; succ; succ = succ->next) {
                 if (succ->minst)
@@ -194,6 +144,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 
     bitset_uninit(&in);
     bitset_uninit(&out);
+    bitset_uninit(&use);
 
     return 0;
 }
@@ -204,7 +155,7 @@ void                minst_succ_add(struct minst *minst, struct minst *succ)
     if (!minst || !succ)
         return;
 
-    if (minst->succs.minst)
+    if (!minst->succs.minst)
         minst->succs.minst = succ;
     else {
         tnode = calloc(1, sizeof (tnode[0]));
@@ -225,7 +176,7 @@ void                 minst_pred_add(struct minst *minst, struct minst *pred)
     if (!minst || !pred)
         return;
 
-    if (minst->preds.minst)
+    if (!minst->preds.minst)
         minst->preds.minst = pred;
     else {
         tnode = calloc(1, sizeof (tnode[0]));

@@ -47,13 +47,6 @@ struct minst {
     void *reg_node;
 };
 
-struct minst_var {
-    /* 堆栈深度，指明这个临时变量和哪块堆栈内存绑定 */
-    int     top; 
-    /* 临时变量 id */
-    int     t;
-};
-
 struct minst_blk*   minst_blk_new(char *funcname);
 void                minst_blk_delete(struct minst_blk *mblk);
 
