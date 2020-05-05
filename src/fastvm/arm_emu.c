@@ -74,7 +74,8 @@ typedef int         reg_t;
 #define IDUMP_ADDR              0x01
 #define IDUMP_BINCODE           0x02
 #define IDUMP_STACK_HEIGHT      0x04    
-#define IDUMP_LIVE              0x08
+#define IDUMP_STATUS            0x08
+#define IDUMP_LIVE              0x10
 #define IDUMP_DEFAULT           -1
 
 #define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
@@ -315,9 +316,10 @@ static int arm_dump_temp_reglist(const char *desc, struct bitset *v, char *obuf)
             }
         }
     }
-    olen = sprintf(o += olen, "]");
+    if (o[olen - 1] == ' ') olen--;
+    olen = sprintf(o += olen, "] ");
 
-    return o + olen - obuf;
+    return (o + olen) - obuf;
 }
 
 static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsigned int flag, char *obuf)
@@ -355,6 +357,12 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
 
     olen = sprintf(o += olen, "%-10s %-16s  ", buf, param);
 
+    if (flag & IDUMP_STATUS) {
+        olen = sprintf(o += olen, "[");
+        olen = sprintf(o += olen, "%c", minst->flag.dead_code ? 'D':' ');
+        olen = sprintf(o += olen, "]");
+    }
+
     /* dump liveness calculate result */
     if (flag & IDUMP_LIVE) {
         olen = arm_dump_temp_reglist("def", &minst->def, o += olen);
@@ -363,7 +371,7 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
         olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
     }
 
-    o += len;
+    o += olen;
     emu->inst_fmt[0] = 0;
 
     return o - obuf;
@@ -1783,6 +1791,9 @@ int         arm_emu_run(struct arm_emu *emu)
 
     /* third pass */
     minst_blk_liveness_calc(&emu->mblk);
+
+    /* forth pass */
+    minst_blk_dead_code_elim(&emu->mblk);
 
     arm_emu_dump_mblk(emu);
 
