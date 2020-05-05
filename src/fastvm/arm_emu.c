@@ -334,7 +334,7 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
         olen = sprintf(o += olen, "   ");
     }
 
-    olen = sprintf(o += olen, "%-10s %-16s  ", buf, param);
+    olen = sprintf(o += olen, "%-10s %-18s  ", buf, param);
 
     if (flag & IDUMP_STATUS) {
         olen = sprintf(o += olen, "[");
@@ -586,21 +586,26 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
 
+    emu->code.ctx.ld = ARM_REG_SP;
+    liveness_set(emu->code.ctx.ld, emu->code.ctx.ld);
+
     if (IS_DISABLE_EMU(emu))
         return 0;
 
-    liveness_set(ARM_REG_SP, ARM_REG_SP);
+    if (ConditionPassed(emu)) {
+        struct bits bits = AddWithCarry(ARM_SP_VAL(emu), NOT(emu->code.ctx.imm * 4), 1);
 
-    struct bits bits = AddWithCarry(ARM_SP_VAL(emu), NOT(emu->code.ctx.imm * 4), 1);
+        emu->regs[emu->code.ctx.ld] = bits.v;
 
-    emu->regs[ARM_REG_SP] = bits.v;
-
-    if (emu->code.ctx.setflags) {
-        ARM_APSR_PTR(emu)->n = INT_TOPMOSTBIT(bits.v);
-        ARM_APSR_PTR(emu)->z = IsZeroBit(bits.v);
-        ARM_APSR_PTR(emu)->c = bits.carry_out;
-        ARM_APSR_PTR(emu)->v = bits.overflow;
+        if (emu->code.ctx.setflags) {
+            ARM_APSR_PTR(emu)->n = INT_TOPMOSTBIT(bits.v);
+            ARM_APSR_PTR(emu)->z = IsZeroBit(bits.v);
+            ARM_APSR_PTR(emu)->c = bits.carry_out;
+            ARM_APSR_PTR(emu)->v = bits.overflow;
+        }
     }
+
+    REG_SET_KNOWN(emu, emu->code.ctx.ld);
 
     return 0;
 }
