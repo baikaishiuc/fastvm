@@ -71,9 +71,10 @@ typedef int         reg_t;
 
 #define ARM_UNPREDICT()   vm_error("arm unpredictable. %s:%d", __FILE__, __LINE__)
 
-#define IDUMP_BINCODE           0x01
-#define IDUMP_STACK_HEIGHT      0x02    
-#define IDUMP_LIVE              0x04
+#define IDUMP_ADDR              0x01
+#define IDUMP_BINCODE           0x02
+#define IDUMP_STACK_HEIGHT      0x04    
+#define IDUMP_LIVE              0x08
 #define IDUMP_DEFAULT           -1
 
 #define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
@@ -295,31 +296,34 @@ static void arm_prepare_dump(struct arm_emu *emu, const char *fmt, ...)
     va_end(ap);
 }
 
-static void arm_dump_temp_reglist(const char *desc, struct bitset *v)
+static int arm_dump_temp_reglist(const char *desc, struct bitset *v, char *obuf)
 {
-    int i, j;
+    char *o = obuf;
+    int i, j, olen = 0;
     /* dump liveness calculate result */
-    printf("[%s: ", desc);
+    olen = sprintf(o += olen, "[%s: ", desc);
     if (v->len4) {
         for (i = 0; i < 16; i++) {
             if (v->data[0] & (1 << i))
-                printf("%s ", regstr[i]);
+                olen = sprintf(o += olen, "%s ", regstr[i]);
         }
 
         for (i = 1; i < v->len4; i++) {
             for (j = 0; j < 32; j++) {
                 if (v->data[i] & (1 << j))
-                    printf("t%d ", i * 32 + j);
+                    olen = sprintf(o += olen, "t%d ", i * 32 + j);
             }
         }
     }
-    printf("]");
+    olen = sprintf(o += olen, "]");
+
+    return o + olen - obuf;
 }
 
-static void arm_dump_inst(struct arm_emu *emu, struct minst *minst, unsigned int flag)
+static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsigned int flag, char *obuf)
 {
-    int i, len;
-    char *buf, *param;
+    int i, len, olen = 0;
+    char *buf, *param, *o = obuf;
 
     buf = emu->inst_fmt;
     len = strlen(buf);
@@ -333,33 +337,36 @@ static void arm_dump_inst(struct arm_emu *emu, struct minst *minst, unsigned int
         while (isblank(*param)) param++;
     }
 
-    printf("%08x ", emu->baseaddr + (minst->addr - emu->code.data));
+    if (flag & IDUMP_ADDR)
+        olen = sprintf(o += olen, "%08x ", emu->baseaddr + (minst->addr - emu->code.data));
 
     if (flag & IDUMP_STACK_HEIGHT)
-        printf("%03x ", MEM_STACK_TOP1(emu));
+        olen = sprintf(o += olen, "%03x ", MEM_STACK_TOP1(emu));
 
     if (flag & IDUMP_BINCODE) {
         for (i = 0; i < minst->len; i++) {
-            printf("%02x ", (unsigned char)minst->addr[i]);
+            olen = sprintf(o += olen, "%02x ", (unsigned char)minst->addr[i]);
         }
     }
 
     for (; i < 6; i++) {
-        printf("   ");
+        olen = sprintf(o += olen, "   ");
     }
 
-    printf("%-10s %-16s  ", buf, param);
+    olen = sprintf(o += olen, "%-10s %-16s  ", buf, param);
 
     /* dump liveness calculate result */
     if (flag & IDUMP_LIVE) {
-        arm_dump_temp_reglist("def", &minst->def);
-        arm_dump_temp_reglist("use", &minst->use);
-        arm_dump_temp_reglist("in", &minst->in);
-        arm_dump_temp_reglist("out", &minst->out);
+        olen = arm_dump_temp_reglist("def", &minst->def, o += olen);
+        olen = arm_dump_temp_reglist("use", &minst->use, o += olen);
+        olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
+        olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
     }
 
-    printf("\n");
+    o += len;
     emu->inst_fmt[0] = 0;
+
+    return o - obuf;
 }
 
 static struct emu_temp_var *emu_alloc_temp_var(struct arm_emu *emu, unsigned long addr)
@@ -1618,6 +1625,9 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
     emu->code.data = param->code;
     emu->code.len = param->code_len;
     emu->baseaddr = param->baseaddr;
+    emu->dump.cfg = 1;
+    emu->dump.nfa = 1;
+    emu->dump.dfa = 1;
 
     minst_blk_init(&emu->mblk, NULL);
 
@@ -1646,6 +1656,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 {
     struct minst *minst;
     int i;
+    char buf[512];
 
     arm_emu_cpu_reset(emu);
     emu->decode_inst_flag = FLAG_DISABLE_EMU;
@@ -1654,7 +1665,9 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        arm_dump_inst(emu, minst, -1);
+        arm_inst_print_format(emu, minst, -1, buf);
+
+        printf("%s\n", buf);
     }
 
     return 0;
@@ -1668,11 +1681,13 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
     struct minst *minst, *prev_minst, *cur_grp_minst;
     struct minst_node *tnode;
     struct minst_blk *blk = &emu->mblk;
+    char obuf[512];
     unsigned char *start;
 
     FILE *fp = fopen("cfg.dot", "w");
 
     fprintf(fp, "digraph G {");
+    fprintf(fp, "node [fontname = \"helvetica\"]");
 
     arm_emu_cpu_reset(emu);
     for (i = 0; i < blk->allinst.len; i++) {
@@ -1712,7 +1727,9 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        fprintf(fp, "%s<br/>", emu->inst_fmt);
+        arm_inst_print_format(emu, minst, 0, obuf);
+
+        fprintf(fp, "%s<br/>", obuf);
         prev_minst = minst;
     }
     fprintf(fp, ">]\n}");
