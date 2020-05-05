@@ -60,46 +60,46 @@ static inline int _ConditionPassed(struct arm_emu *e, int cond)
 {
     switch (cond) {
     case ARM_COND_EQ:
-        return e->apsr.z == 1;
+        return ARM_APSR_PTR(e)->z == 1;
 
     case ARM_COND_NE:  
-        return e->apsr.z == 0;
+        return ARM_APSR_PTR(e)->z == 0;
 
     case ARM_COND_CS:  
-        return e->apsr.c == 1;
+        return ARM_APSR_PTR(e)->c == 1;
 
     case ARM_COND_CC:  
-        return e->apsr.c == 0;
+        return ARM_APSR_PTR(e)->c == 0;
 
     case ARM_COND_MI:  
-        return e->apsr.n == 1;
+        return ARM_APSR_PTR(e)->n == 1;
 
     case ARM_COND_PL:  
-        return e->apsr.n == 0;
+        return ARM_APSR_PTR(e)->n == 0;
 
     case ARM_COND_VS:  
-        return e->apsr.v == 1;
+        return ARM_APSR_PTR(e)->v == 1;
 
     case ARM_COND_VC:  
-        return e->apsr.v == 0;
+        return ARM_APSR_PTR(e)->v == 0;
 
     case ARM_COND_HI:  
-        return (e->apsr.c == 1) && (e->apsr.z == 0);
+        return (ARM_APSR_PTR(e)->c == 1) && (ARM_APSR_PTR(e)->z == 0);
 
     case ARM_COND_LS:  
-        return (e->apsr.c == 0) || (e->apsr.z == 1);
+        return (ARM_APSR_PTR(e)->c == 0) || (ARM_APSR_PTR(e)->z == 1);
 
     case ARM_COND_GE:  
-        return e->apsr.n == e->apsr.v;
+        return ARM_APSR_PTR(e)->n == ARM_APSR_PTR(e)->v;
 
     case ARM_COND_LT:
-        return e->apsr.n != e->apsr.v;
+        return ARM_APSR_PTR(e)->n != ARM_APSR_PTR(e)->v;
 
     case ARM_COND_GT:  
-        return (e->apsr.z == 0) && (e->apsr.n == e->apsr.v);
+        return (ARM_APSR_PTR(e)->z == 0) && (ARM_APSR_PTR(e)->n == ARM_APSR_PTR(e)->v);
 
     case ARM_COND_LE:  
-        return (e->apsr.z == 1) || (e->apsr.n != e->apsr.v);
+        return (ARM_APSR_PTR(e)->z == 1) || (ARM_APSR_PTR(e)->n != ARM_APSR_PTR(e)->v);
 
     case ARM_COND_AL:  
         return 1;

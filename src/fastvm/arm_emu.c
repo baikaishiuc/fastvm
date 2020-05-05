@@ -30,7 +30,7 @@
 #define ARM_REG_PC      ARM_REG_R15
 #define ARM_REG_LR      ARM_REG_R14
 #define ARM_REG_SP      ARM_REG_R13
-#define ARM_REG_ASPR    ARM_REG_R18
+#define ARM_REG_APSR    ARM_REG_R18
 
 #define ARM_COND_EQ     0
 #define ARM_COND_NE     1
@@ -50,6 +50,7 @@
 
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
 #define ARM_PC_VAL(e)   e->regs[ARM_REG_PC]
+#define ARM_APSR_PTR(e)     ((struct arm_cpsr *)&e->regs[ARM_REG_APSR])
 
 #define REG_SET_KNOWN(e, reg)       (e->known |= 1 << reg)
 #define REG_SET_UNKNOWN(e, reg)     (e->knwwn &= ~(1 << reg))
@@ -81,7 +82,8 @@ typedef int         reg_t;
 #define IDUMP_BINCODE           0x02
 #define IDUMP_STACK_HEIGHT      0x04    
 #define IDUMP_STATUS            0x08
-#define IDUMP_LIVE              0x10
+#define IDUMP_TRACE             0x10
+#define IDUMP_LIVE              0x20
 #define IDUMP_DEFAULT           -1
 
 
@@ -164,7 +166,7 @@ struct arm_emu {
     int             meet_blx;
     int             decode_inst_flag;
     /* P26 */
-    struct arm_cpsr apsr;
+    //struct arm_cpsr apsr;
 
     /* 生成IR时，会产生大量的临时变量，这个是临时变量计数器 */
     struct dynarray tvars;
@@ -338,6 +340,18 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
         olen = sprintf(o += olen, "[");
         olen = sprintf(o += olen, "%c", minst->flag.dead_code ? 'D':' ');
         olen = sprintf(o += olen, "]");
+    }
+
+    if (flag & IDUMP_TRACE) {
+        if (emu->code.ctx.ld != -1) {
+            olen = sprintf(o += olen, "[%s=%08x", regstr[emu->code.ctx.ld], emu->regs[emu->code.ctx.ld]);
+        }
+        else {
+            olen = sprintf(o += olen, "[");
+        }
+
+        olen = sprintf(o += olen, ",APSR=%c%c%c%c]", ARM_APSR_PTR(emu)->z ? 'Z':' ', 
+            ARM_APSR_PTR(emu)->c ? 'C':' ', ARM_APSR_PTR(emu)->n ? 'N':' ', ARM_APSR_PTR(emu)->v ? 'V':' ');
     }
 
     /* dump liveness calculate result */
@@ -524,17 +538,40 @@ static int t1_inst_add1(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
 static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    int lm, imm32;
     if (((code[0] >> 12) & 0xf) == 0b1010) {
-        arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+        arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], imm32 = emu->code.ctx.imm * 4);
         liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
+        lm = ARM_REG_SP;
     }
     else {
-        arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+        arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[lm = emu->code.ctx.lm]);
         liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, emu->code.ctx.lm);
+    }
+
+    if (ConditionPassed(emu) && emu->code.ctx.setflags) {
+        live_def_set(ARM_REG_APSR);
     }
 
     if (IS_DISABLE_EMU(emu))
         return 0;
+
+    /*add sp */
+    if (((code[0] >> 12) & 0xf) == 0b1010) {
+        if (ConditionPassed(emu)) {
+            struct bits b = AddWithCarry(ARM_SP_VAL(emu), imm32, 0);
+            emu->regs[emu->code.ctx.ld] = b.v;
+
+            if (emu->code.ctx.setflags) {
+                ARM_APSR_PTR(emu)->n = INT_TOPMOSTBIT(b.v);
+                ARM_APSR_PTR(emu)->z = IsZeroBit(b.v);
+                ARM_APSR_PTR(emu)->c = b.carry_out;
+                ARM_APSR_PTR(emu)->v = b.overflow;
+            }
+        }
+    }
+    else {
+    }
 
     return 0;
 }
@@ -559,10 +596,10 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
     emu->regs[ARM_REG_SP] = bits.v;
 
     if (emu->code.ctx.setflags) {
-        emu->apsr.n = INT_TOPMOSTBIT(bits.v);
-        emu->apsr.z = IsZeroBit(bits.v);
-        emu->apsr.c = bits.carry_out;
-        emu->apsr.v = bits.overflow;
+        ARM_APSR_PTR(emu)->n = INT_TOPMOSTBIT(bits.v);
+        ARM_APSR_PTR(emu)->z = IsZeroBit(bits.v);
+        ARM_APSR_PTR(emu)->c = bits.carry_out;
+        ARM_APSR_PTR(emu)->v = bits.overflow;
     }
 
     return 0;
@@ -1615,6 +1652,13 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
     emu->regs[ARM_REG_SP] = PROCESS_STACK_BASE;
     emu->code.pos = 0;
 
+    emu->known = 0;
+
+    memset(&emu->it, 0, sizeof (emu->it));
+
+    REG_SET_KNOWN(emu, ARM_REG_SP);
+    REG_SET_KNOWN(emu, ARM_REG_PC);
+
     return 0;
 }
 
@@ -1663,13 +1707,13 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
     char buf[512];
 
     arm_emu_cpu_reset(emu);
-    emu->decode_inst_flag = FLAG_DISABLE_EMU;
+    //emu->decode_inst_flag = FLAG_DISABLE_EMU;
     for (i = 0; i < emu->mblk.allinst.len; i++) {
         minst = emu->mblk.allinst.ptab[i];
 
         arm_minst_do(emu, minst);
 
-        arm_inst_print_format(emu, minst, -1, buf);
+        arm_inst_print_format(emu, minst, ~IDUMP_LIVE, buf);
 
         printf("%s\n", buf);
     }
