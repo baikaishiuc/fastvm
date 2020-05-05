@@ -47,7 +47,7 @@
 #define ARM_COND_AL     14
 
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
-#define ARM_PC_VAL(e)   (e->baseaddr + e->code.pos + 4)
+#define ARM_PC_VAL(e)   e->regs[ARM_REG_PC]
 
 #define KB          (1024)
 #define MB          (1024 * 1024)
@@ -156,9 +156,12 @@ struct arm_emu {
         int                size;
     } stack;
 
-    int             dump_dfa;
-    int             dump_enfa;
-    int             dump_inst;
+    struct {
+        unsigned nfa : 1;
+        unsigned dfa :1;
+        unsigned mblk : 1;
+        unsigned cfg : 1;
+    } dump;
 
     /* target machine内的函数起始位置 */
     int             baseaddr;
@@ -856,10 +859,14 @@ static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 
 static int t1_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "b 0x%x", ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 11) * 2);
+    arm_prepare_dump(emu, "b 0x%x", minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 11) * 2));
 
     if (IS_DISABLE_EMU(emu))
         return 0;
+
+    minst->flag.b = 1;
+    minst->flag.b_al = 1;
+    minst->flag.b_need_fixed = 1;
 
     return 0;
 }
@@ -1087,7 +1094,6 @@ void reg_node__dump_dot(FILE *fp, struct reg_tree *tree)
 
 void reg_node_dump_dot(const char *filename, struct reg_tree *tree)
 {
-    char buf[128];
     FILE *fp = fopen(filename, "w");
 
     fprintf(fp, "digraph G {\n");
@@ -1099,9 +1105,6 @@ void reg_node_dump_dot(const char *filename, struct reg_tree *tree)
     fprintf(fp, "}\n");
 
     fclose(fp);
-
-    sprintf(buf, "dot -Tpng %s -o %s.png", filename, filename);
-    system(buf);
 }
 
 struct arm_inst_engine *inst_engine_create()
@@ -1370,12 +1373,12 @@ static int arm_insteng_init(struct arm_emu *emu)
             arm_insteng_add_exp(g_eng, buf, desclist[i].desc[0], desclist[i].funclist[0]);
     }
 
-    if (emu->dump_enfa)
-        reg_node_dump_dot("enfa.dot", &g_eng->enfa);
+    if (emu->dump.nfa)
+        reg_node_dump_dot("nfa.dot", &g_eng->enfa);
 
     arm_insteng_gen_dfa(g_eng);
 
-    if (emu->dump_dfa)
+    if (emu->dump.dfa)
         reg_node_dump_dot("dfa.dot", &g_eng->dfa);
 
     arm_insteng_gen_trans2d(g_eng);
@@ -1456,6 +1459,8 @@ static struct reg_node*     arm_insteng_parse(struct arm_emu *emu, uint8_t *code
 static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
 {
     struct reg_node *reg_node = minst->reg_node;
+
+    emu->regs[ARM_REG_PC] = emu->baseaddr + (minst->addr - emu->code.data) + 4;
 
     memcpy(emu->prev_regs, emu->regs, sizeof (emu->regs));
 
@@ -1597,6 +1602,7 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
     memset(emu->prev_regs, 0, sizeof (emu->prev_regs));
 
     emu->regs[ARM_REG_SP] = PROCESS_STACK_BASE;
+    emu->code.pos = 0;
 
     return 0;
 }
@@ -1611,7 +1617,6 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
     
     emu->code.data = param->code;
     emu->code.len = param->code_len;
-    emu->dump_inst = 1;
     emu->baseaddr = param->baseaddr;
 
     minst_blk_init(&emu->mblk, NULL);
@@ -1642,6 +1647,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
     struct minst *minst;
     int i;
 
+    arm_emu_cpu_reset(emu);
     emu->decode_inst_flag = FLAG_DISABLE_EMU;
     for (i = 0; i < emu->mblk.allinst.len; i++) {
         minst = emu->mblk.allinst.ptab[i];
@@ -1652,6 +1658,66 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
     }
 
     return 0;
+}
+
+#define CFG_NODE_ID(addr)       (emu->baseaddr + (addr - emu->code.data))
+
+static void arm_emu_dump_cfg(struct arm_emu *emu)
+{
+    int i, j;
+    struct minst *minst, *prev_minst, *cur_grp_minst;
+    struct minst_node *tnode;
+    struct minst_blk *blk = &emu->mblk;
+    unsigned char *start;
+
+    FILE *fp = fopen("cfg.dot", "w");
+
+    fprintf(fp, "digraph G {");
+
+    arm_emu_cpu_reset(emu);
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+
+        if (0 == i) {
+            cur_grp_minst = minst;
+        }
+        else if (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1]) {
+            cur_grp_minst = minst;
+        }
+
+        minst->cfg_node = cur_grp_minst;
+        prev_minst = minst;
+    }
+
+    for (i = j =0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+
+        /* 指令快刚进入的时候，必定生成一个节点 */
+        if (0 == i) {
+            start = minst->addr;
+            fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
+        }
+        /* 1. 物理前指令是跳转指令，自动切块
+           2. 当前节点有多个前节点 
+           3. 前节点不是物理前节点 */
+        else if (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1]) {
+            fprintf(fp, ">]\n");
+
+            for (tnode = &prev_minst->succs; tnode; tnode = tnode->next) {
+                fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(prev_minst->cfg_node->addr), CFG_NODE_ID(tnode->minst->addr));
+            }
+
+            fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
+        }
+
+        arm_minst_do(emu, minst);
+
+        fprintf(fp, "%s<br/>", emu->inst_fmt);
+        prev_minst = minst;
+    }
+    fprintf(fp, ">]\n}");
+
+    fclose(fp);
 }
 
 /* 在第一遍pass中 */
@@ -1702,6 +1768,9 @@ int         arm_emu_run(struct arm_emu *emu)
     minst_blk_liveness_calc(&emu->mblk);
 
     arm_emu_dump_mblk(emu);
+
+    if (emu->dump.cfg)
+        arm_emu_dump_cfg(emu);
 
     return 0;
 }

@@ -49,6 +49,8 @@ struct minst {
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
 
+    struct minst *cfg_node;
+
     void *reg_node;
 };
 
