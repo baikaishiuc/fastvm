@@ -155,6 +155,36 @@ void                 minst_pred_add(struct minst *minst, struct minst *pred)
     }
 }
 
+void                minst_blk_live_prologue_add(struct minst_blk *blk)
+{
+    int i;
+    struct minst *minst = minst_new(blk, NULL, 0, NULL);
+
+    minst->flag.prologue = 1;
+
+    for (i = 0; i < 16; i++) {
+        live_def_set(i);
+    }
+}
+
+void                minst_blk_live_epilogue_add(struct minst_blk *blk)
+{
+    int i, len;
+    struct minst *minst = minst_new(blk, NULL, 0, NULL);
+
+    minst->flag.epilogue = 1;
+
+    for (i = 0; i < 16; i++) {
+        live_use_set(i);
+    }
+
+    minst_succ_add(blk->allinst.ptab[0], blk->allinst.ptab[1]);
+    minst_pred_add(blk->allinst.ptab[1], blk->allinst.ptab[0]);
+
+    len = blk->allinst.len;
+    minst_succ_add(blk->allinst.ptab[len - 2], blk->allinst.ptab[len - 1]);
+    minst_pred_add(blk->allinst.ptab[len - 1], blk->allinst.ptab[len - 2]);
+}
 
 int                 minst_blk_liveness_calc(struct minst_blk *blk)
 {

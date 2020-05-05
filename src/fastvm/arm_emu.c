@@ -22,6 +22,7 @@
 #define ARM_REG_R13     13
 #define ARM_REG_R14     14
 #define ARM_REG_R15     15
+#define ARM_REG_R18     18
 
 #define SYS_REG_NUM     32
 
@@ -29,6 +30,7 @@
 #define ARM_REG_PC      ARM_REG_R15
 #define ARM_REG_LR      ARM_REG_R14
 #define ARM_REG_SP      ARM_REG_R13
+#define ARM_REG_ASPR    ARM_REG_R18
 
 #define ARM_COND_EQ     0
 #define ARM_COND_NE     1
@@ -48,6 +50,10 @@
 
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
 #define ARM_PC_VAL(e)   e->regs[ARM_REG_PC]
+
+#define REG_SET_KNOWN(e, reg)       (e->known |= 1 << reg)
+#define REG_SET_UNKNOWN(e, reg)     (e->knwwn &= ~(1 << reg))
+#define REG_IS_KNOWN(e,reg)         (e->knwon & (1 << reg)
 
 #define KB          (1024)
 #define MB          (1024 * 1024)
@@ -78,20 +84,6 @@ typedef int         reg_t;
 #define IDUMP_LIVE              0x10
 #define IDUMP_DEFAULT           -1
 
-#define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
-#define live_use_set(reg)       bitset_set(&minst->use, reg, 1)
-#define live_use_clear(_m)      bitset_clear(&_m->use)
-
-#define liveness_set2(_def, _use, _use1)    do { \
-        bitset_set(&minst->def, _def, 1); \
-        bitset_set(&minst->use, _use, 1); \
-        bitset_set(&minst->use, _use1, 1); \
-    } while (0)
-
-#define liveness_set(_def, _use)    do { \
-        bitset_set(&minst->def, _def, 1); \
-        bitset_set(&minst->use, _use, 1); \
-    } while (0)
 
 struct arm_inst_context {
     reg_t   ld;
@@ -142,8 +134,9 @@ struct arm_emu {
     } code;
 
     char inst_fmt[64];
-    int prev_regs[16];
-    int regs[16];
+    unsigned int prev_regs[32];
+    unsigned int regs[32];
+    unsigned int known;
 
     int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
     void *user_ctx;
@@ -189,40 +182,19 @@ struct arm_emu {
 };
 
 static const char *regstr[] = {
-    "r0",
-    "r1",
-    "r2",
-    "r3",
-    "r4",
-    "r5",
-    "r6",
-    "r7",
-    "r8",
-    "r9",
-    "r10",
-    "r11",
-    "r12",
-    "sp",
-    "lr",
-    "pc",
+    "r0", "r1", "r2", "r3",
+    "r4", "r5", "r6", "r7",
+    "r8", "r9", "r10", "r11",
+    "r12", "sp", "lr", "pc",
+    "", "", "", "",
+    "", "", "", "",
 };
 
 static const char *condstr[] = {
-    "eq",
-    "ne",
-    "cs",
-    "cc",
-    "mi",
-    "pl",
-    "vs",
-    "vc",
-    "hi",
-    "ls",
-    "ge",
-    "lt",
-    "gt",
-    "le",
-    "{al}"
+    "eq", "ne", "cs", "cc",
+    "mi", "pl", "vs", "vc",
+    "hi", "ls", "ge", "lt",
+    "gt", "le", "{al}"
 };
 
 #define FLAG_DISABLE_EMU            0x1            
@@ -326,6 +298,11 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
 {
     int i, len, olen = 0;
     char *buf, *param, *o = obuf;
+
+    if (!minst->len) {
+        obuf[0] = 0;
+        return 0;
+    }
 
     buf = emu->inst_fmt;
     len = strlen(buf);
@@ -478,13 +455,18 @@ static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *c
         arm_prepare_dump(emu, "push.w %s", reglist2str(emu->code.ctx.register_list, buf));
     }
 
+    for (i = 0; i < 16; i++) {
+        if (reglist & (1 << i))
+            live_use_set(i);
+    }
+
     if (IS_DISABLE_EMU(emu))
         return 0;
 
     for (i = 0; i < 16; i++) {
         if (reglist & (1 << i)) {
             var = emu_stack_push(emu, emu->regs[i]);
-            liveness_set(var->t, i);
+            live_def_set(var->t);
         }
     }
 
@@ -506,16 +488,21 @@ static int thumb_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *co
         arm_prepare_dump(emu, "pop%s %s", cur_inst_it_cond(emu), reglist2str(reglist, buf));
     }
 
+    for (i = 0; i < 16; i++) {
+        if (reglist & (1 << i)) {
+            live_def_set(i);
+        }
+    }
+
     if (IS_DISABLE_EMU(emu))
         return 0;
 
     if (ConditionPassed(emu)) {
-        for (i = 0; i < 15; i++) {
+        for (i = 0; i < 16; i++) {
             if (reglist && (1 << i)) {
                 /* FIXME: */
                 var = emu_stack_top(emu);
-                liveness_set(i, var->t);
-
+                live_use_set(var->t);
                 emu_stack_pop(emu);
             }
         }
@@ -594,7 +581,6 @@ static int thumb_inst_sub_reg(struct arm_emu *emu, struct minst *minst, uint16_t
     return 0;
 }
 
-
 static int t1_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     return 0;
@@ -616,12 +602,10 @@ static int t1_inst_mov1(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
 static int t1_inst_cmp_imm(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.ld], emu->code.ctx.imm);
+    arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.lm], emu->code.ctx.imm);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
-
-    liveness_set(-1, emu->code.ctx.ld);
 
     return 0;
 }
@@ -824,9 +808,11 @@ static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t 
 static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *inst, int inst_len)
 {
     int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[0], 0, 4, 12) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
+    int is_movt = 0;
 
     if ((inst[0] >> 7) & 1) {
         arm_prepare_dump(emu, "movt%s %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
+        is_movt = 1;
     }
     else {
         arm_prepare_dump(emu, "mov%sw %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
@@ -835,7 +821,8 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
     if (IS_DISABLE_EMU(emu))
         return 0;
 
-    liveness_set(emu->code.ctx.ld, -1);
+    if (is_movt)
+        liveness_set(emu->code.ctx.ld, emu->code.ctx.ld);
 
     return 0;
 }
@@ -864,10 +851,15 @@ static int t1_inst_bx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
 static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    int i;
     arm_prepare_dump(emu, "blx %s", regstr[emu->code.ctx.lm]);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
+
+    live_def_set(ARM_REG_R0);
+    for (i = 0; i < 4; i++)
+        live_use_set(ARM_REG_R0 + i);
 
     return 0;
 }
@@ -963,7 +955,8 @@ struct arm_inst_desc {
     {"0001    0     i5  lm3 ld3",           {t1_inst_asr}, {"asr"}},
     {"0001    10 o1 lm3 ln3 ld3",           {t1_inst_add, thumb_inst_sub_reg}, {"add", "sub"}},
     {"0001    11 o1 i3  ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
-    {"0010    o1 ld3    i8",                {t1_inst_mov1, t1_inst_cmp_imm}, {"mov", "cmp"}},
+    {"0010    0 ld3    i8",                 {t1_inst_mov1}, {"mov"}},
+    {"0010    1 lm3    i8",                 {t1_inst_cmp_imm}, {"cmp"}},
     {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
     {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
@@ -1475,6 +1468,9 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
 {
     struct reg_node *reg_node = minst->reg_node;
 
+    if (minst->flag.prologue || minst->flag.epilogue)
+        return 0;
+
     emu->regs[ARM_REG_PC] = emu->baseaddr + (minst->addr - emu->code.data) + 4;
 
     memcpy(emu->prev_regs, emu->regs, sizeof (emu->regs));
@@ -1776,6 +1772,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     emu->meet_blx = 0;
     /* first pass */
+    minst_blk_live_prologue_add(&emu->mblk);
     for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
         if (emu->meet_blx)
             break;
@@ -1786,6 +1783,7 @@ int         arm_emu_run(struct arm_emu *emu)
         }
         emu->code.pos += ret;
     }
+    minst_blk_live_epilogue_add(&emu->mblk);
     /* second pass */
     arm_emu_mblk_fix_pos(emu);
 
