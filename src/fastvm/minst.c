@@ -227,6 +227,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
     int changed = 1, i;
     struct bitset def = { 0 };
 
+    /* FIXME: 删除死代码以后，liveness的计算没有把死代码计算进去 */
     while (changed) {
         changed = 0;
         minst_blk_liveness_calc(blk);

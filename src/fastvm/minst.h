@@ -45,8 +45,19 @@ struct minst {
         unsigned b_al : 1;      // jmp always
         unsigned b_need_fixed : 1;   
         unsigned dead_code : 1;
+        /* live 前置指令 */
         unsigned prologue : 1;
+        /* live 后置指令 */
         unsigned epilogue : 1;
+        /* 是否在It块中，是的话，需要调整他的前置节点，为什么呢
+        比如, a -> b -> c
+
+        上面是3条顺序执行的指令，但是假如 b.flag.in_it_block == 1，那么需要额外增加一个a->c的跳转。
+        a - b -> c
+          ----->
+        否则会导致他的活跃计算不正确
+        */
+        unsigned in_it_block : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
