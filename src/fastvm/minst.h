@@ -10,10 +10,6 @@ extern "C" {
 struct minst_blk {
     char *funcname;
 
-    struct {
-        int     counts;
-    } minsts;
-
     /* 生成IR时，会产生大量的临时变量，这个是临时变量计数器 */
     int         tvar_id;
     struct dynarray tvar;
@@ -21,6 +17,13 @@ struct minst_blk {
     /* 当程序按顺序解析所有指令时，把所有指令放入此数组，记得此数组要
     严格按照地址顺序排列 */
     struct dynarray allinst;
+
+    /* 只处理系统寄存器列表 */
+    /* 某寄存器所有def指令集合，数据为指令id */
+    struct bitset     defs[32];
+
+    /* 某寄存器所有use指令集合，数据为指令id */
+    struct bitset     uses[32];
 };
 
 struct minst_node {
@@ -32,6 +35,7 @@ struct minst {
     unsigned char *addr;
     int len;
 
+    int id;
     struct bitset use;
     struct bitset def;
     struct bitset in;
@@ -58,13 +62,20 @@ struct minst {
         否则会导致他的活跃计算不正确
         */
         unsigned in_it_block : 1;
+        /* 是否是常量 */
+        unsigned is_const : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
 
     struct minst *cfg_node;
 
+    /* 调用哪个reg_node去解析内容 */
     void *reg_node;
+
+    int def_var;
+    int use_var1;
+    int use_var2;
 };
 
 #define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
@@ -103,10 +114,15 @@ live epilogue 把所有的寄存器设置为use
 */
 void                minst_blk_live_prologue_add(struct minst_blk *blk);
 void                minst_blk_live_epilogue_add(struct minst_blk *blk);
+
+/* */
 int                 minst_blk_liveness_calc(struct minst_blk *blk);
 
 /* 死代码删除 */
 int                 minst_blk_dead_code_elim(struct minst_blk *blk);
+
+/* 生成到达定值, generate reaching definitions */
+int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }

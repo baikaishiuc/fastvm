@@ -459,7 +459,6 @@ static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *c
 {
     char buf[32];
     int i, reglist;
-    struct emu_temp_var *var;
 
     if (len == 1) {
         reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_LR);
@@ -478,6 +477,7 @@ static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *c
         return 0;
 
 #if 0
+    struct emu_temp_var *var;
     for (i = 0; i < 16; i++) {
         if (reglist & (1 << i)) {
             var = emu_stack_push(emu, emu->regs[i]);

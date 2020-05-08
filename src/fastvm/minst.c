@@ -73,6 +73,10 @@ struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int le
     minst->addr = code;
     minst->len = len;
     minst->reg_node = reg_node;
+    minst->id = blk->allinst.len;
+    minst->def_var = -1;
+    minst->use_var1 = -1;
+    minst->use_var2 = -2;
 
     dynarray_add(&blk->allinst, minst);
     bitset_init(&minst->use, 32);
@@ -248,6 +252,23 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
     }
 
     bitset_uninit(&def);
+
+    return 0;
+}
+
+int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
+{
+    struct minst *minst;
+    struct bitset defs;
+    int i;
+
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+        if (minst->flag.prologue || minst->flag.epilogue || minst->def_var == -1)
+            continue;
+
+        bitset_clone(&defs, &blk->defs[minst->def_var]);
+    }
 
     return 0;
 }
