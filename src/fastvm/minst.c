@@ -1,8 +1,8 @@
 ﻿
 #include "mcore/mcore.h"
 #include "vm.h"
-#include "minst.h"
 #include "arm_emu.h"
+#include "minst.h"
 
 #define TVAR_BASE       32
 
@@ -155,6 +155,52 @@ void                 minst_pred_add(struct minst *minst, struct minst *pred)
         tnode->next = minst->preds.next;
 
         minst->preds.next = tnode;
+    }
+}
+
+void                minst_succ_del(struct minst *minst, struct minst *succ)
+{
+    struct minst_node *succ_node = &minst->succs, *prev_node;
+
+    for (; succ_node; prev_node = succ_node, succ_node = succ_node->next) {
+        if (succ_node->minst == succ) {
+            for (; succ_node->next; prev_node = succ_node, succ_node = succ_node->next)
+                succ_node->minst = succ_node->next->minst;
+
+            if (succ_node == &minst->succs) {
+                succ_node->minst = NULL;
+                succ_node->next = NULL;
+            }
+            else {
+                free(prev_node->next);
+                prev_node->next = NULL;
+            }
+
+            return;
+        }
+    }
+}
+
+void                minst_pred_del(struct minst *minst, struct minst *pred)
+{
+    struct minst_node *pred_node = &minst->preds, *prev_node = NULL;
+
+    for (; pred_node; prev_node = pred_node, pred_node = pred_node->next) {
+        if (pred_node->minst == pred) {
+            for (; pred_node->next; prev_node = pred_node, pred_node = pred_node->next)
+                pred_node->minst = pred_node->next->minst;
+
+            if (pred_node == &minst->preds) {
+                pred_node->minst = NULL;
+                pred_node->next = NULL;
+            }
+            else {
+                free(prev_node->next);
+                prev_node->next = NULL;
+            }
+
+            return;
+        }
     }
 }
 
@@ -315,7 +361,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
-    int pos, pos1;
+    int pos;
     BITSET_INIT(bs);
     struct minst *const_minst;
 
@@ -343,21 +389,31 @@ exit:
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use)
 {
+    int i = 0;
     struct minst *start = blk->allinst.ptab[0];
+    struct bitset path;
 
-    for (; start->succs.minst; start = start->succs.minst) {
-        if (start->succs.next) return 0;
-        if (start->succs.minst == def) break;
-
-        start = start->succs.minst;
-    }
+    bitset_init(&path, blk->allinst.len);
 
     while (start->succs.minst) {
-        if (start->succs.next) return 0;
-        if (start->succs.minst == use) return 1;
+        if (start->succs.next || bitset_get(&path, start->id)) {
+            bitset_uninit(&path);
+            return 0;
+        }
 
+        if (start->succs.minst == def)
+            i = 1;
+
+        if (start->succs.minst == use) {
+            bitset_uninit(&path);
+            return i == 1;
+        }
+
+        bitset_set(&path, start->id, 1);
         start = start->succs.minst;
     }
+
+    bitset_uninit(&path);
 
     return 0;
 }

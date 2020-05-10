@@ -67,25 +67,6 @@ struct arm_inst_context {
     int     u;
 };
 
-struct arm_cpsr {
-    unsigned m:  5;
-    unsigned t : 1;
-    unsigned f : 1;
-    unsigned i : 1;
-    unsigned a : 1;
-    unsigned e : 1;
-    unsigned it1 : 6;
-    unsigned ge : 4;
-    unsigned reserved : 4;
-    unsigned j : 1;
-    unsigned it2 : 2;
-    unsigned q : 1;
-    unsigned v : 1;
-    unsigned c : 1;
-    unsigned z : 1;
-    unsigned n : 1;
-};
-
 struct emu_temp_var
 {
     /* temp variable id */
@@ -660,6 +641,22 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     live_def_set(&emu->mblk, ARM_REG_APSR);
 
+    if (EMU_IS_CONST_MODE(emu)) {
+        struct minst *ln_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ln);
+        struct minst *lm_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
+
+        if (!ln_minst || !ln_minst->flag.is_const || !lm_minst || !lm_minst->flag.is_const)
+            return 0;
+
+        struct bits bs = AddWithCarry(ln_minst->ld_imm, ~lm_minst->ld_imm, 1);
+
+        minst->apsr.n = INT_TOPMOSTBIT(bs.v);
+        minst->apsr.z = IsZeroBit(bs.v);
+        minst->apsr.c = bs.carry_out;
+        minst->apsr.v = bs.overflow;
+        minst->flag.is_const = 1;
+    }
+
     return 0;
 }
 
@@ -918,7 +915,8 @@ static int t1_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, i
 
     minst->flag.b = 1;
     minst->flag.b_al = 1;
-    minst->flag.b_need_fixed = 1;
+    if (!minst->flag.b_need_fixed)
+        minst->flag.b_need_fixed = 1;
 
     return 0;
 }
@@ -944,19 +942,39 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
     else if (emu->code.ctx.cond == 0xf)
         return t_swi(emu, minst, code, len);
 
-    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2));
+    minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2);
+    arm_prepare_dump(emu, "b%s 0x%x", minst->flag.is_const ? "":condstr[emu->code.ctx.cond], minst->flag.b_cond_passed ? minst->host_addr:0);
 
     if (InITBlock(emu))
         ARM_UNPREDICT();
 
     live_use_set(&emu->mblk, ARM_REG_APSR);
 
-    if (IS_DISABLE_EMU(emu))
-        return 0;
-
     minst->flag.b = 1;
     minst->flag.b_al = (emu->code.ctx.cond == ARM_COND_AL);
-    minst->flag.b_need_fixed = 1;
+    if (!minst->flag.b_need_fixed)
+        minst->flag.b_need_fixed = 1;
+
+    if (EMU_IS_CONST_MODE(emu)) {
+        struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, ARM_REG_APSR);
+        struct minst *tminst;
+
+        if (cminst->flag.is_const) {
+            if (minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond)) {
+                tminst = emu->mblk.allinst.ptab[minst->id + 1];
+            }
+            else {
+                tminst = minst_blk_find(&emu->mblk, emu_addr_host2target(emu, minst->host_addr));
+                if (!tminst)
+                    vm_error("inst cmp not found host addr");
+            }
+
+            minst_succ_del(minst, tminst);
+            minst_pred_del(tminst, minst);
+
+            minst->flag.is_const = 1;
+        }
+    }
 
     return 0;
 }
@@ -1822,7 +1840,7 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
             minst_succ_add(minst, b_minst);
             minst_pred_add(b_minst, minst);
 
-            minst->flag.b_need_fixed = 0;
+            minst->flag.b_need_fixed = 2;
         }
 
         if (minst->flag.in_it_block) {

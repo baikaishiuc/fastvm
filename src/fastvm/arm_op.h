@@ -56,50 +56,50 @@ static inline int LastInITBlock(struct arm_emu *e)
     return e->it.inblock == 1;
 }
 
-static inline int _ConditionPassed(struct arm_emu *e, int cond)
+static inline int _ConditionPassed(struct arm_cpsr *c, int cond)
 {
     switch (cond) {
     case ARM_COND_EQ:
-        return ARM_APSR_PTR(e)->z == 1;
+        return c->z == 1;
 
     case ARM_COND_NE:  
-        return ARM_APSR_PTR(e)->z == 0;
+        return c->z == 0;
 
     case ARM_COND_CS:  
-        return ARM_APSR_PTR(e)->c == 1;
+        return c->c == 1;
 
     case ARM_COND_CC:  
-        return ARM_APSR_PTR(e)->c == 0;
+        return c->c == 0;
 
     case ARM_COND_MI:  
-        return ARM_APSR_PTR(e)->n == 1;
+        return c->n == 1;
 
     case ARM_COND_PL:  
-        return ARM_APSR_PTR(e)->n == 0;
+        return c->n == 0;
 
     case ARM_COND_VS:  
-        return ARM_APSR_PTR(e)->v == 1;
+        return c->v == 1;
 
     case ARM_COND_VC:  
-        return ARM_APSR_PTR(e)->v == 0;
+        return c->v == 0;
 
     case ARM_COND_HI:  
-        return (ARM_APSR_PTR(e)->c == 1) && (ARM_APSR_PTR(e)->z == 0);
+        return (c->c == 1) && (c->z == 0);
 
     case ARM_COND_LS:  
-        return (ARM_APSR_PTR(e)->c == 0) || (ARM_APSR_PTR(e)->z == 1);
+        return (c->c == 0) || (c->z == 1);
 
     case ARM_COND_GE:  
-        return ARM_APSR_PTR(e)->n == ARM_APSR_PTR(e)->v;
+        return c->n == c->v;
 
     case ARM_COND_LT:
-        return ARM_APSR_PTR(e)->n != ARM_APSR_PTR(e)->v;
+        return c->n != c->v;
 
     case ARM_COND_GT:  
-        return (ARM_APSR_PTR(e)->z == 0) && (ARM_APSR_PTR(e)->n == ARM_APSR_PTR(e)->v);
+        return (c->z == 0) && (c->n == c->v);
 
     case ARM_COND_LE:  
-        return (ARM_APSR_PTR(e)->z == 1) || (ARM_APSR_PTR(e)->n != ARM_APSR_PTR(e)->v);
+        return (c->z == 1) || (c->n != c->v);
 
     case ARM_COND_AL:  
         return 1;
@@ -116,7 +116,7 @@ static inline int ConditionPassed(struct arm_emu *e)
 
     int cond = (e->it.et[e->it.num - e->it.inblock] == 't') ? e->it.cond:((e->it.cond & 1) ? (e->it.cond - 1):(e->it.cond + 1));
 
-    return _ConditionPassed(e, cond);
+    return _ConditionPassed(ARM_APSR_PTR(e), cond);
 }
 
 static inline int BitCount(int v)

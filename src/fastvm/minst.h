@@ -53,7 +53,8 @@ struct minst {
     struct {
         unsigned b : 1;         // is jump inst?
         unsigned b_al : 1;      // jmp always
-        unsigned b_need_fixed : 1;   
+        unsigned b_need_fixed : 2;   
+        unsigned b_cond_passed : 1;
         unsigned dead_code : 1;
         /* live 前置指令 */
         unsigned prologue : 1;
@@ -83,7 +84,10 @@ struct minst {
     void *reg_node;
 
     int ld;
-    int ld_imm;
+    union {
+        int ld_imm;
+        struct arm_cpsr apsr;
+    };
 };
 
 #define live_def_set(blk, reg)       do { \
@@ -126,6 +130,8 @@ struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 
 void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
+void                minst_succ_del(struct minst *minst, struct minst *succ);
+void                minst_pred_del(struct minst *minst, struct minst *pred);
 
 /* 做活跃性分析的时候，需要加上liveness专用的prologue和epilogue
 live prologue 把所有的寄存器设置为def

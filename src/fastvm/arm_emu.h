@@ -49,6 +49,24 @@ extern "C" {
 #define ARM_COND_LE     13
 #define ARM_COND_AL     14
 
+struct arm_cpsr {
+    unsigned m:  5;
+    unsigned t : 1;
+    unsigned f : 1;
+    unsigned i : 1;
+    unsigned a : 1;
+    unsigned e : 1;
+    unsigned it1 : 6;
+    unsigned ge : 4;
+    unsigned reserved : 4;
+    unsigned j : 1;
+    unsigned it2 : 2;
+    unsigned q : 1;
+    unsigned v : 1;
+    unsigned c : 1;
+    unsigned z : 1;
+    unsigned n : 1;
+};
 
     /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
 struct arm_emu_create_param
