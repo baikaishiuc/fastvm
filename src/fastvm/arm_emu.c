@@ -344,14 +344,14 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
     if (flag & IDUMP_LIVE) {
         olen = arm_dump_temp_reglist("def", &minst->def, o += olen);
         olen = arm_dump_temp_reglist("use", &minst->use, o += olen);
-        olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
-        olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
+        //olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
+        //olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
     }
 
     if (flag & IDUMP_REACHING_DEFS) {
-        olen = arm_dump_bitset("kills", &minst->kills, o += olen);
         olen = arm_dump_bitset("r_in", &minst->rd_in, o += olen);
         olen = arm_dump_bitset("r_out", &minst->rd_out, o+= olen);
+        olen = arm_dump_bitset("kills", &minst->kills, o += olen);
     }
 
     o += olen;
@@ -884,10 +884,8 @@ static int t1_inst_mov_w(struct arm_emu *emu, struct minst *minst, uint16_t *ins
 
     arm_prepare_dump(emu, "mov%s.w %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm1 = ThumbExpandImmWithC(emu, imm));
 
-    if (EMU_IS_CONST_MODE(emu)) {
-        if (!minst->flag.in_it_block)
-            minst_set_const(minst, imm1);
-    }
+    if (!minst->flag.in_it_block)
+        minst_set_const(minst, imm1);
 
     return 0;
 }
@@ -1734,7 +1732,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        arm_inst_print_format(emu, minst, ~(IDUMP_LIVE), buf);
+        arm_inst_print_format(emu, minst, -1, buf);
 
         printf("%s\n", buf);
     }
@@ -1918,16 +1916,17 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
             uses = &blk->uses[minst_get_def(minst)];
             for (pos = bitset_next_bit_pos(uses, 0); pos > 0; pos = bitset_next_bit_pos(uses, pos + 1)) {
                 use_minst = blk->allinst.ptab[pos];
-                if (use_minst->flag.is_const)
-                    continue;
 
-                /* 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
+                /* 
+                1. 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
                 假如有的话，确认in集合中的def指令时唯一一条对 minst_get_def(minst) 中进行
-                定值的指令 */
+                定值的指令.
+                2. 查看是否在起点开始的唯一路径上 */
                 bitset_clone(&def, &use_minst->rd_in);
                 bitset_and(&def, &blk->defs[minst_get_def(minst)]);
                 bitset_set(&def, minst->id, 0);
-                if (bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def)) {
+                if ((bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def))
+                    || ((minst != use_minst) && minst_blk_is_on_start_unique_path (blk, minst, use_minst))) {
                     arm_minst_do(emu, use_minst);
 
                     if (use_minst->flag.is_const)

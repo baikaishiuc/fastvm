@@ -268,7 +268,6 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 {
     struct minst *minst;
     BITSET_INIT(in);
-    BITSET_INIT(in2);
     BITSET_INIT(out);
     struct minst_node *pred_node;
     int i, changed = 1, def;
@@ -298,7 +297,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
                 bitset_or(&minst->rd_in, &pred_node->minst->rd_out);
             }
-            bitset_or(&minst->rd_out, bitset_sub(bitset_clone(&in2, &minst->rd_in), &minst->kills));
+            bitset_sub(bitset_clone(&minst->rd_out, &minst->rd_in), &minst->kills);
             if (minst_get_def(minst) >= 0)
                 bitset_set(&minst->rd_out, minst->id, 1);
 
@@ -316,7 +315,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
-    int pos;
+    int pos, pos1;
     BITSET_INIT(bs);
     struct minst *const_minst;
 
@@ -325,10 +324,16 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
 
     pos = bitset_next_bit_pos(&bs, 0);
     if (bitset_next_bit_pos(&bs, pos + 1) >= 0) {
+        for (; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
+            if (minst_blk_is_on_start_unique_path(blk, blk->allinst.ptab[pos], minst))
+                goto exit;
+        }
+
         bitset_uninit(&bs);
         return NULL;
     }
 
+exit:
     bitset_uninit(&bs);
 
     const_minst = blk->allinst.ptab[pos];
@@ -336,3 +341,23 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
     return const_minst->flag.is_const ? const_minst : NULL;
 }
 
+int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use)
+{
+    struct minst *start = blk->allinst.ptab[0];
+
+    for (; start->succs.minst; start = start->succs.minst) {
+        if (start->succs.next) return 0;
+        if (start->succs.minst == def) break;
+
+        start = start->succs.minst;
+    }
+
+    while (start->succs.minst) {
+        if (start->succs.next) return 0;
+        if (start->succs.minst == use) return 1;
+
+        start = start->succs.minst;
+    }
+
+    return 0;
+}

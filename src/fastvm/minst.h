@@ -135,6 +135,8 @@ live epilogue 把所有的寄存器设置为use
 void                minst_blk_live_prologue_add(struct minst_blk *blk);
 void                minst_blk_live_epilogue_add(struct minst_blk *blk);
 
+int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use);
+
 /* */
 int                 minst_blk_liveness_calc(struct minst_blk *blk);
 
