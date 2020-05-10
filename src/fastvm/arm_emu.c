@@ -6,48 +6,6 @@
 #include <math.h>
 
 
-#define ARM_REG_R0      0
-#define ARM_REG_R1      1
-#define ARM_REG_R2      2
-#define ARM_REG_R3      3
-#define ARM_REG_R4      4
-#define ARM_REG_R5      5
-#define ARM_REG_R6      6
-#define ARM_REG_R7      7
-#define ARM_REG_R8      8
-#define ARM_REG_R9      9
-#define ARM_REG_R10     10
-#define ARM_REG_R11     11
-#define ARM_REG_R12     12
-#define ARM_REG_R13     13
-#define ARM_REG_R14     14
-#define ARM_REG_R15     15
-#define ARM_REG_R18     18
-
-#define SYS_REG_NUM     32
-
-
-#define ARM_REG_PC      ARM_REG_R15
-#define ARM_REG_LR      ARM_REG_R14
-#define ARM_REG_SP      ARM_REG_R13
-#define ARM_REG_APSR    ARM_REG_R18
-
-#define ARM_COND_EQ     0
-#define ARM_COND_NE     1
-#define ARM_COND_CS     2
-#define ARM_COND_CC     3
-#define ARM_COND_MI     4
-#define ARM_COND_PL     5
-#define ARM_COND_VS     6
-#define ARM_COND_VC     7
-#define ARM_COND_HI     8
-#define ARM_COND_LS     9
-#define ARM_COND_GE     10
-#define ARM_COND_LT     11
-#define ARM_COND_GT     12
-#define ARM_COND_LE     13
-#define ARM_COND_AL     14
-
 #define ARM_SP_VAL(e)   e->regs[ARM_REG_SP]     
 #define ARM_PC_VAL(e)   e->regs[ARM_REG_PC]
 #define ARM_APSR_PTR(e)     ((struct arm_cpsr *)&e->regs[ARM_REG_APSR])
@@ -84,8 +42,18 @@ typedef int         reg_t;
 #define IDUMP_STATUS            0x08
 #define IDUMP_TRACE             0x10
 #define IDUMP_LIVE              0x20
+#define IDUMP_REACHING_DEFS     0x40
 #define IDUMP_DEFAULT           -1
 
+#define EMU_SEQ_MODE            0
+#define EMU_CONST_MODE          1
+
+/* arm指令中，某部分指令是上下文相关的 */
+#define EMU_IS_SEQ_MODE(e)      (e->seq_mod == EMU_SEQ_MODE)
+#define EMU_IS_CONST_MODE(e)    (e->seq_mod == EMU_CONST_MODE)
+
+#define EMU_SET_SEQ_MODE(e)     (e->seq_mod = EMU_SEQ_MODE)
+#define EMU_SET_CONST_MODE(e)   (e->seq_mod = EMU_CONST_MODE)
 
 struct arm_inst_context {
     reg_t   ld;
@@ -139,6 +107,7 @@ struct arm_emu {
     unsigned int prev_regs[32];
     unsigned int regs[32];
     unsigned int known;
+    int seq_mod;
 
     int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
     void *user_ctx;
@@ -271,6 +240,21 @@ static void arm_prepare_dump(struct arm_emu *emu, const char *fmt, ...)
     va_end(ap);
 }
 
+static int arm_dump_bitset(const char *desc, struct bitset *v, char *obuf)
+{
+    char *o = obuf;
+    int olen = 0, pos = -1;
+    /* dump liveness calculate result */
+    olen = sprintf(o += olen, "[%s: ", desc);
+    while ((pos = bitset_next_bit_pos(v, pos + 1)) >= 0) {
+        olen = sprintf(o += olen, "%d  ", pos);
+    }
+    if (o[olen - 1] == ' ') olen--;
+    olen = sprintf(o += olen, "] ");
+
+    return (o + olen) - obuf;
+}
+
 static int arm_dump_temp_reglist(const char *desc, struct bitset *v, char *obuf)
 {
     char *o = obuf;
@@ -318,6 +302,8 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
         while (isblank(*param)) param++;
     }
 
+    olen = sprintf(o += olen, "%04d ", minst->id);
+
     if (flag & IDUMP_ADDR)
         olen = sprintf(o += olen, "%08x ", emu->baseaddr + (minst->addr - emu->code.data));
 
@@ -344,7 +330,7 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
 
     if (flag & IDUMP_TRACE) {
         if (emu->code.ctx.ld != -1) {
-            olen = sprintf(o += olen, "[%s=%08x", regstr[emu->code.ctx.ld], emu->regs[emu->code.ctx.ld]);
+            olen = sprintf(o += olen, "[%-3s=%08x", regstr[emu->code.ctx.ld], minst->ld_imm);
         }
         else {
             olen = sprintf(o += olen, "[");
@@ -360,6 +346,12 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
         olen = arm_dump_temp_reglist("use", &minst->use, o += olen);
         olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
         olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
+    }
+
+    if (flag & IDUMP_REACHING_DEFS) {
+        olen = arm_dump_bitset("kills", &minst->kills, o += olen);
+        olen = arm_dump_bitset("r_in", &minst->rd_in, o += olen);
+        olen = arm_dump_bitset("r_out", &minst->rd_out, o+= olen);
     }
 
     o += olen;
@@ -470,18 +462,15 @@ static int thumb_inst_push(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
     for (i = 0; i < 16; i++) {
         if (reglist & (1 << i))
-            live_use_set(i);
+            live_use_set(&emu->mblk, i);
     }
-
-    if (IS_DISABLE_EMU(emu))
-        return 0;
 
 #if 0
     struct emu_temp_var *var;
     for (i = 0; i < 16; i++) {
         if (reglist & (1 << i)) {
             var = emu_stack_push(emu, emu->regs[i]);
-            live_def_set(var->t);
+            live_def_set(&emu->mblk, var->t);
         }
     }
 #endif
@@ -493,7 +482,6 @@ static int thumb_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     char buf[32];
     int reglist, i;
-    struct emu_temp_var *var;
 
     if (len == 2) {
         reglist = code[1] & 0xdfff;
@@ -506,23 +494,23 @@ static int thumb_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     for (i = 0; i < 16; i++) {
         if (reglist & (1 << i)) {
-            live_def_set(i);
+            live_def_set(&emu->mblk, i);
         }
     }
 
-    if (IS_DISABLE_EMU(emu))
-        return 0;
-
+#if 0
+    struct emu_temp_var *var;
     if (ConditionPassed(emu)) {
         for (i = 0; i < 16; i++) {
             if (reglist && (1 << i)) {
                 /* FIXME: */
                 var = emu_stack_top(emu);
-                live_use_set(var->t);
+                live_use_set(&emu->mblk, var->t);
                 emu_stack_pop(emu);
             }
         }
     }
+#endif
 
     return 0;
 }
@@ -542,16 +530,16 @@ static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     int lm, imm32;
     if (((code[0] >> 12) & 0xf) == 0b1010) {
         arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], imm32 = emu->code.ctx.imm * 4);
-        liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
+        liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
         lm = ARM_REG_SP;
     }
     else {
         arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[lm = emu->code.ctx.lm]);
-        liveness_set2(emu->code.ctx.ld, emu->code.ctx.ld, emu->code.ctx.lm);
+        liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld, emu->code.ctx.lm);
     }
 
     if (ConditionPassed(emu) && emu->code.ctx.setflags) {
-        live_def_set(ARM_REG_APSR);
+        live_def_set(&emu->mblk, ARM_REG_APSR);
     }
 
     if (IS_DISABLE_EMU(emu))
@@ -588,9 +576,9 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
     arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
 
     emu->code.ctx.ld = ARM_REG_SP;
-    liveness_set(emu->code.ctx.ld, emu->code.ctx.ld);
+    liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
     if (emu->code.ctx.setflags)
-        live_def_set(ARM_REG_APSR);
+        live_def_set(&emu->mblk, ARM_REG_APSR);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
@@ -618,11 +606,11 @@ static int thumb_inst_sub_reg(struct arm_emu *emu, struct minst *minst, uint16_t
     arm_prepare_dump(emu, "sub%s %s, %s, %s", InITBlock(emu) ? "c":cur_inst_it_cond(emu), 
         regstr[emu->code.ctx.ld], regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
-    liveness_set2(emu->code.ctx.ld, emu->code.ctx.ln, emu->code.ctx.lm);
+    liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ln, emu->code.ctx.lm);
 
     emu->code.ctx.setflags = !InITBlock(emu);
     if (emu->code.ctx.setflags)
-        live_def_set(ARM_REG_APSR);
+        live_def_set(&emu->mblk, ARM_REG_APSR);
 
     return 0;
 }
@@ -636,12 +624,23 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 {
     arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
+    if (EMU_IS_CONST_MODE(emu)) {
+        struct minst *const_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
+        if (const_minst) {
+            minst_set_const(minst, const_minst->ld_imm);
+        }
+    }
+
     return 0;
 }
 
 static int t1_inst_mov1(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "mov%s %s, #0x%x",  InITBlock(emu)? "c":cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], emu->code.ctx.imm);
+
+    if (!minst->flag.in_it_block)
+        minst_set_const(minst, emu->code.ctx.imm);
+
 
     return 0;
 }
@@ -650,7 +649,7 @@ static int t1_inst_cmp_imm(struct arm_emu *emu, struct minst *minst, uint16_t *c
 {
     arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.lm], emu->code.ctx.imm);
 
-    liveness_set(ARM_REG_APSR, emu->code.ctx.lm);
+    liveness_set(&emu->mblk, ARM_REG_APSR, emu->code.ctx.lm);
 
     return 0;
 }
@@ -659,7 +658,7 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
-    live_def_set(ARM_REG_APSR);
+    live_def_set(&emu->mblk, ARM_REG_APSR);
 
     return 0;
 }
@@ -685,7 +684,7 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     emu->it.inblock = 5 - RightMostBitPos(mask, 4);
     emu->it.num = emu->it.inblock - 1;
 
-    live_use_set(ARM_REG_APSR);
+    live_use_set(&emu->mblk, ARM_REG_APSR);
 
     return 0;
 }
@@ -767,13 +766,12 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     int sigcode = (code[0] >> 12) & 0xf, lm;
     unsigned long addr = 0;
-    struct emu_temp_var *var;
 
     if (len == 1) {
         if (sigcode == 0b0100) {
             arm_prepare_dump(emu, "ldr %s, [pc, #0x%x] ", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
 
-            liveness_set(emu->code.ctx.ld, ARM_REG_PC);
+            liveness_set(&emu->mblk, emu->code.ctx.ld, ARM_REG_PC);
         }
         else if (sigcode == 0b1001) {
             if (emu->code.ctx.imm)
@@ -797,7 +795,7 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
     else { 
         if (emu->code.ctx.lm == 15) {
             arm_prepare_dump(emu, "ldr.w %s, [pc, #0x%c%x]", regstr[emu->code.ctx.ld], emu->code.ctx.u ? '+':'-', emu->code.ctx.imm);
-            liveness_set(emu->code.ctx.ld, ARM_REG_PC);
+            liveness_set(&emu->mblk, emu->code.ctx.ld, ARM_REG_PC);
         }
         else {
             arm_prepare_dump(emu, "ldr.w %s, [%s,0x%x]", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm], emu->code.ctx.imm);
@@ -810,12 +808,15 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
     if (IS_DISABLE_EMU(emu))
         return 0;
     
+#if 0
     if (addr) {
+        struct emu_temp_var *var;
         if ((var = emu_find_temp_var(emu, addr))) 
-            liveness_set(emu->code.ctx.ld, var->t);
+            liveness_set(&emu->mblk, emu->code.ctx.ld, var->t);
         else 
-            liveness_set(emu->code.ctx.ld, lm);
+            liveness_set(&emu->mblk, emu->code.ctx.ld, lm);
     }
+#endif
 
     return 0;
 }
@@ -827,9 +828,6 @@ static int t1_inst_str_01101(struct arm_emu *emu, struct minst *minst, uint16_t 
 
 static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    unsigned long addr;
-    struct emu_temp_var *var;
-
     if (emu->code.ctx.imm) 
         arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[emu->code.ctx.lm], emu->code.ctx.imm * 4);
     else
@@ -838,15 +836,19 @@ static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t 
     if (IS_DISABLE_EMU(emu))
         return 0;
 
+#if 0
+    unsigned long addr;
+    struct emu_temp_var *var;
     addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
     if ((var = emu_find_temp_var(emu, addr)))
-        liveness_set(var->t, emu->code.ctx.lm);
+        liveness_set(&emu->mblk, var->t, emu->code.ctx.lm);
     else if (IN_PROCESS_STACK_RANGE(addr)) {
         var = emu_alloc_temp_var(emu, addr);
-        liveness_set(var->t, emu->code.ctx.lm);
+        liveness_set(&emu->mblk, var->t, emu->code.ctx.lm);
     }
     else
-        liveness_set(-1, emu->code.ctx.lm);
+        liveness_set(&emu->mblk, -1, emu->code.ctx.lm);
+#endif
 
     return 0;
 }
@@ -858,29 +860,34 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
 
     if ((inst[0] >> 7) & 1) {
         arm_prepare_dump(emu, "movt%s %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
-        is_movt = 1;
+        liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
+
+        if (EMU_IS_CONST_MODE(emu) && !minst->flag.in_it_block) {
+            struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ld);
+            if (cminst)
+                minst_set_const(minst, imm << 16 | (cminst->ld_imm & 0xffff));
+        }
     }
     else {
         arm_prepare_dump(emu, "mov%sw %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
+
+        if (!minst->flag.in_it_block) 
+            minst_set_const(minst, imm);
     }
-
-    if (IS_DISABLE_EMU(emu))
-        return 0;
-
-    if (is_movt)
-        liveness_set(emu->code.ctx.ld, emu->code.ctx.ld);
 
     return 0;
 }
 
 static int t1_inst_mov_w(struct arm_emu *emu, struct minst *minst, uint16_t *inst, int inst_len)
 {
-    int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
+    int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0), imm1;
 
-    arm_prepare_dump(emu, "mov%s.w %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], ThumbExpandImmWithC(emu, imm));
+    arm_prepare_dump(emu, "mov%s.w %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm1 = ThumbExpandImmWithC(emu, imm));
 
-    if (IS_DISABLE_EMU(emu))
-        return 0;
+    if (EMU_IS_CONST_MODE(emu)) {
+        if (!minst->flag.in_it_block)
+            minst_set_const(minst, imm1);
+    }
 
     return 0;
 }
@@ -888,9 +895,6 @@ static int t1_inst_mov_w(struct arm_emu *emu, struct minst *minst, uint16_t *ins
 static int t1_inst_bx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     arm_prepare_dump(emu, "bx %s", regstr[emu->code.ctx.lm]);
-
-    if (IS_DISABLE_EMU(emu))
-        return 0;
 
     return 0;
 }
@@ -900,12 +904,9 @@ static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
     int i;
     arm_prepare_dump(emu, "blx %s", regstr[emu->code.ctx.lm]);
 
-    if (IS_DISABLE_EMU(emu))
-        return 0;
-
-    live_def_set(ARM_REG_R0);
+    live_def_set(&emu->mblk, ARM_REG_R0);
     for (i = 0; i < 4; i++)
-        live_use_set(ARM_REG_R0 + i);
+        live_use_set(&emu->mblk, ARM_REG_R0 + i);
 
     return 0;
 }
@@ -928,10 +929,7 @@ static int thumb_inst_add_sp_imm(struct arm_emu *emu, struct minst *minst, uint1
 {
     arm_prepare_dump(emu, "add%s sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
 
-    if (IS_DISABLE_EMU(emu))
-        return 0;
-
-    liveness_set(ARM_REG_SP, ARM_REG_SP);
+    liveness_set(&emu->mblk, ARM_REG_SP, ARM_REG_SP);
 
     return 0;
 }
@@ -953,7 +951,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
     if (InITBlock(emu))
         ARM_UNPREDICT();
 
-    live_use_set(ARM_REG_APSR);
+    live_use_set(&emu->mblk, ARM_REG_APSR);
 
     if (IS_DISABLE_EMU(emu))
         return 0;
@@ -977,9 +975,6 @@ static int thumb_inst_blx(struct arm_emu *emu, struct minst *minst, uint16_t *co
     arm_prepare_dump(emu, "blx");
 
     emu->meet_blx = 1;
-
-    if (IS_DISABLE_EMU(emu))
-        return 0;
 
     return 0;
 }
@@ -1460,17 +1455,21 @@ static void arm_inst_context_init(struct arm_inst_context *ctx)
 
 static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct arm_inst_context *ctx)
 {
-    if (ctx->ld >= 0)
-        live_def_set(ctx->ld);
+    if (ctx->ld >= 0) {
+        live_def_set(&emu->mblk, ctx->ld);
+    }
 
-    if (ctx->lm >= 0)
-        live_use_set(ctx->lm);
+    if (ctx->lm >= 0) {
+        live_use_set(&emu->mblk, ctx->lm);
+    }
 
-    if (ctx->ln >= 0)
-        live_use_set(ctx->ln);
+    if (ctx->ln >= 0) {
+        live_use_set(&emu->mblk, ctx->ln);
+    }
 
-    if (InITBlock(emu))
-        live_use_set(ARM_REG_APSR);
+    if (InITBlock(emu)) {
+        live_use_set(&emu->mblk, ARM_REG_APSR);
+    }
 }
 
 static struct reg_node*     arm_insteng_parse(struct arm_emu *emu, uint8_t *code, int len, int *olen)
@@ -1531,12 +1530,13 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
 
     arm_liveness_init(emu, minst, &emu->code.ctx);
 
-    reg_node->func(emu, minst, (uint16_t *)minst->addr, minst->len / 2);
-
-    /* 在it快中，但不是第一条it指令 */
-    if (InITBlock(emu) && reg_node->func != thumb_inst_it) {
+    /* 不要挪动位置，假如你把他移动到 reg_node->func 后面，会导致 it 也被判断为在 it_block 中 */
+    if (InITBlock(emu)) {
         minst->flag.in_it_block = 1;
     }
+
+    reg_node->func(emu, minst, (uint16_t *)minst->addr, minst->len / 2);
+
 
     if (emu->it.inblock> 0)
         emu->it.inblock--;
@@ -1678,6 +1678,8 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
     REG_SET_KNOWN(emu, ARM_REG_SP);
     REG_SET_KNOWN(emu, ARM_REG_PC);
 
+    EMU_SET_SEQ_MODE(emu);
+
     return 0;
 }
 
@@ -1723,7 +1725,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 {
     struct minst *minst;
     int i;
-    char buf[512];
+    char buf[4096];
 
     arm_emu_cpu_reset(emu);
     emu->decode_inst_flag = FLAG_DISABLE_EMU;
@@ -1732,7 +1734,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        arm_inst_print_format(emu, minst, ~IDUMP_TRACE, buf);
+        arm_inst_print_format(emu, minst, ~(IDUMP_LIVE), buf);
 
         printf("%s\n", buf);
     }
@@ -1839,12 +1841,15 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
     return 0;
 }
 
+int                 minst_blk_const_propagation(struct arm_emu *emu);
+
 int         arm_emu_run(struct arm_emu *emu)
 {
     int ret;
 
     emu->meet_blx = 0;
     /* first pass */
+    arm_emu_cpu_reset(emu);
     minst_blk_live_prologue_add(&emu->mblk);
     for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
         if (emu->meet_blx)
@@ -1866,6 +1871,10 @@ int         arm_emu_run(struct arm_emu *emu)
     /* forth pass */
     minst_blk_dead_code_elim(&emu->mblk);
 
+    minst_blk_gen_reaching_definitions(&emu->mblk);
+
+    minst_blk_const_propagation(emu);
+
     arm_emu_dump_mblk(emu);
 
     if (emu->dump.cfg)
@@ -1881,4 +1890,52 @@ int         arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_l
 
 void        arm_emu_dump(struct arm_emu *emu)
 {
+}
+
+int                 minst_blk_const_propagation(struct arm_emu *emu)
+{
+    struct bitset *uses;
+    struct minst *minst, *use_minst;
+    struct minst_blk *blk = &emu->mblk;
+    BITSET_INIT(def);
+    int i, changed = 1, pos;
+
+    EMU_SET_CONST_MODE(emu);
+
+    while (changed) {
+        changed = 0;
+        for (i = 0; i < blk->allinst.len; i++) {
+            minst = blk->allinst.ptab[i];
+            if (minst->flag.is_const)
+                dynarray_add(&blk->const_insts, minst);
+        }
+
+        for (i = 0; i < blk->const_insts.len; i++) {
+            minst = blk->const_insts.ptab[i];
+            if (minst_get_def(minst) < 0) continue;
+
+            /* 遍历所有使用minst定值的 use 列表*/
+            uses = &blk->uses[minst_get_def(minst)];
+            for (pos = bitset_next_bit_pos(uses, 0); pos > 0; pos = bitset_next_bit_pos(uses, pos + 1)) {
+                use_minst = blk->allinst.ptab[pos];
+                if (use_minst->flag.is_const)
+                    continue;
+
+                /* 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
+                假如有的话，确认in集合中的def指令时唯一一条对 minst_get_def(minst) 中进行
+                定值的指令 */
+                bitset_clone(&def, &use_minst->rd_in);
+                bitset_and(&def, &blk->defs[minst_get_def(minst)]);
+                bitset_set(&def, minst->id, 0);
+                if (bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def)) {
+                    arm_minst_do(emu, use_minst);
+
+                    if (use_minst->flag.is_const)
+                        dynarray_add(&blk->const_insts, use_minst);
+                }
+            }
+        }
+    }
+
+    return 0;
 }

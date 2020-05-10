@@ -24,6 +24,8 @@ struct minst_blk {
 
     /* 某寄存器所有use指令集合，数据为指令id */
     struct bitset     uses[32];
+
+    struct dynarray     const_insts;
 };
 
 struct minst_node {
@@ -40,6 +42,10 @@ struct minst {
     struct bitset def;
     struct bitset in;
     struct bitset out;
+
+    struct bitset rd_in;
+    struct bitset rd_out;
+    struct bitset kills;
 
     struct minst_node preds;
     struct minst_node succs;
@@ -62,7 +68,10 @@ struct minst {
         否则会导致他的活跃计算不正确
         */
         unsigned in_it_block : 1;
-        /* 是否是常量 */
+        unsigned is_lm_const : 1;
+        unsigned is_ln_const : 1;
+        unsigned is_def_apsr : 1;
+
         unsigned is_const : 1;
     } flag;
 
@@ -73,24 +82,30 @@ struct minst {
     /* 调用哪个reg_node去解析内容 */
     void *reg_node;
 
-    int def_var;
-    int use_var1;
-    int use_var2;
+    int ld;
+    int ld_imm;
 };
 
-#define live_def_set(reg)       bitset_set(&minst->def, reg, 1)
-#define live_use_set(reg)       bitset_set(&minst->use, reg, 1)
-#define live_use_clear(_m)      bitset_clear(&_m->use)
-
-#define liveness_set2(_def, _use, _use1)    do { \
-        bitset_set(&minst->def, _def, 1); \
-        bitset_set(&minst->use, _use, 1); \
-        bitset_set(&minst->use, _use1, 1); \
+#define live_def_set(blk, reg)       do { \
+        bitset_set(&minst->def, reg, 1); \
+        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+            bitset_set(&((blk)->defs[reg]), minst->id, 1); \
+    } while (0)
+#define live_use_set(blk, reg)       do { \
+        bitset_set(&minst->use, reg, 1); \
+        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+            bitset_set(&((blk)->uses[reg]), minst->id, 1); \
     } while (0)
 
-#define liveness_set(_def, _use)    do { \
-        bitset_set(&minst->def, _def, 1); \
-        bitset_set(&minst->use, _use, 1); \
+#define liveness_set2(blk, _def, _use, _use1)    do { \
+        live_def_set(blk, _def); \
+        live_use_set(blk, _use); \
+        live_use_set(blk, _use1); \
+    } while (0)
+
+#define liveness_set(blk, _def, _use)    do { \
+        live_def_set(blk, _def); \
+        live_use_set(blk, _use); \
     } while (0)
 
 struct minst_blk*   minst_blk_new(char *funcname);
@@ -101,6 +116,11 @@ void                minst_blk_uninit(struct minst_blk *blk);
 
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 void                minst_delete(struct minst *inst);
+int                 minst_get_def(struct minst *minst);
+#define             minst_set_const(m, imm) do { \
+        m->flag.is_const = 1; \
+        m->ld_imm = imm; \
+    } while (0)
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 
@@ -123,6 +143,8 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk);
 
 /* 生成到达定值, generate reaching definitions */
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
+
+struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
 
 #ifdef __cplusplus
 }

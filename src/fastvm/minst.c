@@ -2,6 +2,7 @@
 #include "mcore/mcore.h"
 #include "vm.h"
 #include "minst.h"
+#include "arm_emu.h"
 
 #define TVAR_BASE       32
 
@@ -74,9 +75,7 @@ struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int le
     minst->len = len;
     minst->reg_node = reg_node;
     minst->id = blk->allinst.len;
-    minst->def_var = -1;
-    minst->use_var1 = -1;
-    minst->use_var2 = -2;
+    minst->ld = -2;
 
     dynarray_add(&blk->allinst, minst);
     bitset_init(&minst->use, 32);
@@ -159,35 +158,35 @@ void                 minst_pred_add(struct minst *minst, struct minst *pred)
     }
 }
 
-void                minst_blk_live_prologue_add(struct minst_blk *blk)
+void                minst_blk_live_prologue_add(struct minst_blk *mblk)
 {
     int i;
-    struct minst *minst = minst_new(blk, NULL, 0, NULL);
+    struct minst *minst = minst_new(mblk, NULL, 0, NULL);
 
     minst->flag.prologue = 1;
 
     for (i = 0; i < 16; i++) {
-        live_def_set(i);
+        live_def_set(mblk, i);
     }
 }
 
-void                minst_blk_live_epilogue_add(struct minst_blk *blk)
+void                minst_blk_live_epilogue_add(struct minst_blk *mblk)
 {
     int i, len;
-    struct minst *minst = minst_new(blk, NULL, 0, NULL);
+    struct minst *minst = minst_new(mblk, NULL, 0, NULL);
 
     minst->flag.epilogue = 1;
 
     for (i = 0; i < 16; i++) {
-        live_use_set(i);
+        live_use_set(mblk, i);
     }
 
-    minst_succ_add(blk->allinst.ptab[0], blk->allinst.ptab[1]);
-    minst_pred_add(blk->allinst.ptab[1], blk->allinst.ptab[0]);
+    minst_succ_add(mblk->allinst.ptab[0], mblk->allinst.ptab[1]);
+    minst_pred_add(mblk->allinst.ptab[1], mblk->allinst.ptab[0]);
 
-    len = blk->allinst.len;
-    minst_succ_add(blk->allinst.ptab[len - 2], blk->allinst.ptab[len - 1]);
-    minst_pred_add(blk->allinst.ptab[len - 1], blk->allinst.ptab[len - 2]);
+    len = mblk->allinst.len;
+    minst_succ_add(mblk->allinst.ptab[len - 2], mblk->allinst.ptab[len - 1]);
+    minst_pred_add(mblk->allinst.ptab[len - 1], mblk->allinst.ptab[len - 2]);
 }
 
 int                 minst_blk_liveness_calc(struct minst_blk *blk)
@@ -256,19 +255,84 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
     return 0;
 }
 
+int          minst_get_def(struct minst *minst)
+{
+    if (minst->ld == -1)
+        return minst->ld;
+
+    return minst->ld = bitset_next_bit_pos(&minst->def, 0);
+}
+
+
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 {
     struct minst *minst;
-    struct bitset defs;
-    int i;
+    BITSET_INIT(in);
+    BITSET_INIT(in2);
+    BITSET_INIT(out);
+    struct minst_node *pred_node;
+    int i, changed = 1, def;
 
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
-        if (minst->flag.prologue || minst->flag.epilogue || minst->def_var == -1)
+        if (minst->flag.prologue || minst->flag.epilogue || (def = minst_get_def(minst)) < 0)
             continue;
 
-        bitset_clone(&defs, &blk->defs[minst->def_var]);
+        bitset_clone(&minst->kills, &blk->defs[def]);
+        bitset_set(&minst->kills, minst->id, 0);
     }
+
+    while (changed) {
+        changed = 0;
+
+        for (i = 0; i < blk->allinst.len; i++) {
+            minst = blk->allinst.ptab[i];
+            if (minst->flag.prologue || minst->flag.epilogue)
+                continue;
+
+            bitset_clone(&in, &minst->rd_in);
+            bitset_clone(&out, &minst->rd_out);
+
+            for (pred_node = &minst->preds; pred_node; pred_node = pred_node->next) {
+                if (!pred_node->minst)  continue;
+
+                bitset_or(&minst->rd_in, &pred_node->minst->rd_out);
+            }
+            bitset_or(&minst->rd_out, bitset_sub(bitset_clone(&in2, &minst->rd_in), &minst->kills));
+            if (minst_get_def(minst) >= 0)
+                bitset_set(&minst->rd_out, minst->id, 1);
+
+            if (!bitset_is_equal(&in, &minst->rd_in) || !bitset_is_equal(&out, &minst->rd_out)) {
+                changed = 1;
+            }
+        }
+    }
+
+    bitset_uninit(&in);
+    bitset_uninit(&out);
 
     return 0;
 }
+
+struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
+{
+    int pos;
+    BITSET_INIT(bs);
+    struct minst *const_minst;
+
+    bitset_clone(&bs, &minst->rd_in);
+    bitset_and(&bs, &blk->defs[regm]);
+
+    pos = bitset_next_bit_pos(&bs, 0);
+    if (bitset_next_bit_pos(&bs, pos + 1) >= 0) {
+        bitset_uninit(&bs);
+        return NULL;
+    }
+
+    bitset_uninit(&bs);
+
+    const_minst = blk->allinst.ptab[pos];
+
+    return const_minst->flag.is_const ? const_minst : NULL;
+}
+
