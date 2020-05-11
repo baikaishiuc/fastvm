@@ -325,6 +325,8 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
         bitset_clone(&minst->kills, &blk->defs[def]);
         bitset_set(&minst->kills, minst->id, 0);
+        bitset_clear(&minst->rd_in);
+        bitset_clear(&minst->rd_out);
     }
 
     while (changed) {
@@ -369,6 +371,9 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
     bitset_and(&bs, &blk->defs[regm]);
 
     pos = bitset_next_bit_pos(&bs, 0);
+    if (pos < 0)
+        return NULL;
+
     if (bitset_next_bit_pos(&bs, pos + 1) >= 0) {
         for (; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
             if (minst_blk_is_on_start_unique_path(blk, blk->allinst.ptab[pos], minst))

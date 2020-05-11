@@ -131,6 +131,9 @@ struct arm_emu {
 
     struct minst_blk        mblk;
     struct minst            *prev_minst;
+
+    /* 全局变量，在常量传播中，确认是否有删除多余的边 */
+    int                 is_del_edge;
 };
 
 static const char *regstr[] = {
@@ -317,8 +320,8 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
             olen = sprintf(o += olen, "[");
         }
 
-        olen = sprintf(o += olen, ",APSR=%c%c%c%c]", ARM_APSR_PTR(emu)->z ? 'Z':' ', 
-            ARM_APSR_PTR(emu)->c ? 'C':' ', ARM_APSR_PTR(emu)->n ? 'N':' ', ARM_APSR_PTR(emu)->v ? 'V':' ');
+        olen = sprintf(o += olen, ",APSR=%c%c%c%c]", minst->apsr.z ? 'Z':' ', 
+            minst->apsr.c ? 'C':' ', minst->apsr.n ? 'N':' ', minst->apsr.v ? 'V':' ');
     }
 
     /* dump liveness calculate result */
@@ -645,16 +648,34 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
         struct minst *ln_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ln);
         struct minst *lm_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
 
-        if (!ln_minst || !ln_minst->flag.is_const || !lm_minst || !lm_minst->flag.is_const)
+        if (!ln_minst || !lm_minst)
             return 0;
 
-        struct bits bs = AddWithCarry(ln_minst->ld_imm, ~lm_minst->ld_imm, 1);
+        /* cmp比较的2个寄存器都是常量，可以直接常量转换 */
+        if (ln_minst->flag.is_const && lm_minst->flag.is_const) {
+            struct bits bs = AddWithCarry(ln_minst->ld_imm, ~lm_minst->ld_imm, 1);
 
-        minst->apsr.n = INT_TOPMOSTBIT(bs.v);
-        minst->apsr.z = IsZeroBit(bs.v);
-        minst->apsr.c = bs.carry_out;
-        minst->apsr.v = bs.overflow;
-        minst->flag.is_const = 1;
+            minst->apsr.n = INT_TOPMOSTBIT(bs.v);
+            minst->apsr.z = IsZeroBit(bs.v);
+            minst->apsr.c = bs.carry_out;
+            minst->apsr.v = bs.overflow;
+            minst->flag.is_const = 1;
+        }
+        /* 假如比较的2个寄存器不是直接常量，
+        比如 cmp r5, r0 
+        我们分开确认每个寄存器比如 r5，是由哪个值定义的，他的上方是否有形如
+            mov r5, r6
+        这样的指令，如果是的话，因为r6一定不是常量(假如是常量，那么在常量传播中
+        r6和r5一定已经被常数化了)，所以我们尝试分析r6为什么不是常量，有2种可能
+        1. 本身的值就是模糊定义的，可能是外部参数进来的，可能是某函数返回值，或者内存里的某个定义
+        2. 这条指令所在的cfg节点有多个前驱节点，每个前驱节点都有对r6的定值
+
+        我们先不分析1的情况，2中的情况，假如2中的每个前驱节点对r6的定值，对 状态寄存器 的影响
+        是一样的，那么我们认为这个地方的cmp指令是可以优化的
+        */
+        else if (ln_minst->flag.is_const || lm_minst->flag.is_const) {
+            struct minst *check_minst = ln_minst->flag.is_const ? lm_minst : ln_minst;
+        }
     }
 
     return 0;
@@ -678,8 +699,11 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     arm_prepare_dump(emu, "i%s %s", it2str(firstcond, mask, emu->it.et), condstr[firstcond]);
 
     emu->it.cond = firstcond;
-    emu->it.inblock = 5 - RightMostBitPos(mask, 4);
-    emu->it.num = emu->it.inblock - 1;
+
+    if (EMU_IS_SEQ_MODE(emu)) {
+        emu->it.inblock = 5 - RightMostBitPos(mask, 4);
+        emu->it.num = emu->it.inblock - 1;
+    }
 
     live_use_set(&emu->mblk, ARM_REG_APSR);
 
@@ -943,7 +967,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         return t_swi(emu, minst, code, len);
 
     minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2);
-    arm_prepare_dump(emu, "b%s 0x%x", minst->flag.is_const ? "":condstr[emu->code.ctx.cond], minst->flag.b_cond_passed ? minst->host_addr:0);
+    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->flag.b_cond_passed ? minst->host_addr:0);
 
     if (InITBlock(emu))
         ARM_UNPREDICT();
@@ -960,7 +984,9 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         struct minst *tminst;
 
         if (cminst->flag.is_const) {
-            if (minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond)) {
+            minst_set_const(minst, cminst->ld_imm);
+
+            if ((minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond))) {
                 tminst = emu->mblk.allinst.ptab[minst->id + 1];
             }
             else {
@@ -971,8 +997,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
             minst_succ_del(minst, tminst);
             minst_pred_del(tminst, minst);
-
-            minst->flag.is_const = 1;
+            emu->is_del_edge = 1;
         }
     }
 
@@ -1800,7 +1825,7 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
         /* 1. 物理前指令是跳转指令，自动切块
            2. 当前节点有多个前节点 
            3. 前节点不是物理前节点 */
-        else if (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1]) {
+        else if (!minst->flag.in_it_block && (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
             fprintf(fp, ">]\n");
 
             for (tnode = &prev_minst->succs; tnode; tnode = tnode->next) {
@@ -1887,7 +1912,6 @@ int         arm_emu_run(struct arm_emu *emu)
     /* forth pass */
     minst_blk_dead_code_elim(&emu->mblk);
 
-    minst_blk_gen_reaching_definitions(&emu->mblk);
 
     minst_blk_const_propagation(emu);
 
@@ -1918,13 +1942,16 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
 
     EMU_SET_CONST_MODE(emu);
 
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+        if (minst->flag.is_const)
+            dynarray_add(&blk->const_insts, minst);
+    }
+
     while (changed) {
         changed = 0;
-        for (i = 0; i < blk->allinst.len; i++) {
-            minst = blk->allinst.ptab[i];
-            if (minst->flag.is_const)
-                dynarray_add(&blk->const_insts, minst);
-        }
+
+        minst_blk_gen_reaching_definitions(&emu->mblk);
 
         for (i = 0; i < blk->const_insts.len; i++) {
             minst = blk->const_insts.ptab[i];
@@ -1939,18 +1966,22 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
                 1. 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
                 假如有的话，确认in集合中的def指令时唯一一条对 minst_get_def(minst) 中进行
                 定值的指令.
-                2. 查看是否在起点开始的唯一路径上 */
+                 */
                 bitset_clone(&def, &use_minst->rd_in);
                 bitset_and(&def, &blk->defs[minst_get_def(minst)]);
                 bitset_set(&def, minst->id, 0);
-                if ((bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def))
-                    || ((minst != use_minst) && minst_blk_is_on_start_unique_path (blk, minst, use_minst))) {
+                if (bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def)) {
                     arm_minst_do(emu, use_minst);
 
                     if (use_minst->flag.is_const)
                         dynarray_add(&blk->const_insts, use_minst);
                 }
             }
+        }
+
+        if (emu->is_del_edge) {
+            emu->is_del_edge = 0;
+            changed = emu->is_del_edge;
         }
     }
 
