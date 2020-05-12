@@ -375,16 +375,10 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
         return NULL;
 
     if (bitset_next_bit_pos(&bs, pos + 1) >= 0) {
-        for (; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
-            if (minst_blk_is_on_start_unique_path(blk, blk->allinst.ptab[pos], minst))
-                goto exit;
-        }
-
         bitset_uninit(&bs);
         return NULL;
     }
 
-exit:
     bitset_uninit(&bs);
 
     const_minst = blk->allinst.ptab[pos];
@@ -422,3 +416,9 @@ int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, str
 
     return 0;
 }
+
+int       minst_get_last_def_in_cur_cfg_node(struct minst_blk *blk, struct minst *minst, int regm)
+{
+    return 0;
+}
+

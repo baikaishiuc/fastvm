@@ -608,6 +608,8 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 {
     arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
+    minst->flag.is_mov_reg = 1;
+
     if (EMU_IS_CONST_MODE(emu)) {
         struct minst *const_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
         if (const_minst) {
@@ -648,11 +650,11 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
         struct minst *ln_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ln);
         struct minst *lm_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
 
-        if (!ln_minst || !lm_minst)
+        if (!ln_minst && !lm_minst)
             return 0;
 
         /* cmp比较的2个寄存器都是常量，可以直接常量转换 */
-        if (ln_minst->flag.is_const && lm_minst->flag.is_const) {
+        if (ln_minst && lm_minst && ln_minst->flag.is_const && lm_minst->flag.is_const) {
             struct bits bs = AddWithCarry(ln_minst->ld_imm, ~lm_minst->ld_imm, 1);
 
             minst->apsr.n = INT_TOPMOSTBIT(bs.v);
@@ -671,10 +673,75 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
         2. 这条指令所在的cfg节点有多个前驱节点，每个前驱节点都有对r6的定值
 
         我们先不分析1的情况，2中的情况，假如2中的每个前驱节点对r6的定值，对 状态寄存器 的影响
-        是一样的，那么我们认为这个地方的cmp指令是可以优化的
+        是一样的，那么我们认为这个地方的cmp指令是可以优化的。
+
+        我们把这种优化称之胃 多路径常量优化
+
+        先不处理2个指令都要做多路径常量优化的情况
         */
-        else if (ln_minst->flag.is_const || lm_minst->flag.is_const) {
-            struct minst *check_minst = ln_minst->flag.is_const ? lm_minst : ln_minst;
+        else  {
+            struct minst *p_minst = minst->preds.minst, *d_minst = NULL;
+
+            int reg = (ln_minst && ln_minst->flag.is_const) ? emu->code.ctx.lm : emu->code.ctx.ln;
+
+            for (; p_minst; p_minst = p_minst->preds.minst) {
+                if (p_minst->preds.next)
+                    return 0;
+
+                if ((minst_get_def(p_minst) == reg) && p_minst->flag.is_mov_reg)
+                    break;
+            }
+
+            if (!p_minst)
+                return 0;
+
+            int reg_use = minst_get_use(p_minst);
+
+            BITSET_INIT(bs);
+            struct minst *const_minst = NULL;
+            int pos = -1, p_apsr = -1, ok = 1;
+            union {
+                struct arm_cpsr apsr;
+                int ld_imm;
+            } v = { 0 };
+
+            bitset_clone(&bs, &p_minst->rd_in);
+            bitset_and(&bs, &emu->mblk.defs[reg_use]);
+
+            pos = bitset_next_bit_pos(&bs, 0);
+            for (ok = pos >= 0; pos >= 0;  pos = bitset_next_bit_pos(&bs, pos + 1)) {
+                const_minst = emu->mblk.allinst.ptab[pos];
+                v.ld_imm = 0;
+
+                if (!const_minst->flag.is_const) {
+                    ok = 0;
+                    break;
+                }
+
+                struct bits bs;
+
+                if ((ln_minst && ln_minst->flag.is_const))
+                    bs = AddWithCarry(ln_minst->ld_imm, ~const_minst->ld_imm, 1);
+                else
+                    bs = AddWithCarry(const_minst->ld_imm, ~lm_minst->ld_imm, 1);
+
+                v.apsr.n = INT_TOPMOSTBIT(bs.v);
+                v.apsr.z = IsZeroBit(bs.v);
+                v.apsr.c = bs.carry_out;
+                v.apsr.v = bs.overflow;
+
+                if (-1 == p_apsr)   p_apsr = v.ld_imm;
+                else if (v.ld_imm != p_apsr) {
+                    ok = 0;
+                    break;
+                }
+            }
+
+            bitset_uninit(&bs);
+            if (ok) {
+                printf("woow, found a cmp instruction[%d] multi-path const propgation\n", minst->id);
+                minst_set_const(minst, p_apsr);
+            }
         }
     }
 

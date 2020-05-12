@@ -76,8 +76,8 @@ struct minst {
 
         unsigned is_const : 1;
 
-        /* mov 指令非常特别，需要特殊处理 */
-        unsigned is_mov : 1;
+        /* mov reg指令非常特别，需要特殊处理 */
+        unsigned is_mov_reg : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
@@ -125,6 +125,7 @@ void                minst_blk_uninit(struct minst_blk *blk);
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 void                minst_delete(struct minst *inst);
 int                 minst_get_def(struct minst *minst);
+#define             minst_get_use(m)        bitset_next_bit_pos(&((m)->use), 0)
 #define             minst_set_const(m, imm) do { \
         m->flag.is_const = 1; \
         m->ld_imm = imm; \
@@ -157,17 +158,6 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk);
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
-
-/*
-获取某个寄存器被在拷贝过程中，第一次定义的地方
-
-比如 
-
-1. mov r0, r5
-2. mov r4, r0
-3. cmp r5, r4
-*/
-int       minst_get_first_def_in_cfg_node(struct minst *minst, int regm);
 
 #ifdef __cplusplus
 }
