@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14.4)
+cmake_minimum_required(VERSION 3.12)
 project(fastvm)
 
 add_compile_definitions(_CRT_SECURE_NO_WARNINGS)

@@ -422,3 +422,77 @@ int       minst_get_last_def_in_cur_cfg_node(struct minst_blk *blk, struct minst
     return 0;
 }
 
+/*
+对抗混淆用的多路径常量传播
+
+@cfg[in]            某cfg节点中的任意一条指令，用这条指令来代表这个cfg节点
+@pass[in]           我们假设某个cfg节点只有2条出边，先暂不考虑switch case导致的多(>2)后继节点的情况，
+                    pass代表走入后继节点时，选择的方向
+@regm[in]           检测寄存器
+@d[out]             检测到的常量入边节点
+@return 1           可达           
+        0           不可达
+*/
+int                 minst_blk_calc_const_path_reachable(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d)
+{
+    struct bitset allvisit;
+    struct minst *succ = cfg, *start;
+    struct minst *pass_minst, *not_pass_minst;
+
+
+    /* 找到当前cfg的后继出口 */
+    for (; succ; succ = succ->succs.minst) {
+        if (succ->succs.next) {
+            if ((succ->succs.minst->id == (succ->id + 1))) {
+                pass_minst = succ->succs.next->minst;
+                not_pass_minst = succ->succs.minst;
+            }
+            else {
+                not_pass_minst = succ->succs.next->minst;
+                pass_minst = succ->succs.minst;
+            }
+
+            start = pass ? pass_minst : not_pass_minst;
+            break;
+        }
+    }
+
+    struct minst *stack[128];
+    int stack_top = -1, reachable = 1;
+
+#define MSTACK_IS_EMPTY(s)      (s##_top == -1)
+#define MSTACK_TOP(s)           s[s##_top]
+#define MSTACK_POP(s)           s[s##_top--]
+#define MSTACK_PUSH(s, e)       s[s##_top++] = e;   bitset_set(&allvisit, e->id, 1)
+
+    bitset_init(&allvisit, blk->allinst.len + 1);
+    MSTACK_PUSH(stack, start);
+
+    /* 就是一个广度优先得搜索，并做了一些特殊处理  */
+    while (!MSTACK_IS_EMPTY(stack)) {
+        start = MSTACK_POP(stack);
+
+        for (; succ = start->succs.minst; succ = succ->succs.next) {
+            if (bitset_get(&allvisit, succ->id)) continue;
+            if (succ->cfg_node == cfg->cfg_node) {
+                if (minst_get_last_const_definition(blk, succ, regm)) {
+                    dynarray_add(d, start);
+                    continue;
+                }
+
+                reachable = 0; goto exit;
+            }
+            /* 验证某个cfg节点得，左右2个子节点是否时独立，假如不是独立，就退出 */
+            else if (succ->cfg_node == not_pass_minst->cfg_node) {
+                reachable = 0; goto exit;
+            }
+
+            MSTACK_PUSH(stack, succ);
+        }
+    }
+
+exit:
+    bitset_uninit(&allvisit);
+    return reachable;
+}
+
