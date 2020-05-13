@@ -204,6 +204,30 @@ void                minst_pred_del(struct minst *minst, struct minst *pred)
     }
 }
 
+int                 minst_is_bidirect(struct minst *minst, struct minst *succ)
+{
+    struct minst_node *tnode = &minst->succs;
+
+    /* 在minst的后继节点中找succ*/
+    for (; tnode; tnode = tnode->next) {
+        if (tnode->minst == succ)
+            break;
+    }
+    
+    if (!tnode)
+        return 0;
+
+    tnode = &succ->preds;
+
+    /* 在succ的前驱节点中找minst*/
+    for (; tnode; tnode = tnode->next) {
+        if (tnode->minst == minst)
+            return 1;
+    }
+
+    return 0;
+}
+
 void                minst_blk_live_prologue_add(struct minst_blk *mblk)
 {
     int i;
@@ -361,6 +385,58 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
     return 0;
 }
 
+int                 minst_blk_value_numbering(struct minst_blk *blk)
+{
+    return 0;
+}
+
+int                 minst_blk_copy_propagation(struct minst_blk *blk)
+{
+    int i, direct;
+    struct minst *minst, *def_minst, *pred;
+    struct bitset defs;
+
+    bitset_init(&defs, blk->allinst.len + 1);
+
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+        if (minst->flag.dead_code) continue;
+        if (minst->flag.is_mov_reg) {
+            bitset_clone(&defs, &minst->rd_in);
+            bitset_and(&defs, &blk->defs[minst_get_use(minst)]);
+
+            if (bitset_count(&defs) != 1)
+                continue;
+            
+            def_minst = blk->allinst.ptab[bitset_next_bit_pos(&defs, 0)];
+            if (!def_minst->flag.is_mov_reg)
+                continue;
+
+            /* FIX by value numbering */
+            pred = minst->preds.minst;
+            for (direct = 0; pred; pred = pred->preds.minst) {
+                if (minst_get_def(pred) == minst_get_def(minst)) break;
+                if (pred->preds.next) break;
+
+                if (pred == def_minst)
+                    direct = 1;
+            }
+
+            if (!direct)
+                continue;
+
+            if ((minst_get_def(def_minst) == minst_get_use(minst))
+                && (minst_get_use(def_minst) == minst_get_def(minst))) {
+                minst->flag.dead_code = 1;
+            }
+        }
+    }
+
+    bitset_uninit(&defs);
+
+    return 0;
+}
+
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
     int pos;
@@ -425,20 +501,27 @@ int       minst_get_last_def_in_cur_cfg_node(struct minst_blk *blk, struct minst
 /*
 对抗混淆用的多路径常量传播
 
-@cfg[in]            某cfg节点中的任意一条指令，用这条指令来代表这个cfg节点
+@cfg[in]            cfg[n]节点中的任意一条指令，用这条指令来代表这个cfg节点
 @pass[in]           我们假设某个cfg节点只有2条出边，先暂不考虑switch case导致的多(>2)后继节点的情况，
-                    pass代表走入后继节点时，选择的方向
-@regm[in]           检测寄存器
-@d[out]             检测到的常量入边节点
-@return 1           可达           
-        0           不可达
+                    pass代表符合<cond>走入后继节点时，选择的方向
+@regm[in]           检测使用的寄存器
+@d[out]             检测到的从符合Pass条件的走出的分支入边节点
+@id[out]            和d相反 
+@return 0           成功
+        <0          失败
 */
-int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d)
+int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id)
 {
-    struct bitset allvisit;
+    BITSET_INIT(allvisit);
+    BITSET_INIT(iallvisit);
+    struct bitset defs;
     struct minst *succ = cfg, *start;
     struct minst *pass_minst, *not_pass_minst;
+    struct minst_node *succ_node;
 
+    bitset_init(&defs, blk->allinst.len + 1);
+    bitset_clone(&defs, &cfg->rd_in);
+    bitset_and(&defs, &blk->defs[reg_use]);
 
     /* 找到当前cfg的后继出口 */
     for (; succ; succ = succ->succs.minst) {
@@ -463,36 +546,69 @@ int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk
 #define MSTACK_IS_EMPTY(s)      (s##_top == -1)
 #define MSTACK_TOP(s)           s[s##_top]
 #define MSTACK_POP(s)           s[s##_top--]
-#define MSTACK_PUSH(s, e)       s[s##_top++] = e;   bitset_set(&allvisit, e->id, 1)
+#define MSTACK_PUSH(s, e)       s[++s##_top] = e
 
     bitset_init(&allvisit, blk->allinst.len + 1);
+    bitset_init(&iallvisit, blk->allinst.len + 1);
     MSTACK_PUSH(stack, start);
+    bitset_set(&allvisit, start->id, 1);
 
     /* 就是一个广度优先得搜索，并做了一些特殊处理  */
     while (!MSTACK_IS_EMPTY(stack)) {
         start = MSTACK_POP(stack);
 
-        for (; succ = start->succs.minst; succ = succ->succs.next) {
+        for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
+            if (!(succ = succ_node->minst)) continue;
+
             if (bitset_get(&allvisit, succ->id)) continue;
-            if (succ->cfg_node == cfg->cfg_node) {
-                if (minst_get_last_const_definition(blk, start, regm)) {
-                    dynarray_add(d, start);
+            if (bitset_get(&defs, succ->id)) {
+                if (succ->flag.is_const) {
+                    dynarray_add(d, succ);
+                    bitset_set(&allvisit, succ->id, 1);
                     continue;
                 }
-
-                ret = -1; goto exit;
-            }
-            /* 验证某个cfg节点得，左右2个子节点是否时独立，假如不是独立，就退出 */
-            else if (succ->cfg_node == not_pass_minst->cfg_node) {
                 ret = -1; goto exit;
             }
 
             MSTACK_PUSH(stack, succ);
+            bitset_set(&allvisit, succ->id, 1);
+        }
+    }
+
+    /* 遍历另外分支的节点 */
+    start = pass ? not_pass_minst:pass_minst;
+    if (bitset_get(&allvisit, start->id)) {
+        ret = -1; goto exit;
+    }
+    MSTACK_PUSH(stack, start);
+    bitset_set(&iallvisit, start->id, 1);
+
+    while (!MSTACK_IS_EMPTY(stack)) {
+        start = MSTACK_POP(stack);
+        for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
+            if (!(succ = succ_node->minst)) continue;
+            /* 这条边已经访问过，退出 */
+            if (bitset_get(&iallvisit, succ->id)) continue;
+
+            if (bitset_get(&allvisit, succ->id) && minst_is_bidirect(start, succ)) {
+                ret = -1; goto exit;
+            }
+
+            if (bitset_get(&defs, succ->id)) {
+                dynarray_add(id, succ);
+                bitset_set(&iallvisit, succ->id, 1);
+                continue;
+            }
+
+            MSTACK_PUSH(stack, succ);
+            bitset_set(&allvisit, succ->id, 1);
         }
     }
 
 exit:
     bitset_uninit(&allvisit);
+    bitset_uninit(&iallvisit);
+    bitset_uninit(&defs);
     return ret;
 }
 

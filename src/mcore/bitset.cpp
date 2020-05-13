@@ -226,3 +226,25 @@ int         bitset_next_bit_pos(struct bitset *bs, int pos)
 
     return -1;
 }
+
+static inline int bit_count(int v)
+{
+    int c;
+
+    c = (v & 0x55555555) + ((v >> 1) & 0x55555555);
+    c = (c & 0x33333333) + ((c >> 2) & 0x33333333);
+    c = (c & 0x0F0F0F0F) + ((c >> 4) & 0x0F0F0F0F);
+    c = (c & 0x00FF00FF) + ((c >> 8) & 0x00FF00FF);
+    c = (c & 0x0000FFFF) + ((c >> 16) & 0x0000FFFF);
+
+    return c;
+}
+
+int             bitset_count(struct bitset *bs)
+{
+    int c = 0, i;
+    for (i = 0; i < bs->len4; i++)
+        c += bit_count(bs->data[i]);
+
+    return c;
+}

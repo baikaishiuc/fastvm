@@ -697,11 +697,11 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
             int reg_use = minst_get_use(p_minst);
 
-            BITSET_INIT(bs);
+            BITSET_INIT(defs);
             struct minst *const_minst = NULL;
             int pos = -1, p_apsr = -1, ok = 1, passed, i;
             struct bits bits;
-            struct dynarray d = { 0 };
+            struct dynarray d = { 0 }, id = { 0 };
             union {
                 struct arm_cpsr apsr;
                 int ld_imm;
@@ -718,16 +718,16 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
             if (!b_minst)
                 return 0;
 
-            bitset_clone(&bs, &p_minst->rd_in);
-            bitset_and(&bs, &emu->mblk.defs[reg_use]);
+            bitset_clone(&defs, &p_minst->rd_in);
+            bitset_and(&defs, &emu->mblk.defs[reg_use]);
 
             /* 假如这个常量传播在这个控制流节点内是起始路径可达的，则以这个常量的计算作为根据，查看
             假如以这个常量走入的所有分支给出的对reg_use的定值是否造成的影响一样 */
-            pos = bitset_next_bit_pos(&bs, 0);
+            pos = bitset_next_bit_pos(&defs, 0);
             if (pos < 0)
                 return 0;
 
-            for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
+            for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
                 const_minst = emu->mblk.allinst.ptab[pos];
                 if (const_minst->flag.is_const
                     && minst_blk_is_on_start_unique_path(&emu->mblk, const_minst, p_minst)) {
@@ -744,9 +744,15 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
                     passed = _ConditionPassed(&v.apsr, b_minst->flag.b_cond);
 
-                    if (minst_blk_get_all_branch_reg_const_def(&emu->mblk, minst, passed, reg_use, &d))
-                        return 0;
+                    if (minst_blk_get_all_branch_reg_const_def(&emu->mblk, minst, passed, reg_use, &d, &id))
+                        goto exit;
                     ok = 1;
+
+                    for (i = 0; i < id.len; i++) {
+                        bitset_set(&defs, ((struct minst *)id.ptab[i])->id, 0);
+                    }
+
+                    break;
                 }
             }
 
@@ -755,9 +761,18 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
             /* 确认所有从某个cfg(a)节点走出的分支最后回到cfg(a)节点的循环入边某个reg_use值都是常量，在分别计算
             这些常量的值在cmp指令上对aspr的影响是否一样  */
-            for (i = 0; i < d.len; i++) {
-                const_minst = d.ptab[i];
+            pos = bitset_next_bit_pos(&defs, 0);
+            if (pos < 0)
+                return 0;
+
+            for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
+                const_minst = d.ptab[pos];
                 v.ld_imm = 0;
+                
+                if (!const_minst->flag.is_const) {
+                    ok = 0;
+                    break;
+                }
 
                 if ((ln_minst && ln_minst->flag.is_const))
                     bits = AddWithCarry(ln_minst->ld_imm, ~const_minst->ld_imm, 1);
@@ -776,13 +791,13 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
                 }
             }
 
-            if (!ok)
-                return 0;
-
             /* 计算 cfg(a)中，它的左右分支是独立的，而且他的左右分支产生的循环入边，构成了 */
 
+exit:
             /**/
-            bitset_uninit(&bs);
+            bitset_uninit(&defs);
+            dynarray_reset(&d);
+            dynarray_reset(&id);
             if (ok) {
                 printf("woow, found a cmp instruction[%d] multi-path const propgation\n", minst->id);
                 minst_set_const(minst, p_apsr);
@@ -2025,6 +2040,9 @@ int         arm_emu_run(struct arm_emu *emu)
     /* forth pass */
     minst_blk_dead_code_elim(&emu->mblk);
 
+    minst_blk_gen_reaching_definitions(&emu->mblk);
+
+    minst_blk_copy_propagation(&emu->mblk);
 
     minst_blk_const_propagation(emu);
 

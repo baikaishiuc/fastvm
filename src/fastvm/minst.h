@@ -158,8 +158,14 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk);
 /* 生成到达定值, generate reaching definitions */
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
 
+int                 minst_blk_value_numbering(struct minst_blk *blk);
+
+int                 minst_blk_copy_propagation(struct minst_blk *blk);
+
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
-int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d);
+
+int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
+    struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id);
 
 #ifdef __cplusplus
 }

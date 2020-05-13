@@ -39,6 +39,7 @@ struct bitset
     int             bitset_is_equal(struct bitset *lhs, struct bitset *src);
     int             bitset_is_empty(struct bitset *bs);
     int             bitset_next_bit_pos(struct bitset *bs, int pos);
+    int             bitset_count(struct bitset *bs);
 
 #define u4_bit_set(a, pos)      (a |= 1 << pos)
 
