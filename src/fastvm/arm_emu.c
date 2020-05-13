@@ -178,6 +178,14 @@ char *it2str(int firstcond, int mask, char *buf)
     return buf;
 }
 
+const int cur_inst_it(struct arm_emu *e)
+{
+    if (!e->it.inblock)
+        vm_error("not in it block");
+
+    return e->it.et[e->it.num - e->it.inblock] == 't';
+}
+
 const char *cur_inst_it_cond(struct arm_emu *e)
 {
     if (!e->it.inblock)
@@ -1010,7 +1018,7 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
         arm_prepare_dump(emu, "movt%s %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
         liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
 
-        if (EMU_IS_CONST_MODE(emu) && !minst->flag.in_it_block) {
+        if (EMU_IS_CONST_MODE(emu)) {
             struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ld);
             if (cminst)
                 minst_set_const(minst, imm << 16 | (cminst->ld_imm & 0xffff));
@@ -1019,8 +1027,7 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
     else {
         arm_prepare_dump(emu, "mov%sw %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
 
-        if (!minst->flag.in_it_block) 
-            minst_set_const(minst, imm);
+        minst_set_const(minst, imm);
     }
 
     return 0;
@@ -1702,10 +1709,10 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
     /* 不要挪动位置，假如你把他移动到 reg_node->func 后面，会导致 it 也被判断为在 it_block 中 */
     if (InITBlock(emu)) {
         minst->flag.in_it_block = 1;
+        minst->flag.is_t = cur_inst_it(emu);
     }
 
     reg_node->func(emu, minst, (uint16_t *)minst->addr, minst->len / 2);
-
 
     if (emu->it.inblock> 0)
         emu->it.inblock--;
@@ -1915,45 +1922,29 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
 static void arm_emu_dump_cfg(struct arm_emu *emu)
 {
-    int i, j;
-    struct minst *minst, *prev_minst, *cur_grp_minst;
+    int i;
+    struct minst *minst, *prev_minst;
     struct minst_node *tnode;
     struct minst_blk *blk = &emu->mblk;
     char obuf[512];
-    unsigned char *start;
 
     FILE *fp = fopen("cfg.dot", "w");
 
     fprintf(fp, "digraph G {");
-    fprintf(fp, "node [fontname = \"helvetica\"]");
+    fprintf(fp, "node [fontname = \"helvetica\"]\n");
 
     arm_emu_cpu_reset(emu);
+
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
 
-        if (0 == i) {
-            cur_grp_minst = minst;
-        }
-        else if (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1]) {
-            cur_grp_minst = minst;
-        }
-
-        minst->cfg_node = cur_grp_minst;
-        prev_minst = minst;
-    }
-
-    for (i = j =0; i < blk->allinst.len; i++) {
-        minst = blk->allinst.ptab[i];
+        if (minst->flag.prologue || minst->flag.epilogue) continue;
 
         /* 指令快刚进入的时候，必定生成一个节点 */
-        if (0 == i) {
-            start = minst->addr;
+        if (i == 1) {
             fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
         }
-        /* 1. 物理前指令是跳转指令，自动切块
-           2. 当前节点有多个前节点 
-           3. 前节点不是物理前节点 */
-        else if (!minst->flag.in_it_block && (prev_minst->flag.b || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
+        else if (prev_minst->cfg_node != minst->cfg_node) {
             fprintf(fp, ">]\n");
 
             for (tnode = &prev_minst->succs; tnode; tnode = tnode->next) {
@@ -1965,7 +1956,7 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
 
         arm_minst_do(emu, minst);
 
-        arm_inst_print_format(emu, minst, 0, obuf);
+        arm_inst_print_format(emu, minst, IDUMP_STATUS, obuf);
 
         fprintf(fp, "%s<br/>", obuf);
         prev_minst = minst;
@@ -1977,8 +1968,8 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
 
 static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 {
-    int i;
-    struct minst *minst, *b_minst;
+    int i, same = 0;
+    struct minst *minst, *b_minst, *succ;
     struct minst_node *succ_node;
 
     for (i = 0; i < emu->mblk.allinst.len; i++) {
@@ -1997,15 +1988,29 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
         }
 
         if (minst->flag.in_it_block) {
-            for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
-                minst_succ_add(minst->preds.minst, succ_node->minst);
-                minst_pred_add(succ_node->minst, minst->preds.minst);
-
-                if (!succ_node->minst->flag.in_it_block)
-                    break;
+            for (same = 1, succ = minst->succs.minst; succ && succ->flag.in_it_block; succ = succ->succs.minst) {
+                if (minst->flag.is_t != succ->flag.is_t) same = 0;
             }
+
+            if (same) {
+                minst_succ_add(minst->preds.minst, succ);
+                minst_pred_add(succ, minst->preds.minst);
+                for (; ((i+1) < emu->mblk.allinst.len) && ((struct minst *)emu->mblk.allinst.ptab[i+1])->flag.in_it_block; i++);
+            }
+            else {
+                for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
+                    minst_succ_add(minst->preds.minst, succ_node->minst);
+                    minst_pred_add(succ_node->minst, minst->preds.minst);
+
+                    if (!succ_node->minst->flag.in_it_block)
+                        break;
+                }
+            }
+
         }
     }
+
+    minst_blk_gen_cfg(&emu->mblk);
 
     return 0;
 }
@@ -2037,14 +2042,16 @@ int         arm_emu_run(struct arm_emu *emu)
     /* third pass */
     minst_blk_liveness_calc(&emu->mblk);
 
-    /* forth pass */
-    minst_blk_dead_code_elim(&emu->mblk);
-
     minst_blk_gen_reaching_definitions(&emu->mblk);
 
+#if 1
     minst_blk_copy_propagation(&emu->mblk);
+    /* forth pass */
+
+    minst_blk_dead_code_elim(&emu->mblk);
 
     minst_blk_const_propagation(emu);
+#endif
 
     arm_emu_dump_mblk(emu);
 
@@ -2082,6 +2089,7 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
     while (changed) {
         changed = 0;
 
+        minst_blk_liveness_calc(&emu->mblk);
         minst_blk_gen_reaching_definitions(&emu->mblk);
 
         for (i = 0; i < blk->const_insts.len; i++) {

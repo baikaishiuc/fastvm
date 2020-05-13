@@ -137,7 +137,7 @@ void                minst_succ_add(struct minst *minst, struct minst *succ)
     }
 }
 
-void                 minst_pred_add(struct minst *minst, struct minst *pred)
+void                minst_pred_add(struct minst *minst, struct minst *pred)
 {
     struct minst_node *tnode;
 
@@ -204,6 +204,57 @@ void                minst_pred_del(struct minst *minst, struct minst *pred)
     }
 }
 
+void                minst_cfg_del(struct minst *minst)
+{
+    struct minst_node *pred_node, *succ_node;
+    struct minst *pred, *succ;
+
+    for (pred_node = &minst->preds; pred_node; pred_node = pred_node->next) {
+        if (!(pred = pred_node->minst)) continue;
+        for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
+            if (!(succ = succ_node->minst)) continue;
+
+            minst_succ_add(pred, succ);
+            minst_pred_add(succ, pred);
+
+            minst_pred_del(minst, pred);
+            minst_succ_del(pred, minst);
+
+            minst_pred_del(succ, minst);
+            minst_succ_del(minst, succ);
+        }
+    }
+}
+
+void                minst_blk_gen_cfg(struct minst_blk *blk)
+{
+    int i, start = 0;
+    struct minst *minst, *cur_grp_minst, *prev_minst;
+
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+
+        if (minst->flag.prologue || minst->flag.epilogue)
+            continue;
+
+        if (!start) {
+            cur_grp_minst = minst;
+            start = 1;
+        }
+        /* 1. 物理前指令是跳转指令，自动切块
+           2. 当前节点有多个前节点 
+           3. 前节点不是物理前节点 */
+        else if (
+            //!minst->flag.in_it_block && !prev_minst->flag.in_it_block && 
+            (prev_minst->flag.b || prev_minst->succs.next || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
+            cur_grp_minst = minst;
+        }
+
+        minst->cfg_node = cur_grp_minst;
+        prev_minst = minst;
+    }
+}
+
 int                 minst_is_bidirect(struct minst *minst, struct minst *succ)
 {
     struct minst_node *tnode = &minst->succs;
@@ -259,6 +310,7 @@ void                minst_blk_live_epilogue_add(struct minst_blk *mblk)
     minst_pred_add(mblk->allinst.ptab[len - 1], mblk->allinst.ptab[len - 2]);
 }
 
+
 int                 minst_blk_liveness_calc(struct minst_blk *blk)
 {
     struct minst_node *succ;
@@ -270,6 +322,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
         changed = 0;
         for (i = blk->allinst.len - 1; i >= 0; i--) {
             minst = blk->allinst.ptab[i];
+            if (minst->flag.dead_code) continue;
 
             bitset_clone(&in, &minst->in);
             bitset_clone(&out, &minst->out);
@@ -303,7 +356,6 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
     /* FIXME: 删除死代码以后，liveness的计算没有把死代码计算进去 */
     while (changed) {
         changed = 0;
-        minst_blk_liveness_calc(blk);
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
             if (minst->flag.dead_code)
@@ -320,12 +372,23 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
         }
     }
 
+    for (i = 0; i < blk->allinst.len; i++) {
+        minst = blk->allinst.ptab[i];
+        if (minst->flag.dead_code && !minst->flag.be_del) {
+            minst_cfg_del(minst);
+            minst->flag.be_del = 1;
+        }
+    }
+
     bitset_uninit(&def);
+
+    minst_blk_liveness_calc(blk);
+    minst_blk_gen_reaching_definitions(blk);
 
     return 0;
 }
 
-int          minst_get_def(struct minst *minst)
+int                 minst_get_def(struct minst *minst)
 {
     if (minst->ld == -1)
         return minst->ld;
@@ -344,7 +407,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
-        if (minst->flag.prologue || minst->flag.epilogue || (def = minst_get_def(minst)) < 0)
+        if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || (def = minst_get_def(minst)) < 0)
             continue;
 
         bitset_clone(&minst->kills, &blk->defs[def]);
@@ -358,7 +421,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.prologue || minst->flag.epilogue)
+            if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code)
                 continue;
 
             bitset_clone(&in, &minst->rd_in);

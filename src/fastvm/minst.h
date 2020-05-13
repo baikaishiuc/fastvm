@@ -27,6 +27,10 @@ struct minst_blk {
 
     struct dynarray     const_insts;
 
+    struct {
+        /* 全局变量，判断是否需要进行活跃性分析 */
+        unsigned need_liveness : 1;
+    } flag;
 };
 
 struct minst_node {
@@ -58,6 +62,7 @@ struct minst {
         unsigned b_cond_passed : 1;
         unsigned b_cond : 4;
         unsigned dead_code : 1;
+        unsigned be_del : 1;
         /* live 前置指令 */
         unsigned prologue : 1;
         /* live 后置指令 */
@@ -71,6 +76,8 @@ struct minst {
         否则会导致他的活跃计算不正确
         */
         unsigned in_it_block : 1;
+        unsigned is_t : 1;
+
         unsigned is_lm_const : 1;
         unsigned is_ln_const : 1;
         unsigned is_def_apsr : 1;
@@ -138,6 +145,7 @@ void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
 void                minst_succ_del(struct minst *minst, struct minst *succ);
 void                minst_pred_del(struct minst *minst, struct minst *pred);
+void                minst_blk_gen_cfg(struct minst_blk *blk);
 
 /* 做活跃性分析的时候，需要加上liveness专用的prologue和epilogue
 live prologue 把所有的寄存器设置为def
