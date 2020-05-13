@@ -56,6 +56,7 @@ struct minst {
         unsigned b_al : 1;      // jmp always
         unsigned b_need_fixed : 2;   
         unsigned b_cond_passed : 1;
+        unsigned b_cond : 4;
         unsigned dead_code : 1;
         /* live 前置指令 */
         unsigned prologue : 1;
@@ -158,6 +159,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk);
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
+int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d);
 
 #ifdef __cplusplus
 }

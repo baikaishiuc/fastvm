@@ -433,7 +433,7 @@ int       minst_get_last_def_in_cur_cfg_node(struct minst_blk *blk, struct minst
 @return 1           可达           
         0           不可达
 */
-int                 minst_blk_calc_const_path_reachable(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d)
+int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int regm, struct dynarray *d)
 {
     struct bitset allvisit;
     struct minst *succ = cfg, *start;
@@ -458,7 +458,7 @@ int                 minst_blk_calc_const_path_reachable(struct minst_blk *blk, s
     }
 
     struct minst *stack[128];
-    int stack_top = -1, reachable = 1;
+    int stack_top = -1, ret = 0;
 
 #define MSTACK_IS_EMPTY(s)      (s##_top == -1)
 #define MSTACK_TOP(s)           s[s##_top]
@@ -475,16 +475,16 @@ int                 minst_blk_calc_const_path_reachable(struct minst_blk *blk, s
         for (; succ = start->succs.minst; succ = succ->succs.next) {
             if (bitset_get(&allvisit, succ->id)) continue;
             if (succ->cfg_node == cfg->cfg_node) {
-                if (minst_get_last_const_definition(blk, succ, regm)) {
+                if (minst_get_last_const_definition(blk, start, regm)) {
                     dynarray_add(d, start);
                     continue;
                 }
 
-                reachable = 0; goto exit;
+                ret = -1; goto exit;
             }
             /* 验证某个cfg节点得，左右2个子节点是否时独立，假如不是独立，就退出 */
             else if (succ->cfg_node == not_pass_minst->cfg_node) {
-                reachable = 0; goto exit;
+                ret = -1; goto exit;
             }
 
             MSTACK_PUSH(stack, succ);
@@ -493,6 +493,6 @@ int                 minst_blk_calc_const_path_reachable(struct minst_blk *blk, s
 
 exit:
     bitset_uninit(&allvisit);
-    return reachable;
+    return ret;
 }
 
