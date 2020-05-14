@@ -2100,16 +2100,15 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
             uses = &blk->uses[minst_get_def(minst)];
             for (pos = bitset_next_bit_pos(uses, 0); pos > 0; pos = bitset_next_bit_pos(uses, pos + 1)) {
                 use_minst = blk->allinst.ptab[pos];
+                if (use_minst->flag.is_const)
 
                 /* 
                 1. 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
                 假如有的话，确认in集合中的def指令时唯一一条对 minst_get_def(minst) 中进行
                 定值的指令.
+                2. 假如多个定值都一样时
                  */
-                bitset_clone(&def, &use_minst->rd_in);
-                bitset_and(&def, &blk->defs[minst_get_def(minst)]);
-                bitset_set(&def, minst->id, 0);
-                if (bitset_get(&use_minst->rd_in, minst->id) && bitset_is_empty(&def)) {
+                if (minst_get_last_const_definition(blk, use_minst, minst_get_def(minst))) {
                     arm_minst_do(emu, use_minst);
 
                     if (use_minst->flag.is_const)

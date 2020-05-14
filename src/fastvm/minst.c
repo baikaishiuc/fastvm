@@ -335,7 +335,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
                     bitset_or(&minst->out, &succ->minst->in);
             }
 
-            if (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out))
+            if (!changed && (!bitset_is_equal(&in, &minst->in) || !bitset_is_equal(&out, &minst->out)))
                 changed = 1;
         }
     }
@@ -365,7 +365,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
                 continue;
 
             bitset_clone(&def, &minst->def);
-            if (!bitset_is_equal(bitset_and(&def, &minst->out), &minst->def)) {
+            if (!changed && !bitset_is_equal(bitset_and(&def, &minst->out), &minst->def)) {
                 minst->flag.dead_code = 1;
                 changed = 1;
             }
@@ -436,7 +436,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
             if (minst_get_def(minst) >= 0)
                 bitset_set(&minst->rd_out, minst->id, 1);
 
-            if (!bitset_is_equal(&in, &minst->rd_in) || !bitset_is_equal(&out, &minst->rd_out)) {
+            if (!changed && (!bitset_is_equal(&in, &minst->rd_in) || !bitset_is_equal(&out, &minst->rd_out))) {
                 changed = 1;
             }
         }
@@ -502,27 +502,36 @@ int                 minst_blk_copy_propagation(struct minst_blk *blk)
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
-    int pos;
+    int pos, count, imm;
     BITSET_INIT(bs);
-    struct minst *const_minst;
+    struct minst *const_minst = NULL;
 
     bitset_clone(&bs, &minst->rd_in);
     bitset_and(&bs, &blk->defs[regm]);
 
-    pos = bitset_next_bit_pos(&bs, 0);
-    if (pos < 0)
-        return NULL;
+    count = bitset_count(&bs);
+    if (!count) goto exit;
 
-    if (bitset_next_bit_pos(&bs, pos + 1) >= 0) {
-        bitset_uninit(&bs);
-        return NULL;
+    if (count == 1) {
+        pos = bitset_next_bit_pos(&bs, 0);
+        const_minst = blk->allinst.ptab[pos];
+    } else {
+        pos = bitset_next_bit_pos(&bs, 0);
+        const_minst = blk->allinst.ptab[pos];
+        if (!const_minst->flag.is_const) goto exit;
+
+        imm = const_minst->ld_imm;
+        for (; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
+            const_minst = blk->allinst.ptab[pos];
+            if (!const_minst->flag.is_const || (const_minst->ld_imm != imm)) {
+                bitset_uninit(&bs);
+                return NULL;
+            }
+        }
     }
-
+exit:
     bitset_uninit(&bs);
-
-    const_minst = blk->allinst.ptab[pos];
-
-    return const_minst->flag.is_const ? const_minst : NULL;
+    return (const_minst && const_minst->flag.is_const) ? const_minst : NULL;
 }
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use)
