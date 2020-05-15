@@ -110,4 +110,10 @@ void _vm_warning(const char *fmt, ...);
 VMState *vm_new(void);
 void vm_delete(VMState *s);
 
+#define MSTACK_IS_EMPTY(s)      (s##_top == -1)
+#define MSTACK_TOP(s)           s[s##_top]
+#define MSTACK_POP(s)           s[s##_top--]
+#define MSTACK_PUSH(s, e)       s[++s##_top] = e
+
+
 #endif

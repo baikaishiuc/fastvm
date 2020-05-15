@@ -2093,6 +2093,39 @@ void        arm_emu_dump(struct arm_emu *emu)
 {
 }
 
+#define F_EMU_SEQ_ANALY             0x01
+#define F_EMU_CONST                 0x02
+#define F_TRACE                     0x04
+
+int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
+{
+    struct minst_blk *blk = &emu->mblk;
+    struct minst *trace[512], *minst, *cfg = NULL, *p_cfg;
+    int trace_top = -1;
+
+    MSTACK_PUSH(trace, blk->allinst.ptab[1]);
+
+    while (!MSTACK_IS_EMPTY(trace)) {
+        minst = MSTACK_POP(trace);
+        
+        if (NULL == cfg) cfg = minst->cfg_node;
+        else if (minst->cfg_node != cfg) {
+            p_cfg = minst->cfg_node;
+            cfg = minst->cfg_node;
+        }
+
+        arm_minst_do(emu, minst, F_TRACE);
+
+        if (minst->flag.b && !minst->flag.b_al) {
+            struct minst *def_minst = minst_find_last_def(blk, minst, ARM_REG_APSR);
+        } else {
+            MSTACK_PUSH(trace, minst->succs.minst);
+        }
+    }
+
+    return 0;
+}
+
 int         minst_blk_const_propagation(struct arm_emu *emu)
 {
     struct bitset *uses;

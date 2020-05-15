@@ -615,11 +615,6 @@ int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk
     struct minst *stack[128];
     int stack_top = -1, ret = 0;
 
-#define MSTACK_IS_EMPTY(s)      (s##_top == -1)
-#define MSTACK_TOP(s)           s[s##_top]
-#define MSTACK_POP(s)           s[s##_top--]
-#define MSTACK_PUSH(s, e)       s[++s##_top] = e
-
     bitset_init(&allvisit, blk->allinst.len + 1);
     bitset_init(&iallvisit, blk->allinst.len + 1);
     MSTACK_PUSH(stack, start);
