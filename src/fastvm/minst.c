@@ -632,7 +632,9 @@ int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk
         for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
             if (!(succ = succ_node->minst)) continue;
 
+            if (succ->cfg_node == cfg->cfg_node) continue;
             if (bitset_get(&allvisit, succ->id)) continue;
+
             if (bitset_get(&defs, succ->id)) {
                 if (succ->flag.is_const) {
                     dynarray_add(d, succ);

@@ -1101,7 +1101,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         return t_swi(emu, minst, code, len);
 
     minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2);
-    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->flag.b_cond_passed ? minst->host_addr:0);
+    arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->host_addr);
 
     if (InITBlock(emu))
         ARM_UNPREDICT();
@@ -2015,7 +2015,30 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
     return 0;
 }
 
-int                 minst_blk_const_propagation(struct arm_emu *emu);
+int         minst_blk_const_propagation(struct arm_emu *emu);
+
+static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
+{
+    struct minst *minst = emu->mblk.allinst.ptab[inst_id], *def_minst;
+    BITSET_INIT(defs);
+    int pos;
+
+    bitset_clone(&defs, &emu->mblk.defs[reg_def]);
+    bitset_and(&defs, &minst->rd_in);
+
+    printf("%s def list\n", regstr[reg_def]);
+    for (pos = bitset_next_bit_pos(&defs, 0); pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
+        def_minst = emu->mblk.allinst.ptab[pos];
+        if (def_minst->flag.is_const)
+            printf("%d const=0x%x\n", pos, def_minst->ld_imm);
+        else
+            printf("%d unknown\n", pos);
+    }
+    printf("\n");
+
+    bitset_uninit(&defs);
+    return 0;
+}
 
 int         arm_emu_run(struct arm_emu *emu)
 {
@@ -2044,16 +2067,16 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_gen_reaching_definitions(&emu->mblk);
 
-#if 1
     minst_blk_copy_propagation(&emu->mblk);
-    /* forth pass */
 
     minst_blk_dead_code_elim(&emu->mblk);
 
     minst_blk_const_propagation(emu);
-#endif
 
     arm_emu_dump_mblk(emu);
+
+    arm_emu_dump_defs1(emu, 80, ARM_REG_R6);
+    arm_emu_dump_defs1(emu, 80, ARM_REG_R5);
 
     if (emu->dump.cfg)
         arm_emu_dump_cfg(emu);
@@ -2070,7 +2093,7 @@ void        arm_emu_dump(struct arm_emu *emu)
 {
 }
 
-int                 minst_blk_const_propagation(struct arm_emu *emu)
+int         minst_blk_const_propagation(struct arm_emu *emu)
 {
     struct bitset *uses;
     struct minst *minst, *use_minst;
@@ -2100,7 +2123,7 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
             uses = &blk->uses[minst_get_def(minst)];
             for (pos = bitset_next_bit_pos(uses, 0); pos > 0; pos = bitset_next_bit_pos(uses, pos + 1)) {
                 use_minst = blk->allinst.ptab[pos];
-                if (use_minst->flag.is_const)
+                if (use_minst->flag.is_const) continue;
 
                 /* 
                 1. 查看使用列表中的指令的 reaching definitions in 集合中是否有这条指令，
@@ -2111,8 +2134,10 @@ int                 minst_blk_const_propagation(struct arm_emu *emu)
                 if (minst_get_last_const_definition(blk, use_minst, minst_get_def(minst))) {
                     arm_minst_do(emu, use_minst);
 
-                    if (use_minst->flag.is_const)
+                    if (use_minst->flag.is_const) {
                         dynarray_add(&blk->const_insts, use_minst);
+                        changed = 1;
+                    }
                 }
             }
         }
