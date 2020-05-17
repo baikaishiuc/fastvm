@@ -7,6 +7,12 @@
 extern "C" {
 #endif
 
+enum minst_type {
+    mtype_b,
+    mtype_mov_reg,
+    mtype_cmp
+};
+
 struct minst_blk {
     char *funcname;
 
@@ -17,6 +23,9 @@ struct minst_blk {
     /* 当程序按顺序解析所有指令时，把所有指令放入此数组，记得此数组要
     严格按照地址顺序排列 */
     struct dynarray allinst;
+
+    /**/
+    struct dynarray allcfg;
 
     /* 只处理系统寄存器列表 */
     /* 某寄存器所有def指令集合，数据为指令id */
@@ -31,12 +40,31 @@ struct minst_blk {
         /* 全局变量，判断是否需要进行活跃性分析 */
         unsigned need_liveness : 1;
     } flag;
+
+    struct minst    *trace[512];
+    int trace_top;
+
+    struct {
+        unsigned char   data[16 * KB];
+        int             len;
+    } text_sec;
 };
 
 struct minst_node {
     struct minst *minst;
     struct minst_node *next;
 };
+
+struct minst_cfg {
+    struct minst_blk *blk;
+
+    int id;
+    struct minst    *start;
+    struct minst    *end;
+};
+
+#define minst_is_jmp(m)         (m->flag.b == 1 && m->flag.b_al == 1)
+#define minst_is_cond_jmp(m)    (m->flag.b == 1 && m->flag.b_al == 0)
 
 struct minst {
     unsigned char *addr;
@@ -55,10 +83,12 @@ struct minst {
     struct minst_node preds;
     struct minst_node succs;
 
+    enum minst_type type;
+
     struct {
         unsigned b : 1;         // is jump inst?
         unsigned b_al : 1;      // jmp always
-        unsigned b_need_fixed : 2;   
+        unsigned b_need_fixed : 2;
         unsigned b_cond_passed : 1;
         unsigned b_cond : 4;
         unsigned dead_code : 1;
@@ -78,11 +108,8 @@ struct minst {
         unsigned in_it_block : 1;
         unsigned is_t : 1;
 
-        unsigned is_lm_const : 1;
-        unsigned is_ln_const : 1;
-        unsigned is_def_apsr : 1;
-
         unsigned is_const : 1;
+        unsigned is_trace : 1;
 
         /* mov reg指令非常特别，需要特殊处理 */
         unsigned is_mov_reg : 1;
@@ -90,7 +117,13 @@ struct minst {
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
 
+    struct minst_cfg *cfg;
     struct minst *cfg_node;
+
+    struct {
+        short lm;
+        short ln;
+    } cmp;
 
     /* 调用哪个reg_node去解析内容 */
     void *reg_node;
@@ -131,11 +164,28 @@ void                minst_blk_init(struct minst_blk *blk, char *funcname);
 void                minst_blk_uninit(struct minst_blk *blk);
 
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
+struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src);
+struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type);
 void                minst_delete(struct minst *inst);
+void                minst_restore(struct minst *minst);
+int                 minst_succs_count(struct minst *minst);
+int                 minst_preds_count(struct minst *minst);
+
+struct minst_cfg*   minst_cfg_new(struct minst_blk *blk, struct minst *start, struct minst *end);
+void                minst_cfg_delete(struct minst_cfg *cfg);
+
 int                 minst_get_def(struct minst *minst);
 #define             minst_get_use(m)        bitset_next_bit_pos(&((m)->use), 0)
 #define             minst_set_const(m, imm) do { \
         m->flag.is_const = 1; \
+        m->ld_imm = imm; \
+    } while (0)
+
+#define minst_get_true_label(_m)            (_m)->succs.next->minst
+#define minst_get_false_label(_m)           (_m)->succs.minst
+#define minst_is_tconst(_m)                 ((_m)->flag.is_const || (_m)->flag.is_trace)
+#define minst_set_trace(_m, imm)    do { \
+        m->flag.is_trace = 1; \
         m->ld_imm = imm; \
     } while (0)
 
@@ -145,6 +195,17 @@ void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
 void                minst_succ_del(struct minst *minst, struct minst *succ);
 void                minst_pred_del(struct minst *minst, struct minst *pred);
+#define minst_add_edge(minst, succ)     do { \
+        minst_succ_add(minst, succ); \
+        minst_pred_add(succ, minst); \
+    } while (0)
+#define minst_del_edge(minst, succ)     do { \
+        minst_succ_del(minst, succ); \
+        minst_pred_del(succ, minst); \
+    } while (0)
+
+#define minst_succs_foreach(m, snode)  for (snode = &m->succs; snode; snode = snode->next)
+
 void                minst_blk_gen_cfg(struct minst_blk *blk);
 
 /* 做活跃性分析的时候，需要加上liveness专用的prologue和epilogue
@@ -170,7 +231,46 @@ int                 minst_blk_value_numbering(struct minst_blk *blk);
 
 int                 minst_blk_copy_propagation(struct minst_blk *blk);
 
+int                 minst_blk_regalloc(struct minst_blk *blk);
+
+/* 指令乱序，为接下去的寄存器分配优化做准备
+
+为什么做这个优化呢，假如有一下代码:
+
+    mov r6, 1234
+    cmp r5, r0
+    bgt label_1
+
+    ... 
+    ...
+    b xxxx
+
+label_1:
+    mov r6, r5
+
+    我们分析以上代码会发现，r6是不在label_1的入口活跃集合中的，在一些特殊的上下文中
+    r6和r5是有一定的合并可能性，，但是由于 mov r6, 1234的存在导致进行这些优化会有一
+    些麻烦，所以我们改成如下形式
+
+    cmp r5, r0
+    bgt label_1
+
+    mov r6, 1234
+    ...
+    ...
+    b xxxx
+
+label_1:
+
+    这样不用进行寄存器分配，只是做一些简单的复写传播之类的优化就能干掉一些mov指令了
+*/
+int                 minst_blk_out_of_order(struct minst_blk *blk);
+
+int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg);
+
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
+struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm);
+struct minst*       minst_cfg_get_last_def(struct minst_blk *blk, struct minst *minst, int reg_def);
 
 int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
     struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id);

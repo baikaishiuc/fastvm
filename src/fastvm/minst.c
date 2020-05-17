@@ -43,6 +43,8 @@ void                minst_blk_init(struct minst_blk *blk, char *funcname)
     blk->funcname = strdup(funcname);
 
     blk->allinst.compare_func = minst_cmp;
+
+    blk->trace_top = -1;
 }
 
 void                minst_blk_uninit(struct minst_blk *blk)
@@ -59,6 +61,12 @@ void                minst_blk_uninit(struct minst_blk *blk)
     for (i = 0; i < blk->allinst.len; i++) {
         minst_delete(blk->allinst.ptab[i]);
     }
+    dynarray_reset(&blk->allinst);
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        minst_cfg_delete(blk->allcfg.ptab[i]);
+    }
+    dynarray_reset(&blk->allcfg);
 
     memset(blk, 0, sizeof (blk[0]));
 }
@@ -110,6 +118,100 @@ void                minst_delete(struct minst *minst)
     }
 
     free(minst);
+}
+
+struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
+{
+    struct minst_blk *blk = cfg->blk;
+    struct minst *dst = minst_new(blk, NULL, 0, NULL);
+
+    memcpy(dst, src, sizeof (src[0]));
+
+    dst->addr = blk->text_sec.data + blk->text_sec.len;
+    dst->len = src->len;
+    memcpy(dst->addr, src->addr, src->len);
+
+    if (!cfg->start) cfg->start = dst;
+    else minst_add_edge(cfg->end, dst);
+    cfg->end = dst;
+
+    return dst;
+}
+
+struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type)
+{
+    struct minst_blk *blk = cfg->blk;
+    struct minst *minst = minst_new(blk, NULL, 0, NULL);
+
+    if (type != mtype_b)
+        vm_error("minst_new_t() only support b");
+
+    minst->flag.b = 1;
+    minst->flag.b_al = 1;
+
+    live_use_set(blk, ARM_REG_APSR);
+
+    if (!cfg->start) cfg->start = minst;
+    else minst_add_edge(cfg->end, minst);
+    cfg->end = minst;
+
+    return minst;
+}
+
+void                minst_restore(struct minst *minst)
+{
+    minst->flag.is_trace = 0;
+
+    if (minst->flag.is_const) return;
+
+    minst->flag.b_cond_passed = 0;
+}
+
+int                 minst_succs_count(struct minst *minst)
+{
+    int i;
+    struct minst_node *succ_node = &minst->succs;
+
+    for (i = 0; succ_node; succ_node = succ_node->next) {
+        if (succ_node->minst)
+            i++;
+    }
+
+    return i;
+}
+
+int                 minst_preds_count(struct minst *minst)
+{
+    int i;
+    struct minst_node *pred_node = &minst->preds;
+
+    for (i = 0; pred_node; pred_node = pred_node->next) {
+        if (pred_node->minst)
+            i++;
+    }
+
+    return i;
+}
+
+struct minst_cfg*   minst_cfg_new(struct minst_blk *blk, struct minst *start, struct minst *end)
+{
+    struct minst_cfg *cfg = calloc(1, sizeof (cfg[0]));
+
+    if (NULL == cfg)
+        vm_error("minst_cfg_new() failure");
+
+    cfg->id = blk->allcfg.len;
+    cfg->start = start;
+    cfg->end = start;
+    cfg->blk = blk;
+    dynarray_add(&blk->allcfg, cfg);
+
+    return cfg;
+}
+
+void                minst_cfg_delete(struct minst_cfg *cfg)
+{
+    free(cfg);
 }
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr)
@@ -204,7 +306,7 @@ void                minst_pred_del(struct minst *minst, struct minst *pred)
     }
 }
 
-void                minst_cfg_del(struct minst *minst)
+void                minst_del_from_cfg(struct minst *minst)
 {
     struct minst_node *pred_node, *succ_node;
     struct minst *pred, *succ;
@@ -230,6 +332,7 @@ void                minst_blk_gen_cfg(struct minst_blk *blk)
 {
     int i, start = 0;
     struct minst *minst, *cur_grp_minst, *prev_minst;
+    struct minst_cfg *cfg;
 
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
@@ -240,6 +343,7 @@ void                minst_blk_gen_cfg(struct minst_blk *blk)
         if (!start) {
             cur_grp_minst = minst;
             start = 1;
+            cfg = minst_cfg_new(blk, minst, NULL);
         }
         /* 1. 物理前指令是跳转指令，自动切块
            2. 当前节点有多个前节点 
@@ -247,12 +351,17 @@ void                minst_blk_gen_cfg(struct minst_blk *blk)
         else if (
             //!minst->flag.in_it_block && !prev_minst->flag.in_it_block && 
             (prev_minst->flag.b || prev_minst->succs.next || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
+            cfg->end = prev_minst;
+
+            cfg = minst_cfg_new(blk, minst, NULL);
             cur_grp_minst = minst;
         }
 
         minst->cfg_node = cur_grp_minst;
         prev_minst = minst;
     }
+
+    cfg->end = prev_minst;
 }
 
 int                 minst_is_bidirect(struct minst *minst, struct minst *succ)
@@ -375,7 +484,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
         if (minst->flag.dead_code && !minst->flag.be_del) {
-            minst_cfg_del(minst);
+            minst_del_from_cfg(minst);
             minst->flag.be_del = 1;
         }
     }
@@ -497,6 +606,11 @@ int                 minst_blk_copy_propagation(struct minst_blk *blk)
 
     bitset_uninit(&defs);
 
+    return 0;
+}
+
+int                 minst_blk_regalloc(struct minst_blk *blk)
+{
     return 0;
 }
 
@@ -681,3 +795,121 @@ exit:
     return ret;
 }
 
+int                 minst_blk_out_of_order(struct minst_blk *blk)
+{
+    struct minst_cfg *cfg;
+    struct minst *minst, *cminst;
+    struct minst_node *succ_node;
+    struct bitset live_out, tmp_in;
+    int i, pos;
+
+    bitset_init(&live_out, blk->allinst.len);
+    bitset_init(&tmp_in, blk->allinst.len);
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+
+        /* 不计算单节点的乱序情况 */
+        if (!cfg->end->succs.next) continue;
+        /* 不处理it指令导致的跳转 */
+        if (!cfg->end->flag.b) continue;
+
+        bitset_clone(&live_out, &cfg->end->out);
+        bitset_sub(&live_out, &cfg->start->in);
+
+        bitset_foreach(&live_out, pos) {
+            for (succ_node = &cfg->end->succs; succ_node; succ_node = succ_node->next) {
+                if (!(minst = succ_node->minst)) continue;
+
+                /* 可以乱序的条件
+                1. 不在跳转cfg的入口活跃节点中 
+                2. 是常量
+                3. 在当前cfg内被定义过，但从没在定义处到当前cfg末尾处使用过
+                */
+                if (!bitset_get(&minst->in, pos) && (cminst = minst_get_last_const_definition(blk, cfg->end, pos)))
+                    printf("minst[%d] reg:r%d = 0x%x need out of order\n", cfg->end->id, pos, cminst->ld_imm);
+            }
+        }
+    }
+
+    bitset_uninit(&tmp_in);
+    bitset_uninit(&live_out);
+
+    return 0;
+}
+
+struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm)
+{
+    struct minst *minst;
+    int i;
+
+    for (i = blk->trace_top; i >= 0; i--) {
+        if (minst_get_def((struct minst *)blk->trace[i]) == regm)
+            return minst;
+    }
+
+    return NULL;
+}
+
+struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def)
+{
+    for (; minst; minst = minst->preds.minst) {
+        if (minst == cfg->start) break;
+
+        if (minst_get_def(minst) == reg_def) return minst;
+    }
+
+    return NULL;
+}
+
+int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg)
+{
+    struct minst_blk *blk = cfg->blk;
+    struct minst *end = cfg->end, *pred, *minst, *t;
+    struct minst_node *pred_node;
+    int i;
+    BITSET_INITS(defs, blk->allinst.len);
+
+    if (end->flag.is_const)
+        vm_error("b<cond>[%d] instrucion is const", end->id);
+
+    for (pred = end->preds.minst; pred; pred = pred->preds.minst) {
+        if (pred->type == mtype_cmp)
+            break;
+
+        if (pred == cfg->start) break;
+    }
+    
+    if (pred->type != mtype_cmp)
+        vm_error("cfg[%d, %d-%d] not found cmp instruction", cfg->id, cfg->start->id, cfg->end->id);
+
+    struct minst *lm_minst = minst_get_trace_def(blk, pred->cmp.lm);
+    struct minst *ln_minst = minst_get_trace_def(blk, pred->cmp.ln);
+
+    if ((lm_minst->flag.is_const && ln_minst->flag.is_const)
+        || (!lm_minst->flag.is_const && !lm_minst->flag.is_const))
+        return 0;
+
+    int reg = lm_minst->flag.is_const ? pred->cmp.ln:pred->cmp.lm;
+    minst = minst_cfg_get_last_def(cfg, pred, reg);
+    if (NULL == minst)
+        return 0;
+
+    if (minst->type != mtype_mov_reg)
+        return 1;
+
+    bitset_clone(&defs, &blk->defs[minst_get_use(minst)]);
+    bitset_and(&defs, &minst->rd_in);
+    bitset_foreach(&defs, i) {
+        t = blk->allcfg.ptab[i];
+        if (t->flag.is_const) continue;
+
+        if ((t->type == mtype_mov_reg)
+            && minst_get_def(t) == minst_get_use(minst)
+            && minst_get_use(t) == minst_get_def(minst)) continue;
+
+        return 0;
+    }
+
+    return 1;
+}

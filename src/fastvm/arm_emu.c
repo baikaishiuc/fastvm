@@ -14,9 +14,6 @@
 #define REG_SET_UNKNOWN(e, reg)     (e->knwwn &= ~(1 << reg))
 #define REG_IS_KNOWN(e,reg)         (e->knwon & (1 << reg)
 
-#define KB          (1024)
-#define MB          (1024 * 1024)
-
 #define PROCESS_STACK_SIZE          (256 * KB)
 #define PROCESS_STACK_BASE          0x10000000
 #define IN_PROCESS_STACK_RANGE(a)   (((a) < PROCESS_STACK_BASE) && (a >= (PROCESS_STACK_BASE - PROCESS_STACK_SIZE)))
@@ -29,7 +26,6 @@
 #define MEM_STACK_TOP(e)        (PROCESS_STACK_BASE - e->regs[ARM_REG_SP])
 #define MEM_STACK_TOP1(e)       (PROCESS_STACK_BASE - e->prev_regs[ARM_REG_SP])
 
-typedef int         reg_t;
 
 #define BITS_GET(a,offset,len)   ((a >> (offset )) & ((1 << len) - 1))
 #define BITS_GET_SHL(a, offset, len, sh)      (BITS_GET(a, offset, len) << sh)
@@ -47,25 +43,21 @@ typedef int         reg_t;
 
 #define EMU_SEQ_MODE            0
 #define EMU_CONST_MODE          1
+#define EMU_TRACE_MODE          2
 
 /* arm指令中，某部分指令是上下文相关的 */
 #define EMU_IS_SEQ_MODE(e)      (e->seq_mod == EMU_SEQ_MODE)
 #define EMU_IS_CONST_MODE(e)    (e->seq_mod == EMU_CONST_MODE)
+#define EMU_IS_TRACE_MODE(e)    (e->seq_mod == EMU_TRACE_MODE)
 
 #define EMU_SET_SEQ_MODE(e)     (e->seq_mod = EMU_SEQ_MODE)
 #define EMU_SET_CONST_MODE(e)   (e->seq_mod = EMU_CONST_MODE)
+#define EMU_SET_TRACE_MODE(e)   (e->seq_mod = EMU_TRACE_MODE)
 
-struct arm_inst_context {
-    reg_t   ld;
-    reg_t   lm;
-    reg_t   ln;
-    int     register_list;
-    int     imm;
-    int     m;
-    int     setflags;
-    int     cond;
-    int     u;
-};
+#define MDO_SUCCESS             0
+#define MDO_CANT_TRACE          1
+#define MDO_TRACE_FLAT          2
+
 
 struct emu_temp_var
 {
@@ -81,7 +73,7 @@ struct arm_emu {
         int             len;
         int             pos;
 
-        struct arm_inst_context ctx;
+        struct arm_inst_ctx ctx;
     } code;
 
     char inst_fmt[64];
@@ -652,6 +644,9 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     arm_prepare_dump(emu, "cmp %s, %s", regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
+    minst->cmp.lm = emu->code.ctx.lm;
+    minst->cmp.ln = emu->code.ctx.ln;
+
     live_def_set(&emu->mblk, ARM_REG_APSR);
 
     if (EMU_IS_CONST_MODE(emu)) {
@@ -687,7 +682,7 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
         先不处理2个指令都要做多路径常量优化的情况
         */
-        else  {
+        else  if (0) {
             struct minst *p_minst = minst->preds.minst, *d_minst = NULL;
 
             int reg = (ln_minst && ln_minst->flag.is_const) ? emu->code.ctx.lm : emu->code.ctx.ln;
@@ -734,6 +729,14 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
             pos = bitset_next_bit_pos(&defs, 0);
             if (pos < 0)
                 return 0;
+
+#define minst_cmp_calc(apsr, imm1, imm2) do { \
+        struct bits bits = AddWithCarry(imm1, ~imm2, 1); \
+        (apsr).n = INT_TOPMOSTBIT(bits.v); \
+        (apsr).z = IsZeroBit(bits.v); \
+        (apsr).c = bits.carry_out; \
+        (apsr).v = bits.overflow; \
+    } while (0)
 
             for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
                 const_minst = emu->mblk.allinst.ptab[pos];
@@ -811,6 +814,17 @@ exit:
                 minst_set_const(minst, p_apsr);
             }
         }
+    } else if (EMU_IS_TRACE_MODE(emu)) {
+        if (minst->flag.is_const)   return 0;
+
+        struct minst *ln_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.ln);
+        struct minst *lm_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm);
+
+        if (!minst_is_tconst(ln_def) || !minst_is_tconst(lm_def))
+            return 0;
+
+        minst_cmp_calc(minst->apsr, ln_def->ld_imm, lm_def->ld_imm);
+        minst->flag.is_trace = 1;
     }
 
     return 0;
@@ -1018,11 +1032,9 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
         arm_prepare_dump(emu, "movt%s %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
         liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
 
-        if (EMU_IS_CONST_MODE(emu)) {
-            struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ld);
-            if (cminst)
-                minst_set_const(minst, imm << 16 | (cminst->ld_imm & 0xffff));
-        }
+        struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ld);
+        if (cminst)
+            minst_set_const(minst, imm << 16 | (cminst->ld_imm & 0xffff));
     }
     else {
         arm_prepare_dump(emu, "mov%sw %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
@@ -1134,6 +1146,8 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             minst_pred_del(tminst, minst);
             emu->is_del_edge = 1;
         }
+    }
+    else if (EMU_IS_TRACE_MODE(emu)) {
     }
 
     return 0;
@@ -1619,9 +1633,7 @@ static int arm_insteng_uninit()
 {
 }
 
-static int arm_insteng_retrieve_context(struct arm_emu *emu, struct reg_node *reg_node, uint8_t *code, int code_len);
-
-static void arm_inst_context_init(struct arm_inst_context *ctx)
+static void arm_inst_ctx_init(struct arm_inst_ctx *ctx)
 {
     memset(ctx, 0, sizeof (ctx[0]));
     ctx->ld = -1;
@@ -1629,7 +1641,7 @@ static void arm_inst_context_init(struct arm_inst_context *ctx)
     ctx->ln = -1;
 }
 
-static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct arm_inst_context *ctx)
+static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct arm_inst_ctx *ctx)
 {
     if (ctx->ld >= 0) {
         live_def_set(&emu->mblk, ctx->ld);
@@ -1690,8 +1702,14 @@ static struct reg_node*     arm_insteng_parse(struct arm_emu *emu, uint8_t *code
     return node;
 }
 
+/*
+
+@return     0       normal success
+            1       cant trace
+*/
 static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
 {
+    int ret;
     struct reg_node *reg_node = minst->reg_node;
 
     if (minst->flag.prologue || minst->flag.epilogue)
@@ -1701,8 +1719,7 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
 
     memcpy(emu->prev_regs, emu->regs, sizeof (emu->regs));
 
-    /* 从指令中获取关键性上下文 */
-    arm_insteng_retrieve_context(emu, reg_node, minst->addr, minst->len);
+    arm_inst_extract_ctx(&emu->code.ctx, reg_node, minst->addr, minst->len);
 
     arm_liveness_init(emu, minst, &emu->code.ctx);
 
@@ -1712,12 +1729,12 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
         minst->flag.is_t = cur_inst_it(emu);
     }
 
-    reg_node->func(emu, minst, (uint16_t *)minst->addr, minst->len / 2);
+    ret = reg_node->func(emu, minst, (uint16_t *)minst->addr, minst->len / 2);
 
     if (emu->it.inblock> 0)
         emu->it.inblock--;
 
-    return 0;
+    return ret;
 }
 
 static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
@@ -1742,13 +1759,12 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
     return i * 2;
 }
 
-static int arm_insteng_retrieve_context(struct arm_emu *emu, struct reg_node *reg_node, uint8_t *code, int code_len)
+int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, struct reg_node *reg_node, uint8_t *code, int code_len)
 {
     int i, len, c;
     char *exp = reg_node->exp;
-    struct arm_inst_context *ctx = &emu->code.ctx;
 
-    arm_inst_context_init(ctx);
+    arm_inst_ctx_init(ctx);
 
     uint16_t inst = *(uint16_t *)code;
 
@@ -2067,11 +2083,18 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_gen_reaching_definitions(&emu->mblk);
 
+    minst_blk_const_propagation(emu);
+
+
+#if 0
+    //minst_blk_out_of_order(&emu->mblk);
+
     minst_blk_copy_propagation(&emu->mblk);
 
     minst_blk_dead_code_elim(&emu->mblk);
 
     minst_blk_const_propagation(emu);
+#endif
 
     arm_emu_dump_mblk(emu);
 
@@ -2100,26 +2123,137 @@ void        arm_emu_dump(struct arm_emu *emu)
 int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst *trace[512], *minst, *cfg = NULL, *p_cfg;
-    int trace_top = -1;
+    struct minst *minst, *t, *n, *succ;
+    struct minst_node *succ_node;
+    struct minst_cfg *cfg = blk->allcfg.ptab[0];
+    int ret, i, trace_start;
+    BITSET_INIT(defs);
+    BITSET_INITS(cfg_visitall, blk->allcfg.len);
 
-    MSTACK_PUSH(trace, blk->allinst.ptab[1]);
+#define MTRACE_PUSH_CFG(_cfg) do { \
+        struct minst *start = (_cfg)->start; \
+        for (; start != _cfg->end; start = start->succs.minst) \
+            MSTACK_PUSH(blk->trace, start); \
+        MSTACK_PUSH(blk->trace, start); \
+        bitset_set(&cfg_visitall, _cfg->id, 1); \
+    } while (0)
 
-    while (!MSTACK_IS_EMPTY(trace)) {
-        minst = MSTACK_POP(trace);
-        
-        if (NULL == cfg) cfg = minst->cfg_node;
-        else if (minst->cfg_node != cfg) {
-            p_cfg = minst->cfg_node;
-            cfg = minst->cfg_node;
+#define MTRACE_POP_CFG() do { \
+        struct minst *end = MSTACK_TOP(blk->trace); \
+        struct minst_cfg *end_cfg = end->cfg; \
+        while (end != end_cfg->start) \
+            MSTACK_POP(blk->trace); \
+        MSTACK_POP(blk->trace); \
+    } while (0)
+
+    MTRACE_PUSH_CFG(cfg);
+
+    while (!MSTACK_IS_EMPTY(blk->trace)) {
+        minst = MSTACK_TOP(blk->trace);
+        cfg = minst->cfg;
+
+        /* DFS */
+        if (!EMU_IS_TRACE_MODE(emu)) {
+            minst_succs_foreach(minst, succ_node) {
+                if (!(succ = succ_node->minst)) continue;
+                if (bitset_get(&cfg_visitall, succ->cfg->id)) continue;
+                
+                /* 假如是无条件跳转指令，直接所有指令全部进入trace堆栈，并标记当前cfg为已访问  */
+                if (minst_is_jmp(succ->cfg->end)) {
+                    MTRACE_PUSH_CFG(succ->cfg);
+                    break;
+                }
+
+                if (minst_is_cond_jmp(succ->cfg->end)) {
+                    /* 假如没有进入trace模式，检测当前cfg是否是常量状态机，是的话，进入trace模式 */
+                    if (minst_cfg_is_const_state_machine(minst->cfg)) {
+                        trace_start = blk->trace_top;
+                        EMU_SET_TRACE_MODE(emu);
+                    }
+                    /* 否则的话标记当前cfg为已经访问，并把当前cfg的其他全部节点压入 */
+                    else {
+                        MTRACE_PUSH_CFG(succ->cfg);
+                        break;
+                    }
+                }
+            }
+
+            /* 假如所有后继节点都被遍历过，则弹出当前cfg节点 */
+            if (!succ_node) {
+                MTRACE_POP_CFG();
+                continue;
+            }
         }
 
-        arm_minst_do(emu, minst, F_TRACE);
+        if (!EMU_IS_TRACE_MODE(emu))
+            continue;
 
-        if (minst->flag.b && !minst->flag.b_al) {
-            struct minst *def_minst = minst_find_last_def(blk, minst, ARM_REG_APSR);
-        } else {
-            MSTACK_PUSH(trace, minst->succs.minst);
+        ret = arm_minst_do(emu, minst);
+
+        switch (ret) {
+        case MDO_SUCCESS:
+            if (minst->flag.b && minst->flag.b_cond_passed) 
+                MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
+            else 
+                MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+            break;
+
+        case MDO_CANT_TRACE:
+            vm_error("prog cant deobfuse");
+            break;
+
+        case MDO_TRACE_FLAT:
+            /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
+            cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+
+            /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃
+            */
+            for (i = trace_start; i <= blk->trace_top; i++) {
+                t = blk->trace[i];
+                if (t->flag.b) continue;
+
+                n = minst_new_copy(cfg, blk->trace[i]);
+
+                if (!cfg->start)    cfg->start = n;
+            }
+            /* cfg末尾需要添加一条实际的jmp指令 */
+            t = minst_new_t(cfg, mtype_b);
+            cfg->end = t;
+
+            /* 因为我们是trace到最后一个唯一状态节点中，所以
+            1. 删除trace最后b指令到唯一状态分支的连接
+            2. 连接trace的流和唯一状态分支
+            */
+            n = t->flag.b_cond_passed ? minst_get_true_label(t):minst_get_false_label(t);
+            t->flag.b_al = 1;
+            minst_del_edge(t, n);
+
+            /* 
+            1. 删除start节点到状态机节点连接
+            2. 连接start节点到trace节点
+            3. 连接新的cfg到唯一状态节点中
+            */
+            minst_add_edge(blk->trace[trace_start - 1], blk->trace[trace_start]);
+            minst_add_edge(blk->trace[trace_start - 1], cfg->start);
+            minst_add_edge(cfg->end, n);
+
+            /* 恢复被trace过的指令内容 */
+            for (i = trace_start; i <= blk->trace_top; i++) {
+                minst_restore(blk->trace[i]);
+            }
+
+            /* 调整trace const的指令为const指令*/ 
+            for (t = cfg->start; t != cfg->end; t = t->succs.minst) {
+                t->flag.is_trace = 0;
+                t->flag.is_const = 1;
+            }
+            /* 弹出所有trace指令 */
+            while (blk->trace_top >= trace_start) 
+                MSTACK_POP(blk->trace);
+
+            /* FIXME:这里其实应该是恢复以前的模式 */
+            EMU_SET_CONST_MODE(emu);
+            break;
         }
     }
 

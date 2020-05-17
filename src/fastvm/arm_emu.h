@@ -49,6 +49,11 @@ extern "C" {
 #define ARM_COND_LE     13
 #define ARM_COND_AL     14
 
+#define KB          (1024)
+#define MB          (1024 * 1024)
+
+typedef int         reg_t;
+
 struct arm_cpsr {
     unsigned m:  5;
     unsigned t : 1;
@@ -68,13 +73,25 @@ struct arm_cpsr {
     unsigned n : 1;
 };
 
+struct arm_inst_ctx {
+    reg_t   ld;
+    reg_t   lm;
+    reg_t   ln;
+    int     register_list;
+    int     imm;
+    int     m;
+    int     setflags;
+    int     cond;
+    int     u;
+};
+
     /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
 struct arm_emu_create_param
 {
     unsigned char*  code;
     int             code_len;
-	void			*user_ctx;
-	int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
+    void            *user_ctx;
+    int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
 
     int             dump_dfa;
     int             dump_enfa;
@@ -84,17 +101,20 @@ struct arm_emu_create_param
     int             thumb;
 };
 
-struct arm_emu*		arm_emu_create(struct arm_emu_create_param *param);
-void				arm_emu_destroy(struct arm_emu *);
+struct arm_emu*        arm_emu_create(struct arm_emu_create_param *param);
+void                arm_emu_destroy(struct arm_emu *);
 
 /*
 
- @return	0		success
-			1		finish
-			<0		error
+ @return    0        success
+            1        finish
+            <0        error
 */
-int					arm_emu_run(struct arm_emu *vm);
-int					arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len);
+int arm_emu_run(struct arm_emu *vm);
+int arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len);
+
+/* 从指令中获取关键性上下文 */
+int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, struct reg_node *reg_node, uint8_t *code, int code_len);
 
 #endif /* __arm_emu_h__ */
 
