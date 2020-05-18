@@ -608,7 +608,7 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 {
     arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
-    minst->flag.is_mov_reg = 1;
+    minst->type = mtype_mov_reg;
 
     if (EMU_IS_CONST_MODE(emu)) {
         struct minst *const_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
@@ -691,7 +691,7 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
                 if (p_minst->preds.next)
                     return 0;
 
-                if ((minst_get_def(p_minst) == reg) && p_minst->flag.is_mov_reg)
+                if ((minst_get_def(p_minst) == reg) && (p_minst->type == mtype_mov_reg))
                     break;
             }
 
@@ -1148,6 +1148,54 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         }
     }
     else if (EMU_IS_TRACE_MODE(emu)) {
+        if (minst_is_jmp(minst)) return 0;
+
+        struct minst *t = minst_get_trace_def(&emu->mblk, ARM_REG_APSR);
+        struct bitset defs = { 0 };
+        struct arm_cpsr apsr;
+        int i;
+
+        if (minst_is_tconst(t)) {
+            minst_set_trace(minst, t->ld_imm);
+
+            minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
+
+            if (t->type != mtype_cmp)
+                vm_error("only support cmp instruction before branch");
+
+            struct minst *lm_minst = minst_get_trace_def(&emu->mblk, t->cmp.lm);
+            struct minst *ln_minst = minst_get_trace_def(&emu->mblk, t->cmp.ln);
+
+            int reg = lm_minst->flag.is_const ? t->cmp.ln:t->cmp.lm;
+            struct minst *def_reg = minst_get_trace_def(&emu->mblk, reg), *def2;
+
+            if (def_reg->type = mtype_mov_reg) {
+                def2 = minst_get_trace_def(&emu->mblk, minst_get_use(def_reg));
+                bitset_clone(&defs, &emu->mblk.defs[minst_get_use(def_reg)]);
+                bitset_and(&defs, &def_reg->rd_in);
+                int ok = MDO_TRACE_FLAT;
+
+                bitset_foreach(&defs, i) {
+                    struct minst *const_minst = emu->mblk.allinst.ptab[i];
+
+                    if (!const_minst->flag.is_const || (const_minst == def2))
+                        continue;
+
+                    if (lm_minst->flag.is_const)
+                        minst_cmp_calc(apsr, lm_minst->ld_imm, const_minst->ld_imm);
+                    else
+                        minst_cmp_calc(apsr, const_minst->ld_imm, ln_minst->ld_imm);
+
+                    if (minst->flag.b_cond_passed == _ConditionPassed(&apsr, emu->code.ctx.cond)) {
+                        ok = 0;
+                        break;
+                    }
+                }
+
+                bitset_uninit(&defs);
+                return ok;
+            }
+        }
     }
 
     return 0;
@@ -1960,11 +2008,11 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
         if (i == 1) {
             fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
         }
-        else if (prev_minst->cfg_node != minst->cfg_node) {
+        else if (prev_minst->cfg != minst->cfg) {
             fprintf(fp, ">]\n");
 
             for (tnode = &prev_minst->succs; tnode; tnode = tnode->next) {
-                fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(prev_minst->cfg_node->addr), CFG_NODE_ID(tnode->minst->addr));
+                fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(prev_minst->cfg->start->addr), CFG_NODE_ID(tnode->minst->addr));
             }
 
             fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
@@ -2129,6 +2177,7 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
     int ret, i, trace_start;
     BITSET_INIT(defs);
     BITSET_INITS(cfg_visitall, blk->allcfg.len);
+    BITSET_INITS(visitall, blk->allinst.len);
 
 #define MTRACE_PUSH_CFG(_cfg) do { \
         struct minst *start = (_cfg)->start; \
@@ -2188,7 +2237,12 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
         if (!EMU_IS_TRACE_MODE(emu))
             continue;
 
+        if (bitset_get(&visitall, minst->id))
+            vm_error("prog trace flat loop");
+
         ret = arm_minst_do(emu, minst);
+
+        bitset_set(&visitall, minst->id, 1);
 
         switch (ret) {
         case MDO_SUCCESS:
@@ -2203,6 +2257,7 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
             break;
 
         case MDO_TRACE_FLAT:
+            bitset_clear(&visitall);
             /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
             cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
 

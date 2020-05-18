@@ -110,15 +110,11 @@ struct minst {
 
         unsigned is_const : 1;
         unsigned is_trace : 1;
-
-        /* mov reg指令非常特别，需要特殊处理 */
-        unsigned is_mov_reg : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
 
     struct minst_cfg *cfg;
-    struct minst *cfg_node;
 
     struct {
         short lm;
@@ -185,8 +181,8 @@ int                 minst_get_def(struct minst *minst);
 #define minst_get_false_label(_m)           (_m)->succs.minst
 #define minst_is_tconst(_m)                 ((_m)->flag.is_const || (_m)->flag.is_trace)
 #define minst_set_trace(_m, imm)    do { \
-        m->flag.is_trace = 1; \
-        m->ld_imm = imm; \
+        _m->flag.is_trace = 1; \
+        _m->ld_imm = imm; \
     } while (0)
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
@@ -270,7 +266,7 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg);
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
 struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm);
-struct minst*       minst_cfg_get_last_def(struct minst_blk *blk, struct minst *minst, int reg_def);
+struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def);
 
 int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
     struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id);

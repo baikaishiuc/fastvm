@@ -351,13 +351,13 @@ void                minst_blk_gen_cfg(struct minst_blk *blk)
         else if (
             //!minst->flag.in_it_block && !prev_minst->flag.in_it_block && 
             (prev_minst->flag.b || prev_minst->succs.next || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
-            cfg->end = prev_minst;
 
             cfg = minst_cfg_new(blk, minst, NULL);
             cur_grp_minst = minst;
         }
 
-        minst->cfg_node = cur_grp_minst;
+        minst->cfg = cfg;
+        cfg->end = minst;
         prev_minst = minst;
     }
 
@@ -573,7 +573,7 @@ int                 minst_blk_copy_propagation(struct minst_blk *blk)
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
         if (minst->flag.dead_code) continue;
-        if (minst->flag.is_mov_reg) {
+        if (minst->type == mtype_mov_reg) {
             bitset_clone(&defs, &minst->rd_in);
             bitset_and(&defs, &blk->defs[minst_get_use(minst)]);
 
@@ -581,7 +581,7 @@ int                 minst_blk_copy_propagation(struct minst_blk *blk)
                 continue;
             
             def_minst = blk->allinst.ptab[bitset_next_bit_pos(&defs, 0)];
-            if (!def_minst->flag.is_mov_reg)
+            if (def_minst->type != mtype_mov_reg)
                 continue;
 
             /* FIX by value numbering */
@@ -679,11 +679,6 @@ int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, str
     return 0;
 }
 
-int       minst_get_last_def_in_cur_cfg_node(struct minst_blk *blk, struct minst *minst, int regm)
-{
-    return 0;
-}
-
 /*
 对抗混淆用的多路径常量传播
 
@@ -741,7 +736,7 @@ int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk
         for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
             if (!(succ = succ_node->minst)) continue;
 
-            if (succ->cfg_node == cfg->cfg_node) continue;
+            if (succ->cfg == cfg->cfg) continue;
             if (bitset_get(&allvisit, succ->id)) continue;
 
             if (bitset_get(&defs, succ->id)) {
@@ -840,12 +835,11 @@ int                 minst_blk_out_of_order(struct minst_blk *blk)
 
 struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm)
 {
-    struct minst *minst;
     int i;
 
     for (i = blk->trace_top; i >= 0; i--) {
         if (minst_get_def((struct minst *)blk->trace[i]) == regm)
-            return minst;
+            return blk->trace[i];
     }
 
     return NULL;
@@ -866,7 +860,6 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg)
 {
     struct minst_blk *blk = cfg->blk;
     struct minst *end = cfg->end, *pred, *minst, *t;
-    struct minst_node *pred_node;
     int i;
     BITSET_INITS(defs, blk->allinst.len);
 
