@@ -125,10 +125,11 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     struct minst_blk *blk = cfg->blk;
     struct minst *dst = minst_new(blk, NULL, 0, NULL);
 
-    memcpy(dst, src, sizeof (src[0]));
-
     dst->addr = blk->text_sec.data + blk->text_sec.len;
+    blk->text_sec.len += src->len;
+
     dst->len = src->len;
+    dst->reg_node = src->reg_node;
     memcpy(dst->addr, src->addr, src->len);
 
     if (!cfg->start) cfg->start = dst;
@@ -138,7 +139,7 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     return dst;
 }
 
-struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type)
+struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, void *reg_node, unsigned char *code, int len)
 {
     struct minst_blk *blk = cfg->blk;
     struct minst *minst = minst_new(blk, NULL, 0, NULL);
@@ -146,8 +147,13 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type)
     if (type != mtype_b)
         vm_error("minst_new_t() only support b");
 
+    minst->addr = blk->text_sec.data + blk->text_sec.len;
+    blk->text_sec.len += len;
+    memcpy(minst->addr, code, len);
+
     minst->flag.b = 1;
     minst->flag.b_al = 1;
+    minst->reg_node = reg_node;
 
     live_use_set(blk, ARM_REG_APSR);
 
@@ -876,14 +882,13 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg)
     if (pred->type != mtype_cmp)
         vm_error("cfg[%d, %d-%d] not found cmp instruction", cfg->id, cfg->start->id, cfg->end->id);
 
-    struct minst *lm_minst = minst_get_trace_def(blk, pred->cmp.lm);
-    struct minst *ln_minst = minst_get_trace_def(blk, pred->cmp.ln);
+    struct minst *lm_minst = minst_get_last_const_definition(blk, pred, pred->cmp.lm);
+    struct minst *ln_minst = minst_get_last_const_definition(blk, pred, pred->cmp.ln);
 
-    if ((lm_minst->flag.is_const && ln_minst->flag.is_const)
-        || (!lm_minst->flag.is_const && !lm_minst->flag.is_const))
+    if ((lm_minst && ln_minst) || (!lm_minst && !lm_minst))
         return 0;
 
-    int reg = lm_minst->flag.is_const ? pred->cmp.ln:pred->cmp.lm;
+    int reg = lm_minst ? pred->cmp.ln:pred->cmp.lm;
     minst = minst_cfg_get_last_def(cfg, pred, reg);
     if (NULL == minst)
         return 0;
@@ -894,7 +899,7 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg)
     bitset_clone(&defs, &blk->defs[minst_get_use(minst)]);
     bitset_and(&defs, &minst->rd_in);
     bitset_foreach(&defs, i) {
-        t = blk->allcfg.ptab[i];
+        t = blk->allinst.ptab[i];
         if (t->flag.is_const) continue;
 
         if ((t->type == mtype_mov_reg)

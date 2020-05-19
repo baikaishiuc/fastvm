@@ -116,6 +116,14 @@ int arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len);
 /* 从指令中获取关键性上下文 */
 int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, struct reg_node *reg_node, uint8_t *code, int code_len);
 
+/*
+arm assembly to binary code
+@olen       bincode len
+@return     != NULL     success
+            
+*/
+char* arm_asm2bin(const char *asm, char *bin, int *olen);
+
 #endif /* __arm_emu_h__ */
 
 #if defined(__cplusplus)

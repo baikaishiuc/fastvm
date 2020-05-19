@@ -161,7 +161,7 @@ void                minst_blk_uninit(struct minst_blk *blk);
 
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src);
-struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type);
+struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, void *reg_node, unsigned char *code, int len);
 void                minst_delete(struct minst *inst);
 void                minst_restore(struct minst *minst);
 int                 minst_succs_count(struct minst *minst);

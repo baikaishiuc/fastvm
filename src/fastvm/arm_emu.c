@@ -606,15 +606,23 @@ static int t1_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 
 static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    struct minst *const_minst;
+
     arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
     minst->type = mtype_mov_reg;
 
     if (EMU_IS_CONST_MODE(emu)) {
-        struct minst *const_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
+        const_minst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.lm);
         if (const_minst) {
             minst_set_const(minst, const_minst->ld_imm);
         }
+    }
+    else if (EMU_IS_TRACE_MODE(emu)) {
+        const_minst = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm);
+
+        if (minst_is_tconst(const_minst))
+            minst_set_trace(minst, const_minst->ld_imm);
     }
 
     return 0;
@@ -646,6 +654,7 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     minst->cmp.lm = emu->code.ctx.lm;
     minst->cmp.ln = emu->code.ctx.ln;
+    minst->type = mtype_cmp;
 
     live_def_set(&emu->mblk, ARM_REG_APSR);
 
@@ -1107,6 +1116,11 @@ static int t_swi(struct arm_emu *emu, struct minst *minst, uint16_t *code, int l
 
 static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    struct minst *t = NULL;
+    struct bitset defs = { 0 };
+    struct arm_cpsr apsr;
+    int i;
+
     if (emu->code.ctx.cond == 0xe)
         ARM_UNPREDICT();
     else if (emu->code.ctx.cond == 0xf)
@@ -1150,10 +1164,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
     else if (EMU_IS_TRACE_MODE(emu)) {
         if (minst_is_jmp(minst)) return 0;
 
-        struct minst *t = minst_get_trace_def(&emu->mblk, ARM_REG_APSR);
-        struct bitset defs = { 0 };
-        struct arm_cpsr apsr;
-        int i;
+        t = minst_get_trace_def(&emu->mblk, ARM_REG_APSR);
 
         if (minst_is_tconst(t)) {
             minst_set_trace(minst, t->ld_imm);
@@ -1708,7 +1719,7 @@ static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct a
     }
 }
 
-static struct reg_node*     arm_insteng_parse(struct arm_emu *emu, uint8_t *code, int len, int *olen)
+static struct reg_node*     arm_insteng_parse(uint8_t *code, int len, int *olen)
 {
     struct reg_node *node = NULL, *p_end_node = NULL;
     int i, j, from = 0, to, bit;
@@ -1745,7 +1756,8 @@ static struct reg_node*     arm_insteng_parse(struct arm_emu *emu, uint8_t *code
         vm_error("arm_insteng_decode() meet unkown instruction, code[%02x %02x]", code[0], code[1]);
     }
 
-    *olen = i;
+    if (olen)
+        *olen = i;
 
     return node;
 }
@@ -1792,7 +1804,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 
     if (!g_eng)     arm_insteng_init(emu);
 
-    struct reg_node *node = arm_insteng_parse(emu, code, len, &i);
+    struct reg_node *node = arm_insteng_parse(code, len, &i);
     minst = minst_new(&emu->mblk, code, i * 2, node);
 
     arm_minst_do(emu, minst);
@@ -1987,9 +1999,10 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 static void arm_emu_dump_cfg(struct arm_emu *emu)
 {
     int i;
-    struct minst *minst, *prev_minst;
+    struct minst *minst, *prev_minst, *succ;
     struct minst_node *tnode;
     struct minst_blk *blk = &emu->mblk;
+    struct minst_cfg *cfg;
     char obuf[512];
 
     FILE *fp = fopen("cfg.dot", "w");
@@ -1999,6 +2012,28 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
 
     arm_emu_cpu_reset(emu);
 
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+
+        fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(cfg->start->addr), CFG_NODE_ID(cfg->start->addr));
+        for (succ = cfg->start; succ; succ = succ->succs.minst) {
+            arm_minst_do(emu, succ);
+
+            arm_inst_print_format(emu, succ, IDUMP_STATUS, obuf);
+
+            fprintf(fp, "%s<br/>", obuf);
+
+            if (succ == cfg->end) break;
+        }
+        fprintf(fp, ">]\n");
+
+        for (tnode = &cfg->end->succs; tnode; tnode = tnode->next) {
+            fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(cfg->start->addr), CFG_NODE_ID(tnode->minst->addr));
+        }
+    }
+    fprintf(fp, "}");
+
+#if 0
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
 
@@ -2026,6 +2061,8 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
         prev_minst = minst;
     }
     fprintf(fp, ">]\n}");
+#endif
+
 
     fclose(fp);
 }
@@ -2104,6 +2141,8 @@ static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
     return 0;
 }
 
+int         arm_emu_trace_flat(struct arm_emu *emu);
+
 int         arm_emu_run(struct arm_emu *emu)
 {
     int ret;
@@ -2133,6 +2172,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_const_propagation(emu);
 
+    arm_emu_trace_flat(emu);
 
 #if 0
     //minst_blk_out_of_order(&emu->mblk);
@@ -2146,8 +2186,8 @@ int         arm_emu_run(struct arm_emu *emu)
 
     arm_emu_dump_mblk(emu);
 
-    arm_emu_dump_defs1(emu, 80, ARM_REG_R6);
-    arm_emu_dump_defs1(emu, 80, ARM_REG_R5);
+    //arm_emu_dump_defs1(emu, 80, ARM_REG_R6);
+    //arm_emu_dump_defs1(emu, 80, ARM_REG_R5);
 
     if (emu->dump.cfg)
         arm_emu_dump_cfg(emu);
@@ -2168,13 +2208,14 @@ void        arm_emu_dump(struct arm_emu *emu)
 #define F_EMU_CONST                 0x02
 #define F_TRACE                     0x04
 
-int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
+int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *t, *n, *succ;
     struct minst_node *succ_node;
-    struct minst_cfg *cfg = blk->allcfg.ptab[0];
-    int ret, i, trace_start;
+    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg;
+    char bincode[8];
+    int ret, i, trace_start = -1, binlen;
     BITSET_INIT(defs);
     BITSET_INITS(cfg_visitall, blk->allcfg.len);
     BITSET_INITS(visitall, blk->allinst.len);
@@ -2214,24 +2255,22 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
                 }
 
                 if (minst_is_cond_jmp(succ->cfg->end)) {
-                    /* 假如没有进入trace模式，检测当前cfg是否是常量状态机，是的话，进入trace模式 */
-                    if (minst_cfg_is_const_state_machine(minst->cfg)) {
-                        trace_start = blk->trace_top;
+                    /* 假如没有进入trace模式，检测当前cfg是否是常量状态机，是的话，进入trace模式，并退出当前循环 */
+                    if (minst_cfg_is_const_state_machine(succ->cfg)) {
                         EMU_SET_TRACE_MODE(emu);
                     }
                     /* 否则的话标记当前cfg为已经访问，并把当前cfg的其他全部节点压入 */
-                    else {
+                    else 
                         MTRACE_PUSH_CFG(succ->cfg);
-                        break;
-                    }
+
+                    break;
                 }
             }
 
             /* 假如所有后继节点都被遍历过，则弹出当前cfg节点 */
-            if (!succ_node) {
+            if (!succ_node)
                 MTRACE_POP_CFG();
-                continue;
-            }
+            continue;
         }
 
         if (!EMU_IS_TRACE_MODE(emu))
@@ -2240,7 +2279,11 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
         if (bitset_get(&visitall, minst->id))
             vm_error("prog trace flat loop");
 
+        if (trace_start == -1)
+            trace_start = blk->trace_top + 1;
+
         ret = arm_minst_do(emu, minst);
+        printf("minst= %d \n", minst->id);
 
         bitset_set(&visitall, minst->id, 1);
 
@@ -2260,6 +2303,20 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
             bitset_clear(&visitall);
             /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
             cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+            last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
+
+            while (MSTACK_TOP(blk->trace) != last_cfg->start) MSTACK_POP(blk->trace);
+            MSTACK_POP(blk->trace);
+
+
+            /* 因为我们是trace到最后一个唯一状态节点中，所以
+            1. 删除最后b指令到唯一状态分支的连接
+            2. FIXME:增加被删除b指令到唯一状态分支的真分支的边
+            */
+            t = MSTACK_TOP(blk->trace);
+            n = t->flag.b_cond_passed ? minst_get_true_label(t):minst_get_false_label(t);
+            minst_del_edge(t, n);
+            minst_add_edge(t, minst_get_true_label(last_cfg->end));
 
             /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃
             */
@@ -2272,25 +2329,18 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
                 if (!cfg->start)    cfg->start = n;
             }
             /* cfg末尾需要添加一条实际的jmp指令 */
-            t = minst_new_t(cfg, mtype_b);
+            arm_asm2bin("b", bincode, &binlen);
+            t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
             cfg->end = t;
-
-            /* 因为我们是trace到最后一个唯一状态节点中，所以
-            1. 删除trace最后b指令到唯一状态分支的连接
-            2. 连接trace的流和唯一状态分支
-            */
-            n = t->flag.b_cond_passed ? minst_get_true_label(t):minst_get_false_label(t);
-            t->flag.b_al = 1;
-            minst_del_edge(t, n);
 
             /* 
             1. 删除start节点到状态机节点连接
             2. 连接start节点到trace节点
             3. 连接新的cfg到唯一状态节点中
             */
-            minst_add_edge(blk->trace[trace_start - 1], blk->trace[trace_start]);
+            minst_del_edge(blk->trace[trace_start - 1], blk->trace[trace_start]);
             minst_add_edge(blk->trace[trace_start - 1], cfg->start);
-            minst_add_edge(cfg->end, n);
+            minst_add_edge(cfg->end, last_cfg->start);
 
             /* 恢复被trace过的指令内容 */
             for (i = trace_start; i <= blk->trace_top; i++) {
@@ -2308,6 +2358,8 @@ int         arm_emu_deobfuse_loop_status_machine(struct arm_emu *emu)
 
             /* FIXME:这里其实应该是恢复以前的模式 */
             EMU_SET_CONST_MODE(emu);
+            trace_start = -1;
+            return 0;
             break;
         }
     }
@@ -2371,4 +2423,31 @@ int         minst_blk_const_propagation(struct arm_emu *emu)
     }
 
     return 0;
+}
+
+char *arm_asm2bin(const char *asm, char *bin, int *len)
+{
+    static char bin2[8];
+    short t1;
+    int c;
+
+    if (!bin)
+        bin = bin2;
+
+    c = tolower(*asm);
+    switch (c) {
+    case 'b':
+        t1 = 0xe000;
+        break;
+
+    default:
+        break;
+    }
+
+    memcpy(bin, &t1, 2);
+
+    if (len)
+        *len = 2;
+
+    return bin;
 }
