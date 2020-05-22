@@ -619,7 +619,7 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
         }
     }
     else if (EMU_IS_TRACE_MODE(emu)) {
-        const_minst = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm);
+        const_minst = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm, NULL);
 
         if (minst_is_tconst(const_minst))
             minst_set_trace(minst, const_minst->ld_imm);
@@ -722,7 +722,7 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
             struct minst *b_minst = minst->succs.minst;
 
             /* 获取当前cmp指令的下一个b<cond> jmp指令 */
-            while (b_minst && !b_minst->flag.b) {
+            while (b_minst && !minst_is_b0(b_minst)) {
                 b_minst = b_minst->succs.minst;
             }
 
@@ -826,8 +826,8 @@ exit:
     } else if (EMU_IS_TRACE_MODE(emu)) {
         if (minst->flag.is_const)   return 0;
 
-        struct minst *ln_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.ln);
-        struct minst *lm_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm);
+        struct minst *ln_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.ln, NULL);
+        struct minst *lm_def = minst_get_trace_def(&emu->mblk, emu->code.ctx.lm, NULL);
 
         if (!minst_is_tconst(ln_def) || !minst_is_tconst(lm_def))
             return 0;
@@ -1092,8 +1092,7 @@ static int t1_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, i
     if (IS_DISABLE_EMU(emu))
         return 0;
 
-    minst->flag.b = 1;
-    minst->flag.b_al = 1;
+    minst->type = mtype_b;
     if (!minst->flag.b_need_fixed)
         minst->flag.b_need_fixed = 1;
 
@@ -1134,8 +1133,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
     live_use_set(&emu->mblk, ARM_REG_APSR);
 
-    minst->flag.b = 1;
-    minst->flag.b_al = (emu->code.ctx.cond == ARM_COND_AL);
+    minst->type = (emu->code.ctx.cond == ARM_COND_AL) ? mtype_b : mtype_bcond;
     minst->flag.b_cond = emu->code.ctx.cond;
     if (!minst->flag.b_need_fixed)
         minst->flag.b_need_fixed = 1;
@@ -1162,9 +1160,9 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         }
     }
     else if (EMU_IS_TRACE_MODE(emu)) {
-        if (minst_is_jmp(minst)) return 0;
+        if (minst_is_b(minst)) return 0;
 
-        t = minst_get_trace_def(&emu->mblk, ARM_REG_APSR);
+        t = minst_get_trace_def(&emu->mblk, ARM_REG_APSR, NULL);
 
         if (minst_is_tconst(t)) {
             minst_set_trace(minst, t->ld_imm);
@@ -1174,14 +1172,14 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             if (t->type != mtype_cmp)
                 vm_error("only support cmp instruction before branch");
 
-            struct minst *lm_minst = minst_get_trace_def(&emu->mblk, t->cmp.lm);
-            struct minst *ln_minst = minst_get_trace_def(&emu->mblk, t->cmp.ln);
+            struct minst *lm_minst = minst_get_trace_def(&emu->mblk, t->cmp.lm, NULL);
+            struct minst *ln_minst = minst_get_trace_def(&emu->mblk, t->cmp.ln, NULL);
 
             int reg = lm_minst->flag.is_const ? t->cmp.ln:t->cmp.lm;
-            struct minst *def_reg = minst_get_trace_def(&emu->mblk, reg), *def2;
+            struct minst *def_reg = minst_get_trace_def(&emu->mblk, reg, NULL), *def2;
 
             if (def_reg->type = mtype_mov_reg) {
-                def2 = minst_get_trace_def(&emu->mblk, minst_get_use(def_reg));
+                def2 = minst_get_trace_def(&emu->mblk, minst_get_use(def_reg), NULL);
                 bitset_clone(&defs, &emu->mblk.defs[minst_get_use(def_reg)]);
                 bitset_and(&defs, &def_reg->rd_in);
                 int ok = MDO_TRACE_FLAT;
@@ -1809,7 +1807,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 
     arm_minst_do(emu, minst);
 
-    if (!emu->prev_minst || !emu->prev_minst->flag.b || !emu->prev_minst->flag.b_al) {
+    if (!emu->prev_minst || !minst_is_b(emu->prev_minst)) {
         minst_succ_add(emu->prev_minst, minst);
         minst_pred_add(minst, emu->prev_minst);
     }
@@ -1999,7 +1997,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 static void arm_emu_dump_cfg(struct arm_emu *emu)
 {
     int i;
-    struct minst *minst, *prev_minst, *succ;
+    struct minst *succ;
     struct minst_node *tnode;
     struct minst_blk *blk = &emu->mblk;
     struct minst_cfg *cfg;
@@ -2033,37 +2031,6 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
     }
     fprintf(fp, "}");
 
-#if 0
-    for (i = 0; i < blk->allinst.len; i++) {
-        minst = blk->allinst.ptab[i];
-
-        if (minst->flag.prologue || minst->flag.epilogue) continue;
-
-        /* 指令快刚进入的时候，必定生成一个节点 */
-        if (i == 1) {
-            fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
-        }
-        else if (prev_minst->cfg != minst->cfg) {
-            fprintf(fp, ">]\n");
-
-            for (tnode = &prev_minst->succs; tnode; tnode = tnode->next) {
-                fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(prev_minst->cfg->start->addr), CFG_NODE_ID(tnode->minst->addr));
-            }
-
-            fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x</b></font><br/>", CFG_NODE_ID(minst->addr), CFG_NODE_ID(minst->addr));
-        }
-
-        arm_minst_do(emu, minst);
-
-        arm_inst_print_format(emu, minst, IDUMP_STATUS, obuf);
-
-        fprintf(fp, "%s<br/>", obuf);
-        prev_minst = minst;
-    }
-    fprintf(fp, ">]\n}");
-#endif
-
-
     fclose(fp);
 }
 
@@ -2075,7 +2042,7 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 
     for (i = 0; i < emu->mblk.allinst.len; i++) {
         minst = emu->mblk.allinst.ptab[i];
-        if (minst->flag.b && minst->flag.b_need_fixed) {
+        if (minst_is_b0(minst) && minst->flag.b_need_fixed) {
             unsigned long target_addr = emu_addr_host2target(emu, minst->host_addr);
 
             b_minst = minst_blk_find(&emu->mblk, target_addr);
@@ -2215,7 +2182,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
     struct minst_node *succ_node;
     struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg;
     char bincode[8];
-    int ret, i, trace_start = -1, binlen;
+    int ret, i, trace_start, binlen, state_reg;
     BITSET_INIT(defs);
     BITSET_INITS(cfg_visitall, blk->allcfg.len);
     BITSET_INITS(visitall, blk->allinst.len);
@@ -2236,131 +2203,135 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
         MSTACK_POP(blk->trace); \
     } while (0)
 
-    MTRACE_PUSH_CFG(cfg);
+    int changed = 1;
 
-    while (!MSTACK_IS_EMPTY(blk->trace)) {
-        minst = MSTACK_TOP(blk->trace);
-        cfg = minst->cfg;
+    while (changed) {
+        changed = 0;
+        for (i = 0; i < blk->allcfg.len; i++) {
+            cfg = blk->allcfg.ptab[i];
+            if (minst_cfg_is_const_state_machine(cfg, &state_reg)) {
+                changed = 1;
+                break;
+            }
+        }
 
-        /* DFS */
-        if (!EMU_IS_TRACE_MODE(emu)) {
+        if (!changed) continue;
+
+        cfg = blk->allcfg.ptab[0];
+        /*DFS*/
+        bitset_clear(&cfg_visitall);
+        MTRACE_PUSH_CFG(cfg);
+        while (!MSTACK_IS_EMPTY(blk->trace)) {
+            minst = MSTACK_TOP(blk->trace);
+
             minst_succs_foreach(minst, succ_node) {
                 if (!(succ = succ_node->minst)) continue;
                 if (bitset_get(&cfg_visitall, succ->cfg->id)) continue;
-                
-                /* 假如是无条件跳转指令，直接所有指令全部进入trace堆栈，并标记当前cfg为已访问  */
-                if (minst_is_jmp(succ->cfg->end)) {
-                    MTRACE_PUSH_CFG(succ->cfg);
-                    break;
-                }
 
-                if (minst_is_cond_jmp(succ->cfg->end)) {
-                    /* 假如没有进入trace模式，检测当前cfg是否是常量状态机，是的话，进入trace模式，并退出当前循环 */
-                    if (minst_cfg_is_const_state_machine(succ->cfg)) {
-                        EMU_SET_TRACE_MODE(emu);
-                    }
-                    /* 否则的话标记当前cfg为已经访问，并把当前cfg的其他全部节点压入 */
-                    else 
-                        MTRACE_PUSH_CFG(succ->cfg);
-
-                    break;
-                }
+                if (minst->cfg == cfg)
+                    goto loop_exit;
+                MTRACE_PUSH_CFG(succ->cfg);
             }
 
-            /* 假如所有后继节点都被遍历过，则弹出当前cfg节点 */
             if (!succ_node)
                 MTRACE_POP_CFG();
-            continue;
         }
 
-        if (!EMU_IS_TRACE_MODE(emu))
-            continue;
+loop_exit:
+        if (MSTACK_IS_EMPTY(blk->trace))
+            vm_error("not found start path to const state machine cfg node");
 
-        if (bitset_get(&visitall, minst->id))
-            vm_error("prog trace flat loop");
+        EMU_SET_TRACE_MODE(emu);
+        while (!MSTACK_IS_EMPTY(blk->trace)) {
+            minst = MSTACK_TOP(blk->trace);
 
-        if (trace_start == -1)
-            trace_start = blk->trace_top + 1;
+            ret = arm_minst_do(emu, minst);
 
-        ret = arm_minst_do(emu, minst);
-        printf("minst= %d \n", minst->id);
+            printf("minst= %d \n", minst->id);
 
-        bitset_set(&visitall, minst->id, 1);
+            switch (ret) {
+            case MDO_SUCCESS:
+                if (minst_is_bcond(minst) && minst->flag.b_cond_passed) 
+                    MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
+                else 
+                    MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+                break;
 
-        switch (ret) {
-        case MDO_SUCCESS:
-            if (minst->flag.b && minst->flag.b_cond_passed) 
-                MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
-            else 
-                MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
-            break;
+            case MDO_CANT_TRACE:
+                vm_error("prog cant deobfuse");
+                break;
 
-        case MDO_CANT_TRACE:
-            vm_error("prog cant deobfuse");
-            break;
+            case MDO_TRACE_FLAT:
+                bitset_clear(&visitall);
+                /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
+                last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
 
-        case MDO_TRACE_FLAT:
-            bitset_clear(&visitall);
-            /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
-            cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-            last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
-
-            while (MSTACK_TOP(blk->trace) != last_cfg->start) MSTACK_POP(blk->trace);
-            MSTACK_POP(blk->trace);
-
-
-            /* 因为我们是trace到最后一个唯一状态节点中，所以
-            1. 删除最后b指令到唯一状态分支的连接
-            2. FIXME:增加被删除b指令到唯一状态分支的真分支的边
-            */
-            t = MSTACK_TOP(blk->trace);
-            n = t->flag.b_cond_passed ? minst_get_true_label(t):minst_get_false_label(t);
-            minst_del_edge(t, n);
-            minst_add_edge(t, minst_get_true_label(last_cfg->end));
-
-            /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃
-            */
-            for (i = trace_start; i <= blk->trace_top; i++) {
-                t = blk->trace[i];
-                if (t->flag.b) continue;
-
-                n = minst_new_copy(cfg, blk->trace[i]);
-
-                if (!cfg->start)    cfg->start = n;
-            }
-            /* cfg末尾需要添加一条实际的jmp指令 */
-            arm_asm2bin("b", bincode, &binlen);
-            t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-            cfg->end = t;
-
-            /* 
-            1. 删除start节点到状态机节点连接
-            2. 连接start节点到trace节点
-            3. 连接新的cfg到唯一状态节点中
-            */
-            minst_del_edge(blk->trace[trace_start - 1], blk->trace[trace_start]);
-            minst_add_edge(blk->trace[trace_start - 1], cfg->start);
-            minst_add_edge(cfg->end, last_cfg->start);
-
-            /* 恢复被trace过的指令内容 */
-            for (i = trace_start; i <= blk->trace_top; i++) {
-                minst_restore(blk->trace[i]);
-            }
-
-            /* 调整trace const的指令为const指令*/ 
-            for (t = cfg->start; t != cfg->end; t = t->succs.minst) {
-                t->flag.is_trace = 0;
-                t->flag.is_const = 1;
-            }
-            /* 弹出所有trace指令 */
-            while (blk->trace_top >= trace_start) 
+                while (MSTACK_TOP(blk->trace) != last_cfg->start) MSTACK_POP(blk->trace);
                 MSTACK_POP(blk->trace);
 
-            /* FIXME:这里其实应该是恢复以前的模式 */
-            EMU_SET_CONST_MODE(emu);
-            trace_start = -1;
-            return 0;
-            break;
+
+                /* 因为我们是trace到最后一个唯一状态节点中，所以
+                1. 删除最后b指令到唯一状态分支的连接
+                2. FIXME:增加被删除b指令到唯一状态分支的真分支的边
+                */
+                t = MSTACK_TOP(blk->trace);
+                n = t->flag.b_cond_passed ? minst_get_true_label(t):minst_get_false_label(t);
+                minst_del_edge(t, n);
+                minst_add_edge(t, minst_get_true_label(last_cfg->end));
+
+                minst_get_trace_def(blk, state_reg, &i);
+                for (i++; i < blk->trace_top; i++) {
+                    t = blk->trace[i];
+                    /* 路径节点有多个前驱节点时，把trace流上的节点从前驱节点的后继中删除 */
+                    if (minst_preds_count(t) > 1) {
+                        minst_del_edge(blk->trace[i - 1], blk->trace[i]);
+                        break;
+                    }
+                }
+
+                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+                /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
+                for (trace_start = i; i <= blk->trace_top; i++) {
+                    t = blk->trace[i];
+
+                    if (minst_is_b0(t)) continue;
+
+                    n = minst_new_copy(cfg, blk->trace[i]);
+
+                    if (!cfg->start)    cfg->start = n;
+                }
+                /* cfg末尾需要添加一条实际的jmp指令 */
+                arm_asm2bin("b", bincode, &binlen);
+                t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                cfg->end = t;
+
+                /* 
+                1. 删除start节点到状态机节点连接
+                2. 连接start节点到trace节点
+                3. 连接新的cfg到唯一状态节点中
+                */
+                minst_add_edge(blk->trace[trace_start - 1], cfg->start);
+                minst_add_edge(cfg->end, last_cfg->start);
+
+                /* 恢复被trace过的指令内容 */
+                for (i = trace_start; i <= blk->trace_top; i++) {
+                    minst_restore(blk->trace[i]);
+                }
+
+                /* 调整trace const的指令为const指令*/ 
+                for (t = cfg->start; t != cfg->end; t = t->succs.minst) {
+                    t->flag.is_trace = 0;
+                    t->flag.is_const = 1;
+                }
+                /* 弹出所有trace指令 */
+                while (blk->trace_top >= trace_start) 
+                    MSTACK_POP(blk->trace);
+
+                /* FIXME:这里其实应该是恢复以前的模式 */
+                EMU_SET_CONST_MODE(emu);
+
+                break;
+            }
         }
     }
 

@@ -8,7 +8,8 @@ extern "C" {
 #endif
 
 enum minst_type {
-    mtype_b,
+    mtype_b = 1,
+    mtype_bcond,
     mtype_mov_reg,
     mtype_cmp
 };
@@ -63,8 +64,9 @@ struct minst_cfg {
     struct minst    *end;
 };
 
-#define minst_is_jmp(m)         (m->flag.b == 1 && m->flag.b_al == 1)
-#define minst_is_cond_jmp(m)    (m->flag.b == 1 && m->flag.b_al == 0)
+#define minst_is_b(m)       (m->type == mtype_b)
+#define minst_is_bcond(m)   (m->type == mtype_bcond)
+#define minst_is_b0(m)      (minst_is_b(m) || minst_is_bcond(m))
 
 struct minst {
     unsigned char *addr;
@@ -86,8 +88,6 @@ struct minst {
     enum minst_type type;
 
     struct {
-        unsigned b : 1;         // is jump inst?
-        unsigned b_al : 1;      // jmp always
         unsigned b_need_fixed : 2;
         unsigned b_cond_passed : 1;
         unsigned b_cond : 4;
@@ -262,10 +262,10 @@ label_1:
 */
 int                 minst_blk_out_of_order(struct minst_blk *blk);
 
-int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg);
+int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *reg);
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
-struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm);
+struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index);
 struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def);
 
 int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
