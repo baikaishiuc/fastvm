@@ -14,8 +14,11 @@ enum minst_type {
     mtype_cmp
 };
 
+typedef int(* minst_parse_callback)(void *emu, struct minst *minst);
+
 struct minst_blk {
     char *funcname;
+    void *emu;
 
     /* 生成IR时，会产生大量的临时变量，这个是临时变量计数器 */
     int         tvar_id;
@@ -49,6 +52,8 @@ struct minst_blk {
         unsigned char   data[16 * KB];
         int             len;
     } text_sec;
+
+    minst_parse_callback minst_do;
 };
 
 struct minst_node {
@@ -58,6 +63,10 @@ struct minst_node {
 
 struct minst_cfg {
     struct minst_blk *blk;
+
+    struct {
+        unsigned dead_code : 1;
+    } flag;
 
     int id;
     struct minst    *start;
@@ -131,15 +140,23 @@ struct minst {
     };
 };
 
+
 #define live_def_set(blk, reg)       do { \
         bitset_set(&minst->def, reg, 1); \
         if ((reg < SYS_REG_NUM) && (reg > -1)) \
             bitset_set(&((blk)->defs[reg]), minst->id, 1); \
     } while (0)
+
 #define live_use_set(blk, reg)       do { \
         bitset_set(&minst->use, reg, 1); \
         if ((reg < SYS_REG_NUM) && (reg > -1)) \
             bitset_set(&((blk)->uses[reg]), minst->id, 1); \
+    } while (0)
+
+#define live_use_clear(blk, reg)    do { \
+        bitset_set(&minst->def, reg, 0); \
+        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+            bitset_set(&((blk)->defs[reg]), minst->id, 0); \
     } while (0)
 
 #define liveness_set2(blk, _def, _use, _use1)    do { \
@@ -153,15 +170,17 @@ struct minst {
         live_use_set(blk, _use); \
     } while (0)
 
+
 struct minst_blk*   minst_blk_new(char *funcname);
 void                minst_blk_delete(struct minst_blk *mblk);
 
-void                minst_blk_init(struct minst_blk *blk, char *funcname);
+void                minst_blk_init(struct minst_blk *blk, char *funcname, minst_parse_callback callback, void *emu);
 void                minst_blk_uninit(struct minst_blk *blk);
 
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src);
 struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, void *reg_node, unsigned char *code, int len);
+struct minst*       minst_change(struct minst *m, enum minst_type type, void *reg_node, unsigned char *code, int len);
 void                minst_delete(struct minst *inst);
 void                minst_restore(struct minst *minst);
 int                 minst_succs_count(struct minst *minst);
@@ -203,6 +222,8 @@ void                minst_pred_del(struct minst *minst, struct minst *pred);
 #define minst_succs_foreach(m, snode)  for (snode = &m->succs; snode; snode = snode->next)
 
 void                minst_blk_gen_cfg(struct minst_blk *blk);
+/* 当我们删除一个cfg以后，会造成很多的cfg都变成不可达，删除所有 */
+void                minst_blk_del_unreachable(struct minst_blk *blk, struct minst_cfg *cfg);
 
 /* 做活跃性分析的时候，需要加上liveness专用的prologue和epilogue
 live prologue 把所有的寄存器设置为def
@@ -262,11 +283,51 @@ label_1:
 */
 int                 minst_blk_out_of_order(struct minst_blk *blk);
 
+/* 是否是常量状态机 
+
+1. 当前cfg的end指令是否为bcond指令
+2. 影响apsr的寄存器必须有2个
+3. 一个是const，一是overdefined
+4. overdefined的值，都必须是
+4.1 const
+4.2 值保护使用
+// MCIC P.464
+5. 无法被const propagation 中的 constant conditions干掉(?)
+*/
 int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *reg);
 
+/*
+获取影响当前cfg跳转指令的最初reg，超过一个即失败
+
+@return     != 0    minst
+            NULL    error
+*/
+struct minst*       minst_cfg_apsr_get_overdefine_reg(struct minst_cfg *cfg, int *reg);
+
+/* 条件常数传播 */
+int                 minst_conditional_const_propagation(struct minst_blk *blk);
+
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm);
-struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index);
+/* 获取从minst指令往前的，对regm的定义
+假如有多个定义，返回空 */
+struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *minst, int regm);
+/* 获取trace流里的定义 
+
+@regm   要查找的寄存器
+@index  查找寄存器的位置
+@before 从哪个位置开始
+*/
+struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index, int before);
+/* 获取当前cfg内，某条指令的前的对reg_def的定义 */
 struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def);
+
+/*
+
+@return     1       passed
+            0       un-passed
+            -1      cant calc
+*/
+int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *def_val);
 
 int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
     struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id);

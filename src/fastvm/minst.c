@@ -22,7 +22,7 @@ struct minst_blk*   minst_blk_new(char *funcname)
     if (NULL == blk)
         vm_error("minst_blk_new() calloc failure");
 
-    minst_blk_init(blk, funcname);
+    minst_blk_init(blk, funcname, NULL, NULL);
 
     return blk;
 }
@@ -36,7 +36,7 @@ void                minst_blk_delete(struct minst_blk *blk)
     free(blk);
 }
 
-void                minst_blk_init(struct minst_blk *blk, char *funcname)
+void                minst_blk_init(struct minst_blk *blk, char *funcname, minst_parse_callback callback, void *emu)
 {
     memset(blk, 0, sizeof (blk[0]));
 
@@ -45,6 +45,10 @@ void                minst_blk_init(struct minst_blk *blk, char *funcname)
     blk->allinst.compare_func = minst_cmp;
 
     blk->trace_top = -1;
+
+    blk->minst_do = callback;
+
+    blk->emu = emu;
 }
 
 void                minst_blk_uninit(struct minst_blk *blk)
@@ -134,6 +138,7 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     bitset_clone(&dst->use, &src->use);
     dst->flag.is_const = src->flag.is_const;
     dst->ld_imm = src->ld_imm;
+    dst->cfg = cfg;
     memcpy(dst->addr, src->addr, src->len);
 
     if (!cfg->start) cfg->start = dst;
@@ -152,6 +157,7 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
         vm_error("minst_new_t() only support b");
 
     minst->addr = blk->text_sec.data + blk->text_sec.len;
+    minst->len = len;
     blk->text_sec.len += len;
     memcpy(minst->addr, code, len);
 
@@ -163,6 +169,22 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
     if (!cfg->start) cfg->start = minst;
     else minst_add_edge(cfg->end, minst);
     cfg->end = minst;
+
+    return minst;
+}
+
+struct minst*       minst_change(struct minst *minst, enum minst_type type, void *reg_node, unsigned char *code, int len)
+{
+    struct minst_blk *blk = minst->cfg->blk;
+    minst->addr = blk->text_sec.data + blk->text_sec.len;
+
+    minst->addr = blk->text_sec.data + blk->text_sec.len;
+    minst->len = len;
+    blk->text_sec.len += len;
+    memcpy(minst->addr, code, len);
+
+    minst->type = type;
+    minst->reg_node = reg_node;
 
     return minst;
 }
@@ -436,6 +458,13 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
     struct bitset in = { 0 }, out = { 0 }, use = {0};
     int i, changed = 1;
 
+    for (i = blk->allcfg.len - 1; i >= 0; i--) {
+        minst = blk->allinst.ptab[i];
+
+        bitset_clear(&minst->in);
+        bitset_clear(&minst->out);
+    }
+
     while (changed) {
         changed = 0;
         for (i = blk->allinst.len - 1; i >= 0; i--) {
@@ -623,6 +652,17 @@ int                 minst_blk_regalloc(struct minst_blk *blk)
     return 0;
 }
 
+int                 minst_conditional_const_propagation(struct minst_blk *blk)
+{
+    struct minst_cfg *cfg;
+    int i;
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+    }
+    return 0;
+}
+
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
     int pos, count, imm;
@@ -655,6 +695,26 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
 exit:
     bitset_uninit(&bs);
     return (const_minst && const_minst->flag.is_const) ? const_minst : NULL;
+}
+
+struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *minst, int regm)
+{
+    int pos, count;
+    BITSET_INIT(bs);
+    struct minst *def_minst = NULL;
+
+    bitset_clone(&bs, &minst->rd_in);
+    bitset_and(&bs, &blk->defs[regm]);
+
+    count = bitset_count(&bs);
+    if (!count) return NULL;
+
+    if (count == 1) {
+        pos = bitset_next_bit_pos(&bs, 0);
+        def_minst = blk->allinst.ptab[pos];
+    }
+
+    return def_minst;
 }
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use)
@@ -842,11 +902,11 @@ int                 minst_blk_out_of_order(struct minst_blk *blk)
     return 0;
 }
 
-struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index)
+struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index, int before)
 {
     int i;
 
-    for (i = blk->trace_top; i >= 0; i--) {
+    for (i = before?before:blk->trace_top; i >= 0; i--) {
         if (minst_get_def((struct minst *)blk->trace[i]) == regm) {
             if (index) *index = i;
             return blk->trace[i];
@@ -870,42 +930,18 @@ struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *
 int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *state_reg)
 {
     struct minst_blk *blk = cfg->blk;
-    struct minst *end = cfg->end, *pred, *minst, *t;
-    int i;
-    BITSET_INITS(defs, blk->allinst.len);
+    struct minst *end = cfg->end, *minst, *t;
+    int i, use_reg;
 
-    if (end->flag.is_const) return 0;
-    if (!minst_is_bcond(end)) return 0;
-
-    for (pred = end->preds.minst; pred; pred = pred->preds.minst) {
-        if (pred->type == mtype_cmp)
-            break;
-
-        if (pred == cfg->start) break;
-    }
-    
-    if (pred->type != mtype_cmp) {
-        vm_error("cfg[%d, %d-%d] not found cmp instruction", cfg->id, cfg->start->id, cfg->end->id);
-    }
-
-    struct minst *lm_minst = minst_get_last_const_definition(blk, pred, pred->cmp.lm);
-    struct minst *ln_minst = minst_get_last_const_definition(blk, pred, pred->cmp.ln);
-
-    if ((lm_minst && ln_minst) || (!lm_minst && !lm_minst))
-        return 0;
-
-    int reg = lm_minst ? pred->cmp.ln:pred->cmp.lm;
-    minst = minst_cfg_get_last_def(cfg, pred, reg);
-    if (NULL == minst)
+    minst = minst_cfg_apsr_get_overdefine_reg(cfg, &use_reg);
+    if ((NULL == minst) || (use_reg == -1))
         return 0;
 
     if (minst->type != mtype_mov_reg)
-        return 1;
+        return 0;
 
-    if (state_reg)
-        *state_reg = minst_get_use(minst);
-
-    bitset_clone(&defs, &blk->defs[minst_get_use(minst)]);
+    BITSET_INITS(defs, blk->allinst.len);
+    bitset_clone(&defs, &blk->defs[use_reg]);
     bitset_and(&defs, &minst->rd_in);
     bitset_foreach(&defs, i) {
         t = blk->allinst.ptab[i];
@@ -915,8 +951,86 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int 
             && minst_get_def(t) == minst_get_use(minst)
             && minst_get_use(t) == minst_get_def(minst)) continue;
 
+        bitset_uninit(&defs);
         return 0;
     }
 
+    bitset_uninit(&defs);
     return 1;
+}
+
+struct minst* minst_cfg_apsr_get_overdefine_reg(struct minst_cfg *cfg, int *use_reg)
+{
+    struct minst_blk *blk = cfg->blk;
+    struct minst *end = cfg->end, *pred, *minst;
+
+    if (minst_succs_count(cfg->end) <= 1)
+        return NULL;
+
+    if (end->flag.is_const) return NULL;
+
+    for (pred = end->preds.minst; pred; pred = pred->preds.minst) {
+        if (pred->type == mtype_cmp)
+            break;
+
+        if (minst_preds_count(pred) != 1)
+            return NULL;
+    }
+    
+    if (pred->type != mtype_cmp)
+        return NULL;
+
+    struct minst *lm_minst = minst_get_last_const_definition(blk, pred, pred->cmp.lm);
+    struct minst *ln_minst = minst_get_last_const_definition(blk, pred, pred->cmp.ln);
+
+    if ((lm_minst && ln_minst) || (!lm_minst && !lm_minst))
+        return NULL;
+
+    int reg = lm_minst ? pred->cmp.ln:pred->cmp.lm;
+    minst = minst_get_last_def(blk, pred, reg);
+    if (NULL == minst) {
+        *use_reg = reg;
+        return minst;
+    }
+
+    if (minst->type != mtype_mov_reg)
+        return NULL;
+
+    if (use_reg)
+        *use_reg = minst_get_use(minst);
+
+    return minst;
+}
+
+int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *def_val)
+{
+    return 0;
+}
+
+void                minst_blk_del_unreachable(struct minst_blk *blk, struct minst_cfg *cfg)
+{
+    struct minst *succ;
+    struct minst_node *succ_node;
+    struct minst_cfg *stack[128];
+    int stack_top = -1;
+
+    if (minst_preds_count(cfg->start) > 0)
+        return;
+
+    MSTACK_PUSH(stack, cfg);
+    cfg->flag.dead_code = 1;
+
+    while (!MSTACK_IS_EMPTY(stack)) {
+        cfg = MSTACK_POP(stack);
+
+        minst_succs_foreach(cfg->end, succ_node) {
+            if (!(succ = succ_node->minst)) continue;
+            minst_del_edge(cfg->end, succ->cfg->start);
+
+            if (minst_preds_count(succ) == 0) {
+                MSTACK_PUSH(stack, succ->cfg);
+                succ->cfg->flag.dead_code = 1;
+            }
+        }
+    }
 }
