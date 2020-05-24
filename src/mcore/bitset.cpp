@@ -148,7 +148,7 @@ struct bitset*  bitset_and(struct bitset *dst, struct bitset *src)
 {
     int i;
 
-    if (dst->len4 != src->len4) {
+    if (dst->len != src->len) {
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 

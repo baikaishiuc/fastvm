@@ -163,6 +163,7 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
 
     minst->type = type;
     minst->reg_node = reg_node;
+    minst->cfg = cfg;
 
     live_use_set(blk, ARM_REG_APSR);
 

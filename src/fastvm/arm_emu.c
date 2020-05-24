@@ -57,6 +57,7 @@
 #define MDO_SUCCESS             0
 #define MDO_CANT_TRACE          1
 #define MDO_TRACE_FLAT          2
+#define MDO_TRACE_FLAT_OUT_CSM  3
 
 
 struct emu_temp_var
@@ -2149,8 +2150,8 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_const_propagation(emu);
 
-    minst_cfg_classify(&emu->mblk);
-    //arm_emu_trace_flat(emu);
+    //minst_cfg_classify(&emu->mblk);
+    arm_emu_trace_flat(emu);
 
 #if 0
     //minst_blk_out_of_order(&emu->mblk);
@@ -2189,8 +2190,7 @@ void        arm_emu_dump(struct arm_emu *emu)
 int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst *minst, *t, *n, *succ;
-    struct minst_node *succ_node;
+    struct minst *minst, *t, *n;
     struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg;
     char bincode[8];
     int ret, i, trace_start, binlen, state_reg;
@@ -2218,6 +2218,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
     while (changed) {
         changed = 0;
+        minst_cfg_classify(blk);
         for (i = 0; i < blk->allcfg.len; i++) {
             state_cfg = blk->allcfg.ptab[i];
             if (minst_cfg_is_const_state_machine(state_cfg, &state_reg)) {
@@ -2232,27 +2233,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
         bitset_expand(&cfg_visitall, blk->allcfg.len);
         bitset_clear(&cfg_visitall);
         MTRACE_PUSH_CFG(cfg);
-#if 0
-        while (!MSTACK_IS_EMPTY(blk->trace)) {
-            minst = MSTACK_TOP(blk->trace);
-
-            int empty = 1;
-            minst_succs_foreach(minst, succ_node) {
-                if (!(succ = succ_node->minst)) continue;
-                if (bitset_get(&cfg_visitall, succ->cfg->id)) continue;
-
-                /* FIXME : */
-                if ((minst->cfg == state_cfg) || (minst_preds_count(succ) > 1))
-                    goto loop_exit;
-                MTRACE_PUSH_CFG(succ->cfg);
-                empty = 0;
-            }
-
-            if (empty)
-                MTRACE_POP_CFG();
-        }
-loop_exit:
-#endif
 
         if (MSTACK_IS_EMPTY(blk->trace))
             vm_error("not found start path to const state machine cfg node");
@@ -2262,10 +2242,10 @@ loop_exit:
         while (!MSTACK_IS_EMPTY(blk->trace)) {
             minst = MSTACK_TOP(blk->trace);
 
-            if (!minst->flag.epilogue)
-                ret = arm_minst_do(emu, minst);
+            if (minst->cfg->csm  == CSM_OUT)
+                ret = MDO_TRACE_FLAT_OUT_CSM;
             else
-                ret = MDO_TRACE_FLAT;
+                ret = arm_minst_do(emu, minst);
 
             printf("minst= %d \n", minst->id);
 
@@ -2282,6 +2262,7 @@ loop_exit:
                 break;
 
             case MDO_TRACE_FLAT:
+            case MDO_TRACE_FLAT_OUT_CSM:
                 bitset_clear(&visitall);
                 /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
                 last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
@@ -2294,12 +2275,22 @@ loop_exit:
                 1. 删除最后b指令到唯一状态分支的连接
                 2. FIXME:增加被删除b指令到唯一状态分支的真分支的边
                 */
-                t = MSTACK_TOP(blk->trace);
-                n = (minst_is_bcond(t) && t->flag.b_cond_passed) ? minst_get_true_label(t):minst_get_false_label(t);
-                minst_del_edge(t, n);
-                minst_add_edge(t, minst_get_true_label(last_cfg->end));
+                if (ret == MDO_TRACE_FLAT) {
+                    t = MSTACK_TOP(blk->trace);
+                    n = (minst_is_bcond(t) && t->flag.b_cond_passed) ? minst_get_true_label(t):minst_get_false_label(t);
+                    minst_del_edge(t, n);
+                    minst_add_edge(t, minst_get_true_label(last_cfg->end));
 
-                minst_get_trace_def(blk, state_reg, &i, 0);
+                    minst_get_trace_def(blk, state_reg, &i, 0);
+                }
+                else {
+                    for (i = blk->trace_top; i >= 0; i--) {
+                        t = blk->trace[i];
+                        if (t->cfg->csm == CSM_IN)
+                            break;
+                    }
+                }
+
                 for (i++; i < blk->trace_top; i++) {
                     t = blk->trace[i];
                     /* 路径节点有多个前驱节点时，把trace流上的节点从前驱节点的后继中删除 */
