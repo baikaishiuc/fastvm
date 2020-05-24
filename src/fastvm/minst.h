@@ -54,6 +54,8 @@ struct minst_blk {
     } text_sec;
 
     minst_parse_callback minst_do;
+
+    struct minst*       epilogue;
 };
 
 struct minst_node {
@@ -61,6 +63,10 @@ struct minst_node {
     struct minst_node *next;
 };
 
+
+#define CSM_IN          1
+#define CSM             2
+#define CSM_OUT         3
 struct minst_cfg {
     struct minst_blk *blk;
 
@@ -68,7 +74,8 @@ struct minst_cfg {
         unsigned dead_code : 1;
     } flag;
 
-    int id;
+    int     id;
+    int     csm;
     struct minst    *start;
     struct minst    *end;
 };
@@ -220,6 +227,7 @@ void                minst_pred_del(struct minst *minst, struct minst *pred);
     } while (0)
 
 #define minst_succs_foreach(m, snode)  for (snode = &m->succs; snode; snode = snode->next)
+#define minst_preds_foreach(m, pnode)  for (pnode = &m->preds; pnode; pnode = pnode->next)
 
 void                minst_blk_gen_cfg(struct minst_blk *blk);
 /* 当我们删除一个cfg以后，会造成很多的cfg都变成不可达，删除所有 */
@@ -295,6 +303,9 @@ int                 minst_blk_out_of_order(struct minst_blk *blk);
 5. 无法被const propagation 中的 constant conditions干掉(?)
 */
 int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *reg);
+
+int                 minst_cfg_classify(struct minst_blk *blk);
+
 
 /*
 获取影响当前cfg跳转指令的最初reg，超过一个即失败

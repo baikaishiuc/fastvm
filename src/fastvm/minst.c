@@ -438,6 +438,8 @@ void                minst_blk_live_epilogue_add(struct minst_blk *mblk)
 
     minst->flag.epilogue = 1;
 
+    mblk->epilogue = minst;
+
     for (i = 0; i < 16; i++) {
         live_use_set(mblk, i);
     }
@@ -933,6 +935,9 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int 
     struct minst *end = cfg->end, *minst, *t;
     int i, use_reg;
 
+    if (cfg->flag.dead_code) return 0;
+    if (minst_preds_count(cfg->start) <= 1) return 0;
+
     minst = minst_cfg_apsr_get_overdefine_reg(cfg, &use_reg);
     if ((NULL == minst) || (use_reg == -1))
         return 0;
@@ -957,6 +962,88 @@ int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int 
 
     bitset_uninit(&defs);
     return 1;
+}
+
+int                 minst_cfg_classify(struct minst_blk *blk)
+{
+    struct minst *m;
+    struct minst_cfg *cfg, *tcfg, *pcfg;
+    struct minst_cfg *stack[256];
+    struct minst_node *succ_node, *pred_node;
+    int stack_top = -1;
+    int i;
+
+    BITSET_INITS(visitall, blk->allcfg.len);
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+        if (cfg->flag.dead_code) continue;
+        if (minst_cfg_is_const_state_machine(cfg, NULL)) {
+            printf("csm[%d:%d-%d]\n", cfg->id, cfg->start->id, cfg->end->id);
+
+            MSTACK_PUSH(stack, cfg);
+            bitset_set(&visitall, cfg->id, 1);
+            while (!MSTACK_IS_EMPTY(stack)) {
+                cfg = MSTACK_POP(stack);
+
+                minst_succs_foreach(cfg->end, succ_node) {
+                    tcfg = (succ_node->minst->cfg);
+                    if (!tcfg || tcfg->flag.dead_code) continue;
+                    if (bitset_get(&visitall, tcfg->id)) continue;
+
+                    MSTACK_PUSH(stack, tcfg);
+                    bitset_set(&visitall, tcfg->id, 1);
+                }
+            }
+        }
+    }
+
+    bitset_foreach(&visitall, i) {
+        cfg = blk->allcfg.ptab[i];
+        cfg->csm = CSM;
+    }
+
+    bitset_not(&visitall);
+    bitset_foreach(&visitall, i) {
+        cfg = blk->allcfg.ptab[i];
+        cfg->csm = CSM_IN;
+    }
+
+    /* 扫描不可达csm的节点，逆向扫描
+    
+    1. 从epilogue的前一个节点开始，标记为不可达csm节点,入栈
+    2. 弹出栈顶节点，假如栈顶节点的所有前序节点的所有后续节点都为不可达节点，则入栈，持续2
+    */
+    bitset_clear(&visitall);
+    m = blk->epilogue->preds.minst;
+    MSTACK_PUSH(stack, m->cfg);
+    bitset_set(&visitall, m->cfg->id, 1);
+    while (!MSTACK_IS_EMPTY(stack)) {
+        cfg = MSTACK_POP(stack);
+
+        minst_preds_foreach(cfg->start, pred_node) {
+            pcfg = pred_node->minst->cfg;
+
+            if (bitset_get(&visitall, pcfg->id)) continue;
+
+            minst_succs_foreach(pcfg->end, succ_node) {
+                tcfg = succ_node->minst->cfg;
+                if (!bitset_get(&visitall, tcfg->id)) break;
+            }
+
+            if (!succ_node) {
+                MSTACK_PUSH(stack, pcfg);
+                bitset_set(&visitall, pcfg->id, 1);
+            }
+        }
+    }
+
+    bitset_foreach(&visitall, i) {
+        cfg = blk->allcfg.ptab[i];
+        cfg->csm = CSM_OUT;
+    }
+
+    return 0;
 }
 
 struct minst* minst_cfg_apsr_get_overdefine_reg(struct minst_cfg *cfg, int *use_reg)

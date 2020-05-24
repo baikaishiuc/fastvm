@@ -217,7 +217,7 @@ int             bitset_is_empty(struct bitset *bs)
 
 int         bitset_next_bit_pos(struct bitset *bs, int pos)
 {
-    int i, j;
+    int i, j, k;
     if (pos >= bs->len || pos < 0)
         return -1;
 
@@ -228,7 +228,7 @@ int         bitset_next_bit_pos(struct bitset *bs, int pos)
         else {
             for (j = pos % 32; j < 32; j++) {
                 if (bs->data[i] & (1 << j))
-                    return i * 32 + j;
+                    return ((k = (i * 32 + j)) >= bs->len) ? -1:k;
             }
 
             pos = (i + 1) * 32;
