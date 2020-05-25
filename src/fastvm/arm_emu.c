@@ -1266,8 +1266,8 @@ struct arm_inst_desc {
     {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
     {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
-    {"0100    0101 01 lm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
-    {"0100    0101 10 hm3 ln3 ",            {thumb_inst_cmp}, {"cmp"}},
+    {"0100    0101 01 hm3 ln3 ",            {thumb_inst_cmp}, {"cmp"}},
+    {"0100    0101 10 lm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    0101 11 hm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
@@ -2194,6 +2194,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
     struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg;
     char bincode[8];
     int ret, i, trace_start, binlen, state_reg;
+    int trace_flat_times = 0;
     BITSET_INIT(defs);
     BITSET_INITS(cfg_visitall, blk->allcfg.len);
     BITSET_INITS(visitall, blk->allinst.len);
@@ -2291,7 +2292,10 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     t = MSTACK_TOP(blk->trace);
                     n = (minst_is_bcond(t) && t->flag.b_cond_passed) ? minst_get_true_label(t):minst_get_false_label(t);
                     minst_del_edge(t, n);
-                    minst_add_edge(t, minst_get_true_label(last_cfg->end));
+                    if (t->flag.b_cond_passed)
+                        minst_add_edge(t, minst_get_false_label(last_cfg->end));
+                    else
+                        minst_add_edge(t, minst_get_true_label(last_cfg->end));
 
                     minst_get_trace_def(blk, state_reg, &i, 0);
                 }
@@ -2356,8 +2360,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 /* FIXME:这里其实应该是恢复以前的模式 */
                 minst_blk_const_propagation(emu);
                 minst_cfg_classify(blk);
-                static int const_time = 0;
-                if (++const_time == 4)
+                if (++trace_flat_times == 11)
                     return 0;
                 break;
             }
