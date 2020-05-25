@@ -2216,9 +2216,10 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
     int changed = 1;
 
+    minst_cfg_classify(blk);
+
     while (changed) {
         changed = 0;
-        minst_cfg_classify(blk);
         for (i = 0; i < blk->allcfg.len; i++) {
             state_cfg = blk->allcfg.ptab[i];
             if (minst_cfg_is_const_state_machine(state_cfg, &state_reg)) {
@@ -2231,7 +2232,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
         cfg = blk->allcfg.ptab[0];
         bitset_expand(&cfg_visitall, blk->allcfg.len);
-        bitset_clear(&cfg_visitall);
         MTRACE_PUSH_CFG(cfg);
 
         if (MSTACK_IS_EMPTY(blk->trace))
@@ -2251,8 +2251,20 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
             switch (ret) {
             case MDO_SUCCESS:
-                if (minst_is_bcond(minst) && minst->flag.b_cond_passed) 
-                    MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
+                if (minst_succs_count(minst) == 2) {
+                    if (minst_is_tconst(minst)) {
+                        if (minst->flag.b_cond_passed) 
+                            MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
+                        else 
+                            MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+                    }
+                    else {
+                        if (minst_get_false_label(minst)->cfg->csm != CSM_OUT)
+                            MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+                        else
+                            MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
+                    }
+                }
                 else 
                     MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
                 break;
@@ -2343,8 +2355,9 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
                 /* FIXME:这里其实应该是恢复以前的模式 */
                 minst_blk_const_propagation(emu);
+                minst_cfg_classify(blk);
                 static int const_time = 0;
-                if (++const_time == 3)
+                if (++const_time == 4)
                     return 0;
                 break;
             }
