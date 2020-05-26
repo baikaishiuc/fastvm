@@ -461,7 +461,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
     struct bitset in = { 0 }, out = { 0 }, use = {0};
     int i, changed = 1;
 
-    for (i = blk->allcfg.len - 1; i >= 0; i--) {
+    for (i = blk->allinst.len - 1; i >= 0; i--) {
         minst = blk->allinst.ptab[i];
 
         bitset_clear(&minst->in);
@@ -557,13 +557,15 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
+
+        bitset_clear(&minst->rd_in);
+        bitset_clear(&minst->rd_out);
+
         if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || (def = minst_get_def(minst)) < 0)
             continue;
 
         bitset_clone(&minst->kills, &blk->defs[def]);
         bitset_set(&minst->kills, minst->id, 0);
-        bitset_clear(&minst->rd_in);
-        bitset_clear(&minst->rd_out);
     }
 
     while (changed) {

@@ -2105,7 +2105,7 @@ static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
     bitset_clone(&defs, &emu->mblk.defs[reg_def]);
     bitset_and(&defs, &minst->rd_in);
 
-    printf("%s def list\n", regstr[reg_def]);
+    printf("[inst_id:%d] %s def list\n", inst_id, regstr[reg_def]);
     for (pos = bitset_next_bit_pos(&defs, 0); pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
         def_minst = emu->mblk.allinst.ptab[pos];
         if (def_minst->flag.is_const)
@@ -2165,8 +2165,10 @@ int         arm_emu_run(struct arm_emu *emu)
 
     arm_emu_dump_mblk(emu);
 
-    //arm_emu_dump_defs1(emu, 44, ARM_REG_R5);
-    //arm_emu_dump_defs1(emu, 44, ARM_REG_R6);
+    arm_emu_dump_defs1(emu, 125, ARM_REG_R9);
+    arm_emu_dump_defs1(emu, 125, ARM_REG_R0);
+    arm_emu_dump_defs1(emu, 158, ARM_REG_R8);
+    arm_emu_dump_defs1(emu, 158, ARM_REG_R0);
 
     if (emu->dump.cfg)
         arm_emu_dump_cfg(emu);
@@ -2239,7 +2241,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
             vm_error("not found start path to const state machine cfg node");
 
         EMU_SET_TRACE_MODE(emu);
-        printf("start trace\n");
+        printf("start trace[%d]\n", trace_flat_times+1);
         while (!MSTACK_IS_EMPTY(blk->trace)) {
             minst = MSTACK_TOP(blk->trace);
 
@@ -2360,7 +2362,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 /* FIXME:这里其实应该是恢复以前的模式 */
                 minst_blk_const_propagation(emu);
                 minst_cfg_classify(blk);
-                if (++trace_flat_times == 11)
+                if (++trace_flat_times == 8)
                     return 0;
                 break;
             }
