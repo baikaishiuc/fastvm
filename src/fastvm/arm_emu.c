@@ -329,8 +329,8 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
     if (flag & IDUMP_LIVE) {
         olen = arm_dump_temp_reglist("def", &minst->def, o += olen);
         olen = arm_dump_temp_reglist("use", &minst->use, o += olen);
-        //olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
-        //olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
+        olen = arm_dump_temp_reglist("in", &minst->in, o += olen);
+        olen = arm_dump_temp_reglist("out", &minst->out, o+= olen);
     }
 
     if (flag & IDUMP_REACHING_DEFS) {
@@ -1135,10 +1135,12 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
     if (InITBlock(emu))
         ARM_UNPREDICT();
 
-    live_use_set(&emu->mblk, ARM_REG_APSR);
-
     minst->type = (emu->code.ctx.cond == ARM_COND_AL) ? mtype_b : mtype_bcond;
     minst->flag.b_cond = emu->code.ctx.cond;
+
+    if (minst_is_bcond(minst))
+        live_use_set(&emu->mblk, ARM_REG_APSR);
+
     if (!minst->flag.b_need_fixed)
         minst->flag.b_need_fixed = 1;
 
@@ -2193,7 +2195,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *t, *n;
-    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg;
+    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg, *tcfg;
     char bincode[8];
     int ret, i, trace_start, binlen, state_reg;
     int trace_flat_times = 0;
@@ -2262,8 +2264,12 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                             MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
                     }
                     else {
-                        if (minst_get_false_label(minst)->cfg->csm != CSM_OUT)
+                        tcfg = minst_get_false_label(minst)->cfg;
+                        if (tcfg->csm != CSM_OUT) {
+                            if (tcfg->csm == CSM)
+                                printf("find unkown path in csm\n");
                             MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+                        }
                         else
                             MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
                     }
@@ -2467,6 +2473,7 @@ int         minst_blk_const_propagation(struct arm_emu *emu)
         for (i = 0; i < blk->allcfg.len; i++) {
             cfg = blk->allcfg.ptab[i];
 
+            if (cfg->flag.dead_code) continue;
             if (minst_succs_count(cfg->end) <= 1) continue;
 
             minst = minst_cfg_apsr_get_overdefine_reg(cfg, &use_reg);
@@ -2505,6 +2512,8 @@ int         minst_blk_const_propagation(struct arm_emu *emu)
             minst_blk_del_unreachable(blk, cfg);
             changed = 1;
         }
+
+        changed |= minst_blk_dead_code_elim(blk);
     }
 
     return 0;

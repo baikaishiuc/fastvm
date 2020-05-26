@@ -165,7 +165,8 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
     minst->reg_node = reg_node;
     minst->cfg = cfg;
 
-    live_use_set(blk, ARM_REG_APSR);
+    if (type == mtype_bcond)
+        live_use_set(blk, ARM_REG_APSR);
 
     if (!cfg->start) cfg->start = minst;
     else minst_add_edge(cfg->end, minst);
@@ -340,9 +341,27 @@ void                minst_pred_del(struct minst *minst, struct minst *pred)
 
 void                minst_del_from_cfg(struct minst *minst)
 {
+    struct minst_cfg *cfg = minst->cfg;
     struct minst_node *pred_node, *succ_node;
     struct minst *pred, *succ;
+    int inst_count = minst_cfg_inst_count(cfg);
 
+    if (minst->flag.dead_code)
+        vm_error("minst[%d] already be delete", minst->id);
+
+    if (inst_count == 1) {
+        cfg->flag.dead_code = 1;
+        cfg->start = NULL;
+        cfg->end = NULL;
+    }
+    else if (cfg->start == minst){
+        cfg->start = minst->succs.minst;
+    }
+    else if (cfg->end == minst) {
+        cfg->end = minst->preds.minst;
+    }
+
+    /* 删除一个节点以后，需要把这个节点的所有前驱节点，连接到他的后继节点以后 */
     for (pred_node = &minst->preds; pred_node; pred_node = pred_node->next) {
         if (!(pred = pred_node->minst)) continue;
         for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
@@ -358,6 +377,9 @@ void                minst_del_from_cfg(struct minst *minst)
             minst_succ_del(minst, succ);
         }
     }
+
+    /* 打上dead_code的标志 */
+    minst->flag.dead_code = 1;
 }
 
 void                minst_blk_gen_cfg(struct minst_blk *blk)
@@ -500,7 +522,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 int                 minst_blk_dead_code_elim(struct minst_blk *blk)
 {
     struct minst *minst;
-    int changed = 1, i;
+    int changed = 1, i, ret = 0;
     struct bitset def = { 0 };
 
     /* FIXME: 删除死代码以后，liveness的计算没有把死代码计算进去 */
@@ -508,7 +530,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
         changed = 0;
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.dead_code)
+            if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue)
                 continue;
 
             if (bitset_is_empty(&minst->def))
@@ -516,26 +538,17 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
 
             bitset_clone(&def, &minst->def);
             if (!changed && !bitset_is_equal(bitset_and(&def, &minst->out), &minst->def)) {
-                minst->flag.dead_code = 1;
-                changed = 1;
+                minst_del_from_cfg(minst);
+                ret = changed = 1;
             }
         }
-    }
 
-    for (i = 0; i < blk->allinst.len; i++) {
-        minst = blk->allinst.ptab[i];
-        if (minst->flag.dead_code && !minst->flag.be_del) {
-            minst_del_from_cfg(minst);
-            minst->flag.be_del = 1;
-        }
+        minst_blk_liveness_calc(blk);
     }
 
     bitset_uninit(&def);
 
-    minst_blk_liveness_calc(blk);
-    minst_blk_gen_reaching_definitions(blk);
-
-    return 0;
+    return ret;
 }
 
 int                 minst_get_def(struct minst *minst)
@@ -1047,6 +1060,21 @@ int                 minst_cfg_classify(struct minst_blk *blk)
     }
 
     return 0;
+}
+
+int                 minst_cfg_inst_count(struct minst_cfg *cfg)
+{
+    struct minst_blk *blk = cfg->blk;
+    struct minst *minst;
+    int i, cts = 0;
+
+    for (i = cfg->start->id; i <= cfg->end->id; i++) {
+        minst = blk->allinst.ptab[i];
+        if (minst->flag.dead_code) continue;
+        cts++;
+    }
+
+    return cts;
 }
 
 struct minst* minst_cfg_apsr_get_overdefine_reg(struct minst_cfg *cfg, int *use_reg)

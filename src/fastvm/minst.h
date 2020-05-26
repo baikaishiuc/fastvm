@@ -161,9 +161,9 @@ struct minst {
     } while (0)
 
 #define live_use_clear(blk, reg)    do { \
-        bitset_set(&minst->def, reg, 0); \
+        bitset_set(&minst->use, reg, 0); \
         if ((reg < SYS_REG_NUM) && (reg > -1)) \
-            bitset_set(&((blk)->defs[reg]), minst->id, 0); \
+            bitset_set(&((blk)->uses[reg]), minst->id, 0); \
     } while (0)
 
 #define liveness_set2(blk, _def, _use, _use1)    do { \
@@ -305,6 +305,8 @@ int                 minst_blk_out_of_order(struct minst_blk *blk);
 int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *reg);
 
 int                 minst_cfg_classify(struct minst_blk *blk);
+
+int                 minst_cfg_inst_count(struct minst_cfg *cfg);
 
 
 /*
