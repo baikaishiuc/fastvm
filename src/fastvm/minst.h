@@ -76,6 +76,7 @@ struct minst_cfg {
 
     int     id;
     int     csm;
+    struct bitset   reduce;
     struct minst    *start;
     struct minst    *end;
 };
@@ -141,6 +142,8 @@ struct minst {
     void *reg_node;
 
     int ld;
+    /* FIXME:这里做了一个错误的假设，即一条指令只能def一个寄存器。所以只存了一个值。
+    但是实际上，sub 指令可以同时操作目的寄存器和 aspr 寄存器 */
     union {
         int ld_imm;
         struct arm_cpsr apsr;
@@ -330,7 +333,16 @@ struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *mins
 @index  查找寄存器的位置
 @before 从哪个位置开始
 */
-struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index, int before);
+struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before);
+struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int before);
+/*
+1. 查找上一个有未定义bcond指令
+2. 假如没有找到，返回上一个const bcond指令的前一个指令，最前为start cfg
+
+@index      当前cfg
+*/
+struct minst*       minst_trace_find_prev_undefined_bcond(struct minst_blk *blk, int *index, int before);
+struct minst*       minst_trace_find_prev_bcond(struct minst_blk *blk, int *index, int before);
 /* 获取当前cfg内，某条指令的前的对reg_def的定义 */
 struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def);
 

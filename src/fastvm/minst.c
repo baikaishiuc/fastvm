@@ -559,7 +559,6 @@ int                 minst_get_def(struct minst *minst)
     return minst->ld = bitset_next_bit_pos(&minst->def, 0);
 }
 
-
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 {
     struct minst *minst;
@@ -920,7 +919,7 @@ int                 minst_blk_out_of_order(struct minst_blk *blk)
     return 0;
 }
 
-struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *index, int before)
+struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before)
 {
     int i;
 
@@ -928,6 +927,64 @@ struct minst*       minst_get_trace_def(struct minst_blk *blk, int regm, int *in
         if (minst_get_def((struct minst *)blk->trace[i]) == regm) {
             if (index) *index = i;
             return blk->trace[i];
+        }
+    }
+
+    return NULL;
+}
+
+struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int before)
+{
+    struct minst *minst;
+    struct minst_cfg *cfg;
+
+    if (!before) before = blk->trace_top;
+
+    cfg = ((struct minst *)blk->trace[before])->cfg;
+
+    for (; before >= 0; before--) {
+        minst = blk->trace[before];
+        if (minst->cfg != cfg) return cfg;
+    }
+
+    return NULL;
+}
+
+struct minst*       minst_trace_find_prev_undefined_bcond(struct minst_blk *blk, int *index, int before)
+{
+    struct minst *minst;
+    int i, k = 0;
+
+    i = before ? before : blk->trace_top;
+
+    for (; i >= 0; i--) {
+        minst = blk->trace[i];
+        if (minst_succs_count(minst) > 1) {
+            if (minst_is_tconst(minst)) {
+                k = i;
+            }
+            else {
+                *index = i;
+                return minst;
+            }
+        }
+    }
+
+    return minst_trace_get_prev_cfg(blk, k-1)->end;
+}
+
+struct minst*       minst_trace_find_prev_bcond(struct minst_blk *blk, int *index, int before)
+{
+    struct minst *minst;
+    int i;
+
+    i = (before > 0) ? before : (blk->trace_top + before);
+
+    for (; i >= 0; i--) {
+        minst = blk->trace[i];
+        if (minst_succs_count(minst) > 1) {
+            *index = i;
+            return minst;
         }
     }
 
