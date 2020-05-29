@@ -76,7 +76,6 @@ struct minst_cfg {
 
     int     id;
     int     csm;
-    struct bitset   reduce;
     struct minst    *start;
     struct minst    *end;
 };
@@ -334,7 +333,7 @@ struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *mins
 @before 从哪个位置开始
 */
 struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before);
-struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int before);
+struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int *index, int before);
 /*
 1. 查找上一个有未定义bcond指令
 2. 假如没有找到，返回上一个const bcond指令的前一个指令，最前为start cfg

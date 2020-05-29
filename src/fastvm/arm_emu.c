@@ -867,6 +867,13 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
 
     live_use_set(&emu->mblk, ARM_REG_APSR);
 
+    if (EMU_IS_TRACE_MODE(emu)) {
+        struct minst *t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, 0, 0);
+
+        if (!t || !minst_is_tconst(t))
+            return MDO_BRANCH_UNKNOWN;
+    }
+
     return 0;
 }
 
@@ -1177,6 +1184,9 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
             minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
 
+            return 0;
+
+            // FIXME: deleted
             if (t->type != mtype_cmp)
                 vm_error("only support cmp instruction before branch");
 
@@ -2201,9 +2211,10 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
     struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg, *prev_cfg;
     struct minst_node *succ_node;
     char bincode[8];
-    int ret, i, trace_start, binlen, const_bcond_count;
+    int ret, i, trace_start, binlen, const_bcond_count, loop;
     int trace_flat_times = 0;
     BITSET_INITS(cfg_reduce, blk->allcfg.len);
+    BITSET_INITS(cfg_visit, blk->allcfg.len);
 
 #define MTRACE_PUSH_CFG(_cfg) do { \
         struct minst *start = (_cfg)->start; \
@@ -2215,8 +2226,8 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 #define MTRACE_POP_CFG() do { \
         struct minst *end = MSTACK_TOP(blk->trace); \
         struct minst_cfg *end_cfg = end->cfg; \
-        while (end != end_cfg->start) \
-            MSTACK_POP(blk->trace); \
+        while (end->id != end_cfg->start->id) \
+            end = MSTACK_POP(blk->trace); \
         MSTACK_POP(blk->trace); \
     } while (0)
 
@@ -2284,8 +2295,9 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
             case MDO_BRANCH_UNKNOWN:
                 /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
                 last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
-                prev_cfg = minst_trace_get_prev_cfg(blk, 0);
+                prev_cfg = minst_trace_get_prev_cfg(blk, NULL, 0);
 
+                loop = (ret == MDO_BRANCH_UNKNOWN) ? bitset_get(&cfg_visit, last_cfg->id) : 0;
 
                 /* 因为我们是trace到最后一个唯一状态节点中，所以
                 1. 删除最后b指令到唯一状态分支的连接
@@ -2301,16 +2313,22 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     else
                         minst_add_edge(t, minst_get_true_label(last_cfg->end));
                 }
-                /* 当前cfg为 bcond unknown的情况下，前一个cfg没有被reduce，则进行reduce
-                已经被reduce过，则挑选一条没有被reduce的边进入 */
-                else if (bitset_get(&cfg_reduce, prev_cfg->id)) {
+                /* 
+                1. 假如前cfg节点为已规约节点，则开始进行回溯
+                2. 产生回环时进行回溯
+                 */
+                else if (bitset_get(&cfg_reduce, prev_cfg->id) || bitset_get(&cfg_visit, last_cfg->id)) {
+                    struct minst *undefined_bcond = minst;
+
                     while (!MSTACK_IS_EMPTY(blk->trace)) {
+                        bitset_set(&cfg_visit, undefined_bcond->cfg->id, 0);
+
                         if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, 0)) {
                             printf("seems we meet least fix point\n");
                             goto exit_label;
                         }
 
-                        struct minst *undefined_bcond = MSTACK_TOP(blk->trace);
+                        undefined_bcond = MSTACK_TOP(blk->trace);
 
                         minst_succs_foreach(undefined_bcond, succ_node) {
                             if (!succ_node->minst) continue;
@@ -2336,7 +2354,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     }
                 }
 
-                EMU_SET_TRACE_MODE(emu);
                 cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
                 /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
                 for (trace_start = i; i <= blk->trace_top; i++) {
@@ -2355,6 +2372,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
                 cfg->end = t;
 
+
                 /* 
                 1. 连接start节点到trace节点
                 2. 连接新的cfg到唯一状态节点中
@@ -2363,7 +2381,8 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 minst_add_edge(t, cfg->start);
                 minst_add_edge(cfg->end, last_cfg->start);
 
-                bitset_set(&t->cfg->reduce, cfg->id, 1);
+                bitset_set(&cfg_reduce, cfg->id, 1);
+                bitset_set(&cfg_reduce, t->cfg->id, 1);
 
                 /* 恢复被trace过的指令内容 */
                 for (i = trace_start; i <= blk->trace_top; i++) {
@@ -2375,20 +2394,34 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     t->flag.is_trace = 0;
                     t->flag.is_const = 1;
                 }
-                /* 弹出所有trace指令 */
-                while (!MSTACK_IS_EMPTY(blk->trace)) 
-                    MSTACK_POP(blk->trace);
 
-                /* FIXME:这里其实应该是恢复以前的模式 */
-                minst_blk_const_propagation(emu);
+                /* 压入reduce cfg里的全部节点 */
+                for (t = cfg->start; t; t = t->succs.minst) {
+                    MSTACK_PUSH(blk->trace, t);
+                    arm_minst_do(emu, t);
+
+                    if (t == cfg->end) break;
+                }
+
+                /* 压入 */
+                if ((ret == MDO_BRANCH_UNKNOWN) && !loop) {
+                    for (t = last_cfg->start; t; t = t->succs.minst) {
+                        MSTACK_PUSH(blk->trace, t);
+                        arm_minst_do(emu, t);
+
+                        if (t == last_cfg->end) break;
+                    }
+
+                    MSTACK_PUSH(blk->trace, t);
+                }
+
                 minst_cfg_classify(blk);
-                if (++trace_flat_times == 8)
+                if (++trace_flat_times == 2) {
+                    minst_blk_const_propagation(emu);
                     return 0;
+                }
                 break;
             }
-
-            if (ret == MDO_TF_ONLY_ONE)
-                break;
         }
     }
 
@@ -2530,7 +2563,7 @@ int         minst_blk_const_propagation(struct arm_emu *emu)
             changed = 1;
         }
 
-        changed |= minst_blk_dead_code_elim(blk);
+        // changed |= minst_blk_dead_code_elim(blk);
     }
 
     return 0;

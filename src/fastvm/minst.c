@@ -933,7 +933,7 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
     return NULL;
 }
 
-struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int before)
+struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int *index, int before)
 {
     struct minst *minst;
     struct minst_cfg *cfg;
@@ -944,7 +944,10 @@ struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int before)
 
     for (; before >= 0; before--) {
         minst = blk->trace[before];
-        if (minst->cfg != cfg) return cfg;
+        if (minst->cfg != cfg) {
+            if (index) *index = before;
+            return minst->cfg;
+        }
     }
 
     return NULL;
@@ -970,7 +973,7 @@ struct minst*       minst_trace_find_prev_undefined_bcond(struct minst_blk *blk,
         }
     }
 
-    return minst_trace_get_prev_cfg(blk, k-1)->end;
+    return minst_trace_get_prev_cfg(blk, index, k-1)->end;
 }
 
 struct minst*       minst_trace_find_prev_bcond(struct minst_blk *blk, int *index, int before)
