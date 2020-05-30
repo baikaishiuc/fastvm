@@ -206,8 +206,7 @@ int                 minst_succs_count(struct minst *minst)
     struct minst_node *succ_node = &minst->succs;
 
     for (i = 0; succ_node; succ_node = succ_node->next) {
-        if (succ_node->minst)
-            i++;
+        if (succ_node->minst) i++;
     }
 
     return i;
@@ -219,8 +218,7 @@ int                 minst_preds_count(struct minst *minst)
     struct minst_node *pred_node = &minst->preds;
 
     for (i = 0; pred_node; pred_node = pred_node->next) {
-        if (pred_node->minst)
-            i++;
+        if (pred_node->minst) i++;
     }
 
     return i;
@@ -366,16 +364,19 @@ void                minst_del_from_cfg(struct minst *minst)
         if (!(pred = pred_node->minst)) continue;
         for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
             if (!(succ = succ_node->minst)) continue;
-
             minst_succ_add(pred, succ);
             minst_pred_add(succ, pred);
-
-            minst_pred_del(minst, pred);
-            minst_succ_del(pred, minst);
-
-            minst_pred_del(succ, minst);
-            minst_succ_del(minst, succ);
         }
+    }
+
+    while ((pred = minst->preds.minst)) {
+        minst_pred_del(minst, pred);
+        minst_succ_del(pred, minst);
+    }
+
+    while ((succ = minst->succs.minst)) {
+        minst_pred_del(succ, minst);
+        minst_succ_del(minst, succ);
     }
 
     /* 打上dead_code的标志 */
@@ -933,7 +934,7 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
     return NULL;
 }
 
-struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int *index, int before)
+struct minst_cfg*   minst_trace_find_prev_cfg(struct minst_blk *blk, int *index, int before)
 {
     struct minst *minst;
     struct minst_cfg *cfg;
@@ -958,22 +959,19 @@ struct minst*       minst_trace_find_prev_undefined_bcond(struct minst_blk *blk,
     struct minst *minst;
     int i, k = 0;
 
-    i = before ? before : blk->trace_top;
+    i = (before > 0) ? before : (blk->trace_top + before);
 
     for (; i >= 0; i--) {
         minst = blk->trace[i];
         if (minst_succs_count(minst) > 1) {
-            if (minst_is_tconst(minst)) {
-                k = i;
-            }
-            else {
+            if (!minst_is_tconst(minst)) {
                 *index = i;
                 return minst;
             }
         }
     }
 
-    return minst_trace_get_prev_cfg(blk, index, k-1)->end;
+    return NULL;
 }
 
 struct minst*       minst_trace_find_prev_bcond(struct minst_blk *blk, int *index, int before)
@@ -1096,6 +1094,7 @@ int                 minst_cfg_classify(struct minst_blk *blk)
     bitset_set(&visitall, m->cfg->id, 1);
     while (!MSTACK_IS_EMPTY(stack)) {
         cfg = MSTACK_POP(stack);
+        if (cfg->id == 0) continue;
 
         minst_preds_foreach(cfg->start, pred_node) {
             pcfg = pred_node->minst->cfg;
@@ -1190,24 +1189,24 @@ void                minst_blk_del_unreachable(struct minst_blk *blk, struct mins
     struct minst *succ;
     struct minst_node *succ_node;
     struct minst_cfg *stack[128];
-    int stack_top = -1;
-
-    if (minst_preds_count(cfg->start) > 0)
-        return;
+    int stack_top = -1, changed;
 
     MSTACK_PUSH(stack, cfg);
-    cfg->flag.dead_code = 1;
 
     while (!MSTACK_IS_EMPTY(stack)) {
         cfg = MSTACK_POP(stack);
+        if (minst_cfg_is_dead(cfg)) {
+            cfg->flag.dead_code = 1;
 
-        minst_succs_foreach(cfg->end, succ_node) {
-            if (!(succ = succ_node->minst)) continue;
-            minst_del_edge(cfg->end, succ->cfg->start);
-
-            if (minst_preds_count(succ) == 0) {
-                MSTACK_PUSH(stack, succ->cfg);
-                succ->cfg->flag.dead_code = 1;
+            for (changed = 1; changed; ) {
+                changed = 0;
+                minst_succs_foreach(cfg->end, succ_node) {
+                    if (!(succ = succ_node->minst)) continue;
+                    minst_del_edge(cfg->end, succ);
+                    MSTACK_PUSH(stack, succ->cfg);
+                    changed = 1;
+                    break;
+                }
             }
         }
     }

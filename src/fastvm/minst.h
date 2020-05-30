@@ -245,6 +245,8 @@ void                minst_blk_live_epilogue_add(struct minst_blk *blk);
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use);
 
+#define minst_cfg_is_dead(_cfg)          ((minst_preds_count(_cfg->start) == 0) || ((minst_preds_count(_cfg->start) == 1) && _cfg->start->preds.minst->cfg == _cfg))
+
 /* */
 int                 minst_blk_liveness_calc(struct minst_blk *blk);
 
@@ -333,7 +335,7 @@ struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *mins
 @before 从哪个位置开始
 */
 struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before);
-struct minst_cfg*   minst_trace_get_prev_cfg(struct minst_blk *blk, int *index, int before);
+struct minst_cfg*   minst_trace_find_prev_cfg(struct minst_blk *blk, int *index, int before);
 /*
 1. 查找上一个有未定义bcond指令
 2. 假如没有找到，返回上一个const bcond指令的前一个指令，最前为start cfg
