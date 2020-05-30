@@ -132,7 +132,7 @@ static const char *regstr[] = {
     "r4", "r5", "r6", "r7",
     "r8", "r9", "r10", "r11",
     "r12", "sp", "lr", "pc",
-    "", "", "apsr", "",
+    "apsr", "", "", "",
     "", "", "", "",
 };
 
@@ -1244,6 +1244,8 @@ static int thumb_inst_blx(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     arm_prepare_dump(emu, "blx");
 
+    live_use_set(&emu->mblk, ARM_REG_PC);
+
     emu->meet_blx = 1;
 
     return 0;
@@ -2112,9 +2114,14 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode);
 
 static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
 {
-    struct minst *minst = emu->mblk.allinst.ptab[inst_id], *def_minst;
+    struct minst *minst, *def_minst;
     BITSET_INIT(defs);
     int pos;
+
+    if (inst_id >= emu->mblk.allcfg.len)
+        return -1;
+
+    minst = emu->mblk.allinst.ptab[inst_id];
 
     bitset_clone(&defs, &emu->mblk.defs[reg_def]);
     bitset_and(&defs, &minst->rd_in);
@@ -2162,7 +2169,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_gen_reaching_definitions(&emu->mblk);
 
-    minst_blk_const_propagation(emu, 0);
+    minst_blk_const_propagation(emu, 1);
 
     //minst_cfg_classify(&emu->mblk);
     arm_emu_trace_flat(emu);
@@ -2179,8 +2186,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     arm_emu_dump_mblk(emu);
 
-    arm_emu_dump_defs1(emu, 74, ARM_REG_R6);
-    arm_emu_dump_defs1(emu, 74, ARM_REG_R0);
+    arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
 
     if (emu->dump.cfg)
         arm_emu_dump_cfg(emu);

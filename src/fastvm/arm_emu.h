@@ -23,7 +23,7 @@ extern "C" {
 #define ARM_REG_R13     13
 #define ARM_REG_R14     14
 #define ARM_REG_R15     15
-#define ARM_REG_R18     18
+#define ARM_REG_R16     16
 
 #define SYS_REG_NUM     32
 
@@ -31,7 +31,7 @@ extern "C" {
 #define ARM_REG_PC      ARM_REG_R15
 #define ARM_REG_LR      ARM_REG_R14
 #define ARM_REG_SP      ARM_REG_R13
-#define ARM_REG_APSR    ARM_REG_R18
+#define ARM_REG_APSR    ARM_REG_R16
 
 #define ARM_COND_EQ     0
 #define ARM_COND_NE     1

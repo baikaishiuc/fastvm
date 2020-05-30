@@ -443,6 +443,24 @@ int                 minst_is_bidirect(struct minst *minst, struct minst *succ)
     return 0;
 }
 
+static int arm_pro_def_reglist[] = {
+    ARM_REG_R0,
+    ARM_REG_R1,
+    ARM_REG_R2,
+    ARM_REG_R3,
+    ARM_REG_R13,
+    ARM_REG_R14,
+    ARM_REG_R15,
+};
+
+static int arm_epi_use_reglist[] = {
+    ARM_REG_R0,
+    ARM_REG_R1,
+    ARM_REG_R13,
+    ARM_REG_R14,
+    ARM_REG_R15,
+};
+
 void                minst_blk_live_prologue_add(struct minst_blk *mblk)
 {
     int i;
@@ -467,6 +485,9 @@ void                minst_blk_live_epilogue_add(struct minst_blk *mblk)
     for (i = 0; i < 16; i++) {
         live_use_set(mblk, i);
     }
+    live_use_clear(mblk, ARM_REG_R12);
+    live_use_clear(mblk, ARM_REG_R2);
+    live_use_clear(mblk, ARM_REG_R3);
 
     minst_succ_add(mblk->allinst.ptab[0], mblk->allinst.ptab[1]);
     minst_pred_add(mblk->allinst.ptab[1], mblk->allinst.ptab[0]);
@@ -573,6 +594,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
         bitset_clear(&minst->rd_in);
         bitset_clear(&minst->rd_out);
+        bitset_clear(&minst->kills);
 
         if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || (def = minst_get_def(minst)) < 0)
             continue;
