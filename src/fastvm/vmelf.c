@@ -122,13 +122,13 @@ void elf32_dump(VMState *elf)
 		if (!func) {
 			vm_error("not found code addr[%x] symbol\n", elf->code_addr);
 		}
-		unsigned char *code = elf->data + elf->code_addr - 1;
+        unsigned char *code = elf->data + elf->code_addr;
 
 		struct arm_emu_create_param param = {0};
-		param.code = code;
-		param.code_len = func->st_size;
         param.baseaddr = elf->code_addr - 1;
         param.thumb = elf->code_addr & 1;
+		param.code = param.thumb ? (code - 1) : code;
+		param.code_len = func->st_size;
 
 		struct arm_emu *emu = arm_emu_create(&param);
 

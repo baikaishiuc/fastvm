@@ -60,6 +60,14 @@
 #define MDO_TF_OUT_CSM          3
 #define MDO_BRANCH_UNKNOWN      4
 
+#define minst_cmp_calc(apsr, imm1, imm2) do { \
+        struct bits bits = AddWithCarry(imm1, ~imm2, 1); \
+        (apsr).n = INT_TOPMOSTBIT(bits.v); \
+        (apsr).z = IsZeroBit(bits.v); \
+        (apsr).c = bits.carry_out; \
+        (apsr).v = bits.overflow; \
+    } while (0)
+
 
 struct emu_temp_var
 {
@@ -683,154 +691,6 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
             minst->apsr.v = bs.overflow;
             minst->flag.is_const = 1;
         }
-        /* 假如比较的2个寄存器不是直接常量，
-        比如 cmp r5, r0 
-        我们分开确认每个寄存器比如 r5，是由哪个值定义的，他的上方是否有形如
-            mov r5, r6
-        这样的指令，如果是的话，因为r6一定不是常量(假如是常量，那么在常量传播中
-        r6和r5一定已经被常数化了)，所以我们尝试分析r6为什么不是常量，有2种可能
-        1. 本身的值就是模糊定义的，可能是外部参数进来的，可能是某函数返回值，或者内存里的某个定义
-        2. 这条指令所在的cfg节点有多个前驱节点，每个前驱节点都有对r6的定值
-
-        我们先不分析1的情况，2中的情况，假如2中的每个前驱节点对r6的定值，对 状态寄存器 的影响
-        是一样的，那么我们认为这个地方的cmp指令是可以优化的。
-
-        我们把这种优化称之胃 多路径常量优化
-
-        先不处理2个指令都要做多路径常量优化的情况
-        */
-        else  if (0) {
-            struct minst *p_minst = minst->preds.minst, *d_minst = NULL;
-
-            int reg = (ln_minst && ln_minst->flag.is_const) ? emu->code.ctx.lm : emu->code.ctx.ln;
-
-            for (; p_minst; p_minst = p_minst->preds.minst) {
-                if (p_minst->preds.next)
-                    return 0;
-
-                if ((minst_get_def(p_minst) == reg) && (p_minst->type == mtype_mov_reg))
-                    break;
-            }
-
-            if (!p_minst)
-                return 0;
-
-            int reg_use = minst_get_use(p_minst);
-
-            BITSET_INIT(defs);
-            struct minst *const_minst = NULL;
-            int pos = -1, p_apsr = -1, ok = 1, passed, i;
-            struct bits bits;
-            struct dynarray d = { 0 }, id = { 0 };
-            union {
-                struct arm_cpsr apsr;
-                int ld_imm;
-            } v = { 0 };
-
-            struct minst *b_minst = minst->succs.minst;
-
-            /* 获取当前cmp指令的下一个b<cond> jmp指令 */
-            while (b_minst && !minst_is_b0(b_minst)) {
-                b_minst = b_minst->succs.minst;
-            }
-
-            /* 到了末尾退出 */
-            if (!b_minst)
-                return 0;
-
-            bitset_clone(&defs, &p_minst->rd_in);
-            bitset_and(&defs, &emu->mblk.defs[reg_use]);
-
-            /* 假如这个常量传播在这个控制流节点内是起始路径可达的，则以这个常量的计算作为根据，查看
-            假如以这个常量走入的所有分支给出的对reg_use的定值是否造成的影响一样 */
-            pos = bitset_next_bit_pos(&defs, 0);
-            if (pos < 0)
-                return 0;
-
-#define minst_cmp_calc(apsr, imm1, imm2) do { \
-        struct bits bits = AddWithCarry(imm1, ~imm2, 1); \
-        (apsr).n = INT_TOPMOSTBIT(bits.v); \
-        (apsr).z = IsZeroBit(bits.v); \
-        (apsr).c = bits.carry_out; \
-        (apsr).v = bits.overflow; \
-    } while (0)
-
-            for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
-                const_minst = emu->mblk.allinst.ptab[pos];
-                if (const_minst->flag.is_const
-                    && minst_blk_is_on_start_unique_path(&emu->mblk, const_minst, p_minst)) {
-
-                    if ((ln_minst && ln_minst->flag.is_const))
-                        bits = AddWithCarry(ln_minst->ld_imm, ~const_minst->ld_imm, 1);
-                    else
-                        bits = AddWithCarry(const_minst->ld_imm, ~lm_minst->ld_imm, 1);
-
-                    v.apsr.n = INT_TOPMOSTBIT(bits.v);
-                    v.apsr.z = IsZeroBit(bits.v);
-                    v.apsr.c = bits.carry_out;
-                    v.apsr.v = bits.overflow;
-
-                    passed = _ConditionPassed(&v.apsr, b_minst->flag.b_cond);
-
-                    if (minst_blk_get_all_branch_reg_const_def(&emu->mblk, minst, passed, reg_use, &d, &id))
-                        goto exit;
-                    ok = 1;
-
-                    for (i = 0; i < id.len; i++) {
-                        bitset_set(&defs, ((struct minst *)id.ptab[i])->id, 0);
-                    }
-
-                    break;
-                }
-            }
-
-            if (!ok)
-                return 0;
-
-            /* 确认所有从某个cfg(a)节点走出的分支最后回到cfg(a)节点的循环入边某个reg_use值都是常量，在分别计算
-            这些常量的值在cmp指令上对aspr的影响是否一样  */
-            pos = bitset_next_bit_pos(&defs, 0);
-            if (pos < 0)
-                return 0;
-
-            for (ok = 0; pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
-                const_minst = d.ptab[pos];
-                v.ld_imm = 0;
-                
-                if (!const_minst->flag.is_const) {
-                    ok = 0;
-                    break;
-                }
-
-                if ((ln_minst && ln_minst->flag.is_const))
-                    bits = AddWithCarry(ln_minst->ld_imm, ~const_minst->ld_imm, 1);
-                else
-                    bits = AddWithCarry(const_minst->ld_imm, ~lm_minst->ld_imm, 1);
-
-                v.apsr.n = INT_TOPMOSTBIT(bits.v);
-                v.apsr.z = IsZeroBit(bits.v);
-                v.apsr.c = bits.carry_out;
-                v.apsr.v = bits.overflow;
-
-                if (-1 == p_apsr)   p_apsr = v.ld_imm;
-                else if (v.ld_imm != p_apsr) {
-                    ok = 0;
-                    break;
-                }
-            }
-
-            /* 计算 cfg(a)中，它的左右分支是独立的，而且他的左右分支产生的循环入边，构成了 */
-
-exit:
-            /**/
-            bitset_uninit(&defs);
-            dynarray_reset(&d);
-            dynarray_reset(&id);
-            if (ok) {
-                printf("woow, found a cmp instruction[%d] multi-path const propgation\n", minst->id);
-                minst_set_const(minst, p_apsr);
-            }
-        }
     } else if (EMU_IS_TRACE_MODE(emu)) {
         if (minst->flag.is_const)   return 0;
 
@@ -1020,6 +880,17 @@ static int t1_inst_str_01101(struct arm_emu *emu, struct minst *minst, uint16_t 
     return 0;
 }
 
+static int thumb_inst_strd(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    arm_prepare_dump(emu, "strd%s %s, %s, [%s, #%c%x]", cur_inst_it_cond(emu), 
+        regstr[emu->code.ctx.lm], regstr[emu->code.ctx.ld], regstr[emu->code.ctx.ln], emu->code.ctx.u ? '+':'-', emu->code.ctx.imm * 4);
+
+    if (EMU_IS_CONST_MODE(emu)) {
+    }
+
+    return 0;
+}
+
 static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     if (emu->code.ctx.imm) 
@@ -1190,49 +1061,6 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             minst->apsr = t->apsr;
 
             minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
-
-            return 0;
-
-            // FIXME: deleted
-            if (t->type != mtype_cmp)
-                vm_error("only support cmp instruction before branch");
-
-            struct minst *lm_minst = minst_trace_get_def(&emu->mblk, t->cmp.lm, &index[1], index[0]);
-            struct minst *ln_minst = minst_trace_get_def(&emu->mblk, t->cmp.ln, &index[2], index[0]);
-
-            /* FIXME: 是否在常量传播中直接处理掉这种情况 ? */
-            if (lm_minst->flag.is_const && ln_minst->flag.is_const)
-                return 0;
-
-            struct minst *def_reg = lm_minst->flag.is_const ? ln_minst : lm_minst;
-            struct minst *def2;
-
-            if (def_reg->type = mtype_mov_reg) {
-                def2 = minst_trace_get_def(&emu->mblk, minst_get_use(def_reg), NULL, lm_minst->flag.is_const ? index[2] : index[1]);
-                bitset_clone(&defs, &emu->mblk.defs[minst_get_use(def_reg)]);
-                bitset_and(&defs, &def_reg->rd_in);
-                int ok = MDO_TF_ONLY_ONE;
-
-                bitset_foreach(&defs, i) {
-                    struct minst *const_minst = emu->mblk.allinst.ptab[i];
-
-                    if (!const_minst->flag.is_const || (const_minst == def2))
-                        continue;
-
-                    if (lm_minst->flag.is_const)
-                        minst_cmp_calc(apsr, lm_minst->ld_imm, const_minst->ld_imm);
-                    else
-                        minst_cmp_calc(apsr, const_minst->ld_imm, ln_minst->ld_imm);
-
-                    if (minst->flag.b_cond_passed == _ConditionPassed(&apsr, emu->code.ctx.cond)) {
-                        ok = 0;
-                        break;
-                    }
-                }
-
-                bitset_uninit(&defs);
-                return ok;
-            }
         }
         else
             return MDO_BRANCH_UNKNOWN;
@@ -1304,6 +1132,8 @@ struct arm_inst_desc {
     {"1011    1111 c4 i4",                  {thumb_inst_it}, {"it"}},
     {"1101    c4 i8",                       {thumb_inst_b}, {"b<cond>"}},
     {"1110    0 i11",                       {t1_inst_b}, {"b"}},
+
+    {"1110 100p1 u1 1 w1 0 lm4 ld4 ln4 i8",       {thumb_inst_strd}, "strd"},
 
     {"1110 1001 0010 1101 0 m1 0 rl13",     {thumb_inst_push}, "push.w"},
     {"1110 1000 1011 1101 i1 m1 0 rl13",    {thumb_inst_pop}, "pop.w"},
@@ -1468,16 +1298,14 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
             root = root->childs[idx];
             break;
 
-            /* setflags */
-        case 's':
-            /* immediate */
-        case 'i':
-            /* condition */
-        case 'c':
-
-            /* more register，一般是对寄存器列表的补充 */
-        case 'm':
+            
+        case 's':   /* setflags */
+        case 'i':   /* immediate */
+        case 'c':   /* condition */
+        case 'm':   /* more register，一般是对寄存器列表的补充 */
+        case 'p':   /* index */
         case 'u':
+        case 'w':   /* wback */
 loop_label:
             rep = atoi(&s[1]);
             if (!rep) 
@@ -1832,6 +1660,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 {
     int i;
     struct minst *minst;
+    char buf[4096];
 
     if (!g_eng)     arm_insteng_init(emu);
 
@@ -1845,6 +1674,9 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
         minst_pred_add(minst, emu->prev_minst);
     }
 
+    arm_inst_print_format(emu, minst, ~IDUMP_REACHING_DEFS, buf);
+    printf("%s\n", buf);
+
     emu->prev_minst = minst;
 
     return i * 2;
@@ -1852,7 +1684,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 
 int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, struct reg_node *reg_node, uint8_t *code, int code_len)
 {
-    int i, len, c;
+    int i, len, c, b;
     char *exp = reg_node->exp;
 
     arm_inst_ctx_init(ctx);
@@ -1873,16 +1705,18 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, struct reg_node *reg_node, ui
         case 'i':
         case 'c':
         case 'u':
+        case 'w':
+        case 'p':
             len = atoi(++exp);
+            b = BITS_GET(inst, 16 - i - len, len);
 
-            if (c == 's')
-                ctx->setflags = BITS_GET(inst, 16 - i - len, len);
-            else if (c == 'i')
-                ctx->imm = BITS_GET(inst, 16 -i - len, len);
-            else if (c == 'u')
-                ctx->u = BITS_GET(inst, 16 -i - len, len);
-            else
-                ctx->cond = BITS_GET(inst, 16 -i - len, len);
+            if (c == 's') ctx->setflags = b;
+            else if (c == 'i') ctx->imm = b;
+            else if (c == 'u') ctx->u = b;
+            else if (c == 'w') ctx->w = b;
+            else if (c == 'p') ctx->p = b;
+            else ctx->cond = b;
+
             while (isdigit(*exp)) exp++;
             i += len;
             break;
@@ -2180,7 +2014,7 @@ int         arm_emu_run(struct arm_emu *emu)
     minst_blk_const_propagation(emu, 1);
 
     //minst_cfg_classify(&emu->mblk);
-    arm_emu_trace_flat(emu);
+    //arm_emu_trace_flat(emu);
 
 #if 0
     //minst_blk_out_of_order(&emu->mblk);
@@ -2210,10 +2044,6 @@ int         arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_l
 void        arm_emu_dump(struct arm_emu *emu)
 {
 }
-
-#define F_EMU_SEQ_ANALY             0x01
-#define F_EMU_CONST                 0x02
-#define F_TRACE                     0x04
 
 int         arm_emu_trace_flat(struct arm_emu *emu)
 {
@@ -2338,7 +2168,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
                         bitset_set(&cfg_visit, undefined_bcond->cfg->id, 0);
 
-                        if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, 0)) {
+                        if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, -1)) {
                             printf("seems we meet least fix point\n");
                             goto exit_label;
                         }
@@ -2428,11 +2258,8 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
                 minst_cfg_classify(blk);
                 minst_blk_const_propagation(emu, 0);
-                if (++trace_flat_times == 9) {
-                    minst_blk_const_propagation(emu, 1);
-                    return 0;
-                }
-                printf("start trace[%d]\n", trace_flat_times+1);
+                trace_flat_times++;
+                printf("start trace[%d]\n", trace_flat_times);
                 break;
             }
         }
@@ -2440,6 +2267,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
 exit_label:
     bitset_uninit(&cfg_visit);
+    minst_blk_const_propagation(emu, 1);
 
     return 0;
 }
@@ -2532,6 +2360,24 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
             }
         }
 
+        /* 
+        FIXME:注释写的不对
+        假如比较的2个寄存器不是直接常量，
+        比如 cmp r5, r0 
+        我们分开确认每个寄存器比如 r5，是由哪个值定义的，他的上方是否有形如
+            mov r5, r6
+        这样的指令，如果是的话，因为r6一定不是常量(假如是常量，那么在常量传播中
+        r6和r5一定已经被常数化了)，所以我们尝试分析r6为什么不是常量，有2种可能
+        1. 本身的值就是模糊定义的，可能是外部参数进来的，可能是某函数返回值，或者内存里的某个定义
+        2. 这条指令所在的cfg节点有多个前驱节点，每个前驱节点都有对r6的定值
+
+        我们先不分析1的情况，2中的情况，假如2中的每个前驱节点对r6的定值，对 状态寄存器 的影响
+        是一样的，那么我们认为这个地方的cmp指令是可以优化的。
+
+        我们把这种优化称之胃 多路径常量优化
+
+        先不处理2个指令都要做多路径常量优化的情况
+        */
         /* constant conditions */
         for (i = 0; i < blk->allcfg.len; i++) {
             cfg = blk->allcfg.ptab[i];

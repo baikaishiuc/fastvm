@@ -82,7 +82,12 @@ struct arm_inst_ctx {
     int     m;
     int     setflags;
     int     cond;
-    int     u;
+
+    struct {
+        unsigned p : 1;
+        unsigned u : 1;
+        unsigned w : 1;
+    };
 };
 
     /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
