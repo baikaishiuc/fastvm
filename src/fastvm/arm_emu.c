@@ -623,8 +623,14 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
     else if (EMU_IS_TRACE_MODE(emu)) {
         const_minst = minst_trace_get_def(&emu->mblk, emu->code.ctx.lm, NULL, 0);
 
-        if (minst_is_tconst(const_minst))
-            minst_set_trace(minst, const_minst->ld_imm);
+        if (minst_is_tconst(const_minst)) {
+            minst_set_trace(minst);
+            minst->ld_imm = const_minst->ld_imm;
+            minst->apsr.n = INT_TOPMOSTBIT(minst->ld_imm);
+            minst->apsr.z = IsZeroBit(minst->ld_imm);
+            // minst->apsr.c = carry;
+            // FIXME:setflags
+        }
     }
 
     return 0;
@@ -1161,7 +1167,8 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
                 tminst = minst->flag.b_cond_passed ? minst_get_false_label(minst) : minst_get_true_label(minst);
             else {
                 /* 要删除一个边，所以要反取不符合的 */
-                minst_set_const(minst, cminst->ld_imm);
+                minst->flag.is_const = 1;
+                minst->apsr = cminst->apsr;
                 tminst = (_ConditionPassed(&minst->apsr, emu->code.ctx.cond)) ? minst_get_false_label(minst) : minst_get_true_label(minst);
             }
 
@@ -1179,7 +1186,8 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, index, 0);
 
         if (minst_is_tconst(t)) {
-            minst_set_trace(minst, t->ld_imm);
+            minst_set_trace(minst);
+            minst->apsr = t->apsr;
 
             minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
 

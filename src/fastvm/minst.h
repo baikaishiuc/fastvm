@@ -141,12 +141,8 @@ struct minst {
     void *reg_node;
 
     int ld;
-    /* FIXME:这里做了一个错误的假设，即一条指令只能def一个寄存器。所以只存了一个值。
-    但是实际上，sub 指令可以同时操作目的寄存器和 aspr 寄存器 */
-    union {
-        int ld_imm;
-        struct arm_cpsr apsr;
-    };
+    int ld_imm;
+    struct arm_cpsr apsr;
 };
 
 
@@ -208,10 +204,7 @@ int                 minst_get_def(struct minst *minst);
 #define minst_get_true_label(_m)            (_m)->succs.next->minst
 #define minst_get_false_label(_m)           (_m)->succs.minst
 #define minst_is_tconst(_m)                 ((_m)->flag.is_const || (_m)->flag.is_trace)
-#define minst_set_trace(_m, imm)    do { \
-        _m->flag.is_trace = 1; \
-        _m->ld_imm = imm; \
-    } while (0)
+#define minst_set_trace(_m)                 _m->flag.is_trace = 1
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 
