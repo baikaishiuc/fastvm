@@ -22,6 +22,10 @@ struct bits {
 #define INT_TOPMOSTBIT(a)   ((a >> 31) & 1)
 #define IsZeroBit(a)        (a == 0)
 
+static inline int BadReg(int n)
+{
+    return n == 13 || n == 15;
+}
 
 static inline int RightMostBitPos(int a, int size)
 {
@@ -246,9 +250,9 @@ static inline struct bits RRX(struct bits x, int cin)
 }
 
 /* Thumb-2SupplementReferceManual P93 */
-static inline int ThumbExpandImmWithC(struct arm_emu *e, int imm)
+static inline struct bits ThumbExpandImmWithC(struct arm_emu *e, int imm)
 {
-    struct bits bs;
+    struct bits bs, ret = {0};
     int t, m, imm32, c = 0;
     if (BITS_GET(imm, 10, 2) == 0) {
         t = BITS_GET(imm, 0, 8);
@@ -274,15 +278,25 @@ static inline int ThumbExpandImmWithC(struct arm_emu *e, int imm)
             imm32 = t << 24 | t << 16 | t << 8 | t ;
             break;
         }
+
+        ret.v = imm32;
+        ret.carry_out = e->aspr.c;
     }
     else {
         t = BITS_GET(imm, 0, 7) | 0x80;
         bs.v = t;
         bs.n = 8;
-        imm32 = (ROR_C(bs, BITS_GET(imm, 7, 5))).v;
+        ret = (ROR_C(bs, BITS_GET(imm, 7, 5)));
     }
 
-    return imm32;
+    return ret;
+}
+
+static inline int ThumbExpandImm(struct arm_emu *e, int imm)
+{
+    struct bits b = ThumbExpandImmWithC(e, imm);
+
+    return b.v;
 }
 
 static inline int DecodeImmShift(int type, int imm, enum SRType *srtype)

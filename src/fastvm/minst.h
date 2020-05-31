@@ -126,6 +126,7 @@ struct minst {
 
         unsigned is_const : 1;
         unsigned is_trace : 1;
+        unsigned to_arm : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
@@ -140,8 +141,10 @@ struct minst {
     /* 调用哪个reg_node去解析内容 */
     void *reg_node;
 
-    int ld;
+    short ld;
+    short ld2;
     int ld_imm;
+    int ld2_imm;
     struct arm_cpsr apsr;
 };
 

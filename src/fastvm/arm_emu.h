@@ -75,6 +75,7 @@ struct arm_cpsr {
 
 struct arm_inst_ctx {
     reg_t   ld;
+    reg_t   ld2;
     reg_t   lm;
     reg_t   ln;
     int     register_list;
