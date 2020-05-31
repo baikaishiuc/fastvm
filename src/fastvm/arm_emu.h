@@ -78,6 +78,7 @@ struct arm_inst_ctx {
     reg_t   ld2;
     reg_t   lm;
     reg_t   ln;
+    reg_t   lp;
     int     register_list;
     int     imm;
     int     m;

@@ -122,6 +122,7 @@ struct minst {
         否则会导致他的活跃计算不正确
         */
         unsigned in_it_block : 1;
+        unsigned last_in_it_block : 1;
         unsigned is_t : 1;
 
         unsigned is_const : 1;
