@@ -10,10 +10,6 @@
 #define ARM_PC_VAL(e)   e->regs[ARM_REG_PC]
 #define ARM_APSR_PTR(e)     ((struct arm_cpsr *)&e->regs[ARM_REG_APSR])
 
-#define REG_SET_KNOWN(e, reg)       (e->known |= 1 << reg)
-#define REG_SET_UNKNOWN(e, reg)     (e->knwwn &= ~(1 << reg))
-#define REG_IS_KNOWN(e,reg)         (e->knwon & (1 << reg)
-
 #define PROCESS_STACK_SIZE          (256 * KB)
 #define PROCESS_STACK_BASE          0x10000000
 #define IN_PROCESS_STACK_RANGE(a)   (((a) < PROCESS_STACK_BASE) && (a >= (PROCESS_STACK_BASE - PROCESS_STACK_SIZE)))
@@ -164,7 +160,7 @@ static const char *condstr[] = {
     "eq", "ne", "cs", "cc",
     "mi", "pl", "vs", "vc",
     "hi", "ls", "ge", "lt",
-    "gt", "le", "{al}"
+    "gt", "le", "{al}", ""
 };
 
 #define FLAG_DISABLE_EMU            0x1            
@@ -545,15 +541,22 @@ static int t1_inst_add1(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
 static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    int lm, imm32;
-    if (((code[0] >> 12) & 0xf) == 0b1010) {
+    int imm32;
+    if ((code[0] & 0xf000) == 0xa000) {
         arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], imm32 = emu->code.ctx.imm * 4);
-        liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld, ARM_REG_SP);
-        lm = ARM_REG_SP;
+        live_use_set(&emu->mblk, ARM_REG_SP);
     }
-    else {
-        arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[lm = emu->code.ctx.lm]);
-        liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld, emu->code.ctx.lm);
+    /* P104.T2 */
+    else if ((code[0] & 0xf000) == 0x3000) {
+        arm_prepare_dump(emu, "add%s %s, #0x%x", InITBlock(emu)?cur_inst_it_cond(emu):"s", regstr[EC().ld], EC().imm);
+    }
+    /* P106.T1*/
+    else if ((code[0] & 0xf800) == 0x1800){
+        arm_prepare_dump(emu, "add %s, %s, %s", regstr[EC().ld], regstr[EC().ln], regstr[EC().lm]);
+    }
+    /* P106.T2 */
+    else if ((code[0] & 0xff00) == 0x4400) {
+        arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
     }
 
     if (ConditionPassed(emu) && emu->code.ctx.setflags) {
@@ -583,20 +586,21 @@ static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     return 0;
 }
 
-static int t1_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    return 0;
-}
-
-/* P454 */
 static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
+    /* P449 */
+    if ((code[0] & 0xf800) == 0x3800) {
+        arm_prepare_dump(emu, "sub%s %s, #0x%x", InITBlock(emu) ? cur_inst_it_cond(emu):"s", regstr[EC().ld], EC().imm);
+    }
+    /* P454 */
+    else {
+        arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
 
-    emu->code.ctx.ld = ARM_REG_SP;
-    liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
-    if (emu->code.ctx.setflags)
-        live_def_set(&emu->mblk, ARM_REG_APSR);
+        emu->code.ctx.ld = ARM_REG_SP;
+        liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
+        if (emu->code.ctx.setflags)
+            live_def_set(&emu->mblk, ARM_REG_APSR);
+    }
 
     if (IS_DISABLE_EMU(emu))
         return 0;
@@ -614,14 +618,12 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
         }
     }
 
-    REG_SET_KNOWN(emu, emu->code.ctx.ld);
-
     return 0;
 }
 
 static int thumb_inst_sub_reg(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "sub%s %s, %s, %s", InITBlock(emu) ? "c":cur_inst_it_cond(emu), 
+    arm_prepare_dump(emu, "sub%s %s, %s, %s", InITBlock(emu) ? cur_inst_it_cond(emu):"s", 
         regstr[emu->code.ctx.ld], regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
     liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ln, emu->code.ctx.lm);
@@ -910,7 +912,7 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
             if (BadReg(EC().lm)) ARM_UNPREDICT();
             if ((EC().ld == 15) && InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
 
-            arm_prepare_dump(emu, "ldr%s.w %s, [%s, %s, LSL #%x]", cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
+            arm_prepare_dump(emu, "ldr%s.w %s, [%s,%s,LSL #%x]", cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
         }
         /* P186 */
         else if (0) {
@@ -941,7 +943,12 @@ static int t1_inst_str_01101(struct arm_emu *emu, struct minst *minst, uint16_t 
 
 static int thumb_inst_strb(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    if (len == 2) {
+    if (len == 1) {
+        if ((code[0] & 0x7000) == 0x7000) {
+            arm_prepare_dump(emu, "strb%s %s, [%s,#0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+        }
+    }
+    else if (len == 2) {
         if ((code[0] >> 7) & 1)
             arm_prepare_dump(emu, "strb%s.w %s, [%s, #0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
         else {
@@ -960,11 +967,20 @@ static int thumb_inst_strb(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
 static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+    /* P423 */
+    if ((code[0] & 0xf840) == 0xf840) {
+        if (EC().ln == 15) ARM_UNDEFINED();
+        if (EC().lp == 15 || BadReg(EC().lm)) ARM_UNPREDICT();
 
-    /* FIXME:P421, ln == 15 is undefined */
-    if (EC().ln == 15) ARM_UNPREDICT();
-    if (EC().lm == 15) ARM_UNPREDICT();
+        arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", cur_inst_it_cond(emu), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
+    }
+    else {
+        /* FIXME:P421, ln == 15 is undefined */
+        if (EC().ln == 15) ARM_UNPREDICT();
+        if (EC().lm == 15) ARM_UNPREDICT();
+
+        arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+    }
 
     return 0;
 }
@@ -1273,35 +1289,37 @@ m[num]:     link register
 rl[num]:    register list
 lm[num]:    src register
 ln[num]     src2 register
-lo[num]     src3 register
+lp[num]     src3 register
 hm[num]:    high register
 ld[num]     dest register
 le[num]     dest2 register
 t[num]      type    // P110
+d[num]      add to dest register
 */
 struct arm_inst_desc desclist[]= {
     {"0000    o1    i5  lm3 ld3",           {t1_inst_lsl, t1_inst_lsr}, {"lsl", "lsr"}},
     {"0001    0     i5  lm3 ld3",           {t1_inst_asr}, {"asr"}},
     {"0001    10 o1 lm3 ln3 ld3",           {t1_inst_add, thumb_inst_sub_reg}, {"add", "sub"}},
-    {"0001    11 o1 i3  ln3 ld3",           {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
+    {"0001    11 o1 i3  ln3 ld3",           {t1_inst_add, thumb_inst_sub}, {"add", "sub"}},
     {"0010    0 ld3    i8",                 {thumb_inst_mov}, {"mov"}},
     {"0010    1 lm3    i8",                 {t1_inst_cmp_imm}, {"cmp"}},
-    {"0011    o1 ld3    i8",                {t1_inst_add, t1_inst_sub}, {"add", "sub"}},
+    {"0011    0 ld3 i8",                    {t1_inst_add}, {"add"}},
+    {"0011    1 ld3 i8",                    {thumb_inst_sub}, {"sub"}},
+
     {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
     {"0100    0010 0o1 lm3 ld3",            {t1_inst_tst, t1_inst_neg}, {"tst", "neg"}},
     {"0100    0010 1o1 lm3 ln3",            {thumb_inst_cmp, t1_inst_cmn}, {"cmp", "cmn"}},
     {"0100    0011 o2 lm3 ld3",             {thumb_inst_orr, t1_inst_mul, t1_inst_bic, t1_inst_mvn}, {"orr", "mul", "bic", "mvn"}},
-    {"0100    0110 00 lm3 ld3",             {t1_inst_mov_0100}, {"mov"}},
-    {"0100    01 o1 0 01 hm3 ld3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
-    {"0100    01 o1 0 10 lm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
-    {"0100    01 o1 0 11 hm3 hd3",          {t1_inst_add, t1_inst_mov_0100}, {"add", "mov"}},
+    {"0100    0110 d1 lm4 ld3",             {t1_inst_mov_0100}, {"mov"}},
+    {"0100    0100 d1 lm4 ld3",             {t1_inst_add}, {"add"}},
     {"0100    0101 01 hm3 ln3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    0101 10 lm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    0101 11 hm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
     {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, thumb_inst_ldr},      {"str", "ldr"}},
+    {"0111    0 i5 ln3 lm3",                {thumb_inst_strb},      {"strb<c> <lp>,[<ln>,#<imm>]"}},
     {"1001    0 lm3 i8",                    {t1_inst_str_10010}, {"str"}},
     {"1001    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add}, {"add", "add"}},
@@ -1330,14 +1348,15 @@ struct arm_inst_desc desclist[]= {
     {"1111 0i1 101100 i4 0 i3 ld4 i8",      {thumb_inst_mov}, "movt"},
     {"1111 0i1 100100 i4 0 i3 ld4 i8",      {thumb_inst_mov}, "movw"},
 
-    {"1111 1000 0001 ln4 ld4 1 p1 u1 w1 i8",{thumb_inst_ldrb}, {"ldrb<c>.w <ld>, [<ln>,#<imm8>]"}},
-    {"1111 1000 1001 ln4 ld4 i12",          {thumb_inst_ldrb}, {"ldrb<c>.w <ld>, [<ln>,#<imm12>]"}},
+    {"1111 1000 0001 ln4 ld4 1 p1 u1 w1 i8",    {thumb_inst_ldrb}, {"ldrb<c>.w <ld>, [<ln>,#<imm8>]"}},
+    {"1111 1000 1001 ln4 ld4 i12",              {thumb_inst_ldrb}, {"ldrb<c>.w <ld>, [<ln>,#<imm12>]"}},
     {"1111 1000 0101 ln4 ld4 0000 00 i2 lm4",   {thumb_inst_ldr}, {"ldr<c>.w <ld>, [<ln>,<lm>{,LSL #<shift>}]"}},
-    {"1111 1000 1101 ln4 ld4 i12",          {thumb_inst_ldr}, {"ldr.w"}},
-    //{"1111 1000 u1 101 1111 ld4 i12",       {thumb_inst_ldr}, {"ldr.w"}},
-    {"1111 1000 1000 ln4 lm4 i12",          {thumb_inst_strb}, {"strb<c>.w <Rt>,[<Rn>,#<imm12>]"}},
-    {"1111 1000 0000 ln4 lm4 1p1 u1 w1 i8", {thumb_inst_strb}, {"strb<c> <Rt>,[<Rn>,#+/-<imm8>]"}},
-    {"1111 1000 1100 ln4 lm4 i12",          {thumb_inst_str}, {"str<c>.w <Rt>,[<Rn>,#<imm12>]"}},
+    {"1111 1000 1101 ln4 ld4 i12",              {thumb_inst_ldr}, {"ldr.w"}},
+    //{"1111 1000 u1 101 1111 ld4 i12",         {thumb_inst_ldr}, {"ldr.w"}},
+    {"1111 1000 1000 ln4 lm4 i12",              {thumb_inst_strb}, {"strb<c>.w <Rt>,[<Rn>,#<imm12>]"}},
+    {"1111 1000 0000 ln4 lm4 1p1 u1 w1 i8",     {thumb_inst_strb}, {"strb<c> <Rt>,[<Rn>,#+/-<imm8>]"}},
+    {"1111 1000 1100 ln4 lm4 i12",              {thumb_inst_str}, {"str<c>.w <Rt>,[<Rn>,#<imm12>]"}},
+    {"1111 1000 0100 ln4 lp4 000000 i2 lm4",    {thumb_inst_str}, {"str<c>.w <lo>,[<ln>,<lm>{, LSL #<shift>}]"}},
 };
 
 static int init_inst_map = 0;
@@ -1494,6 +1513,7 @@ int arm_insteng_add_exp(struct arm_inst_engine *en, const char *exp, const char 
 
             
         case 'c':   /* condition */
+        case 'd':
         case 'i':   /* immediate */
         case 'm':   /* more register，一般是对寄存器列表的补充 */
         case 'p':   /* index */
@@ -1883,7 +1903,7 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
 int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *code, int code_len)
 {
     const char *exp = oexp;
-    int i, len, c, b;
+    int i, len, c, b, d = 0;
 
     arm_inst_ctx_init(ctx);
 
@@ -1903,6 +1923,7 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *co
         case 't':
         case 'i':
         case 'c':
+        case 'd':
         case 'u':
         case 'w':
         case 'p':
@@ -1915,6 +1936,7 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *co
             else if (c == 'u') ctx->u = b;
             else if (c == 'w') ctx->w = b;
             else if (c == 'p') ctx->p = b;
+            else if (c == 'd') d = b;
             else ctx->cond = b;
 
             while (isdigit(*exp)) exp++;
@@ -1946,7 +1968,7 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *co
                 break;
 
             case 'd':
-                ctx->ld = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8;
+                ctx->ld = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8 + d * 8;
                 break;
 
             case 'e':
@@ -1999,9 +2021,6 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
     emu->known = 0;
 
     memset(&emu->it, 0, sizeof (emu->it));
-
-    REG_SET_KNOWN(emu, ARM_REG_SP);
-    REG_SET_KNOWN(emu, ARM_REG_PC);
 
     EMU_SET_SEQ_MODE(emu);
 
