@@ -139,6 +139,7 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     dst->flag.is_const = src->flag.is_const;
     dst->ld_imm = src->ld_imm;
     dst->cfg = cfg;
+    dst->copy_from = src;
     memcpy(dst->addr, src->addr, src->len);
 
     if (!cfg->start) cfg->start = dst;

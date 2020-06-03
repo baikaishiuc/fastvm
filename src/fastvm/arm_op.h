@@ -21,6 +21,7 @@ struct bits {
 #define NOT(a)              (~(a))
 #define INT_TOPMOSTBIT(a)   ((a >> 31) & 1)
 #define IsZeroBit(a)        (a == 0)
+#define Align(v,n)          (v & ~(n-1))
 
 static inline int BadReg(int n)
 {

@@ -88,12 +88,48 @@ struct emu_temp_var
 
 struct arm_emu {
     struct {
+        unsigned char *data;
+        int            len;
+    } elf;
+
+    struct {
         unsigned char*  data;
         int             len;
         int             pos;
 
         struct arm_inst_ctx ctx;
     } code;
+
+    /*导出elf的函数符号时，我们会得到类似于如下的信息:
+      16: 0000342d 592   FUNC    GLOBAL DEFAULT  11 JNI_OnLoad
+
+      342d是起始位置，假如起始位置为奇数，那么就是thumb指令，不过我们要说的不是这个。
+
+      后面的592是函数大小，但是经过测试，函数的大小会比592小，最后的部分会被当成类似于
+      .ro 段，存放一些基本的数据。然后使用ldr的指令，进行加载，我不清楚这个是gcc或者clang
+      本身就生成了这种奇怪的代码，还是混淆壳产生的。
+
+      下面是IDA的实际显示, 3664是实际的结尾:
+
+.text:00003662 014 F0 BD                                                        POPEQ           {R4-R7,PC}
+.text:00003664 040 FD F7 8C EE                                                  BLX             __stack_chk_fail
+
+.text:00003664                                                  ; ---------------------------------------------------------------------------
+.text:00003668 9A 1A 04 00                                      off_3668        DCD __stack_chk_guard_ptr - 0x3442
+...
+...
+.text:00003678 6A 1A 04 00                                      off_3678        DCD off_45004 - 0x359A  ; DATA XREF: JNI_OnLoad+164↑r
+
+    到blx的时候，函数其实已经结束了。剩余的数据不需要做指令分析，标识为数据即可。
+
+    所以data_mark作用如下，所有被ldr指令访问到的在elf文件内的地址，都以四字节作为一个bit的方式标识要访问的是代码还是数据
+
+    这里有个问题是我们如何确认这些代码中隐藏的数据都是四字节对齐的呢？经过测试我们发现这2个ldr指令, P186.T1,T2 的实现
+    都是四字节对齐的。而系统暂时只用这2个指令进行获取代码中的数据。
+
+    FIXME:在一些调试保护中，为了防止int3断点，会不停的校验代码crc，也回使用ldr指令加载代码，这个情况我还没想好怎么处理!
+    */
+    struct bitset data_mark;
 
     char inst_fmt[64];
     unsigned int prev_regs[32];
@@ -127,7 +163,6 @@ struct arm_emu {
     /* target machine内的函数起始位置 */
     int             baseaddr;
     int             thumb;
-    int             meet_blx;
     int             decode_inst_flag;
     /* P26 */
     //struct arm_cpsr apsr;
@@ -865,8 +900,14 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     if (len == 1) {
         if (sigcode == 0b0100) {
-            arm_prepare_dump(emu, "ldr %s, [pc, #0x%x] ", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
+            arm_prepare_dump(emu, "ldr %s, [pc, #0x%x] ", regstr[emu->code.ctx.ld], imm = emu->code.ctx.imm * 4);
 
+            if (!minst->flag.is_const) {
+                addr = ARM_PC_VAL(emu);
+                addr = Align(addr, 4) + imm;
+                minst_set_const(minst, addr);
+                bitset_set(&emu->data_mark, addr >> 2, 1);
+            }
             live_use_set(&emu->mblk, ARM_REG_PC);
         }
         else if (sigcode == 0b1001) {
@@ -922,6 +963,15 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
             arm_prepare_dump(emu, "ldr.w %s, [pc, #0x%c%x]", regstr[emu->code.ctx.ld], emu->code.ctx.u ? '+' : '-', emu->code.ctx.imm);
             live_use_set(&emu->mblk, ARM_REG_PC);
             live_def_set(&emu->mblk, EC().ld);
+
+            if (!minst->flag.is_const) {
+                addr = ARM_PC_VAL(emu);
+                addr = Align(addr, 4) + ((EC().u) ? EC().imm : -EC().imm);
+                minst_set_const(minst, addr);
+                bitset_set(&emu->data_mark, addr >> 2, 1);
+            }
+
+            minst_set_const(minst, addr);
         }
         else
             ARM_UNDEFINED();
@@ -1247,19 +1297,6 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
 static int thumb_inst_ldr_reg(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    return 0;
-}
-
-static int thumb_inst_blx(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    if (InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
-
-    arm_prepare_dump(emu, "blx");
-
-    live_use_set(&emu->mblk, ARM_REG_PC);
-
-    emu->meet_blx = 1;
-
     return 0;
 }
 
@@ -1830,7 +1867,7 @@ static struct reg_node*     arm_insteng_parse(uint8_t *code, int len, int *olen)
     node = p_end_node;
 
     if (!node || !node->func) {
-        vm_error("arm_insteng_decode() meet unkown instruction, code[%02x %02x]", code[0], code[1]);
+        vm_error("arm_insteng_parse() meet unkown instruction, code[%02x %02x]", code[0], code[1]);
     }
 
     if (olen)
@@ -1881,6 +1918,10 @@ static int arm_insteng_decode(struct arm_emu *emu, uint8_t *code, int len)
     char buf[4096];
 
     if (!g_eng)     arm_insteng_init(emu);
+
+    /* 发现当前地址是数据，直接返回4，跳过 */
+    if (bitset_get(&emu->data_mark, (unsigned)(code - emu->elf.data) >> 2))
+        return 4;
 
     struct reg_node *node = arm_insteng_parse(code, len, &i);
     minst = minst_new(&emu->mblk, code, i * 2, node);
@@ -2037,11 +2078,14 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
     
     emu->code.data = param->code;
     emu->code.len = param->code_len;
+    emu->elf.data = param->elf;
+    emu->elf.len = param->elf_len;
     emu->baseaddr = param->baseaddr;
     emu->dump.cfg = 1;
     emu->dump.nfa = 1;
     emu->dump.dfa = 1;
 
+    bitset_init(&emu->data_mark, emu->elf.len >> 2);
     minst_blk_init(&emu->mblk, NULL, arm_minst_do, emu);
 
     emu->stack.size = PROCESS_STACK_SIZE;
@@ -2062,6 +2106,7 @@ void        arm_emu_destroy(struct arm_emu *e)
         free(e->stack.data);
 
     minst_blk_uninit(&e->mblk);
+    bitset_uninit(&e->data_mark);
     free(e);
 }
 
@@ -2215,14 +2260,10 @@ int         arm_emu_run(struct arm_emu *emu)
 {
     int ret;
 
-    emu->meet_blx = 0;
     /* first pass */
     arm_emu_cpu_reset(emu);
     minst_blk_live_prologue_add(&emu->mblk);
     for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
-        if (emu->meet_blx)
-            break;
-
         ret = arm_insteng_decode(emu, emu->code.data + emu->code.pos, emu->code.len - emu->code.pos);
         if (ret < 0) {
             return -1;

@@ -96,6 +96,9 @@ struct arm_inst_ctx {
     /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
 struct arm_emu_create_param
 {
+    unsigned char*  elf;
+    int             elf_len;
+
     unsigned char*  code;
     int             code_len;
     void            *user_ctx;

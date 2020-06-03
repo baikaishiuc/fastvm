@@ -129,6 +129,8 @@ void elf32_dump(VMState *elf)
         param.thumb = elf->code_addr & 1;
 		param.code = param.thumb ? (code - 1) : code;
 		param.code_len = func->st_size;
+        param.elf = elf->data;
+        param.elf_len = elf->data_len;
 
 		struct arm_emu *emu = arm_emu_create(&param);
 

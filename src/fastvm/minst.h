@@ -133,6 +133,7 @@ struct minst {
     unsigned long host_addr;            // jump address, need be fixed in second pass
 
     struct minst_cfg *cfg;
+    struct minst *copy_from;        // 从哪一条指令拷贝过来
 
     struct {
         short lm;
