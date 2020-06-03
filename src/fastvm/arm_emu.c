@@ -1213,17 +1213,20 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             imm = SHL(S(emu), 24) + SHL(i1, 23) + SHL(i2, 22) + BITS_GET_SHL(code[0], 0, 10, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
 
             if (InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+
+            minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
         }
         else {
-            imm = SHL(S(emu), 19) + SHL(J2(emu), 18) + SHL(J1(emu), 17) + BITS_GET_SHL(code[0], 0, 6, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
+            imm = SHL(S(emu), 20) + SHL(J2(emu), 19) + SHL(J1(emu), 18) + BITS_GET_SHL(code[0], 0, 6, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
 
             if (EC().cond == 0b111)
                 vm_error("not support miscellaneous control instructions");
 
             if (InITBlock(emu)) ARM_UNPREDICT();
+
+            minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 21);
         }
 
-        minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 20);
         arm_prepare_dump(emu, "b%s.w 0x%x", condstr[EC().cond], minst->host_addr);
     }
     /* bl<c>.w <label> */
@@ -2188,7 +2191,7 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 
             b_minst = minst_blk_find(&emu->mblk, target_addr);
             if (!b_minst)
-                vm_error("arm emu host_addr[0x%x] target_addr[0x%x] not found", minst->host_addr, target_addr);
+                vm_error("arm emu minst[%d] host_addr[0x%x] target_addr[0x%x] not found", minst->id, minst->host_addr, target_addr);
 
             minst_succ_add(minst, b_minst);
             minst_pred_add(b_minst, minst);
