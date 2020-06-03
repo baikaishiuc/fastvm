@@ -2187,14 +2187,23 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
     for (i = 0; i < emu->mblk.allinst.len; i++) {
         minst = emu->mblk.allinst.ptab[i];
         if (minst_is_b0(minst) && minst->flag.b_need_fixed) {
-            unsigned long target_addr = emu_addr_host2target(emu, minst->host_addr);
 
-            b_minst = minst_blk_find(&emu->mblk, target_addr);
-            if (!b_minst)
-                vm_error("arm emu minst[%d] host_addr[0x%x] target_addr[0x%x] not found", minst->id, minst->host_addr, target_addr);
+            int funcstart = (emu->code.data - emu->elf.data);
+            int funcend = funcstart + emu->code.len;
 
-            minst_succ_add(minst, b_minst);
-            minst_pred_add(b_minst, minst);
+            if ((minst->host_addr < funcstart) || (minst->host_addr >= funcend)) {
+                minst->flag.is_func = 1;
+            }
+            else {
+                unsigned long target_addr = emu_addr_host2target(emu, minst->host_addr);
+
+                b_minst = minst_blk_find(&emu->mblk, target_addr);
+                if (!b_minst)
+                    vm_error("arm emu minst[%d] host_addr[0x%x] target_addr[0x%x] not found", minst->id, minst->host_addr, target_addr);
+
+                minst_succ_add(minst, b_minst);
+                minst_pred_add(b_minst, minst);
+            }
 
             minst->flag.b_need_fixed = 2;
         }

@@ -128,6 +128,7 @@ struct minst {
         unsigned is_const : 1;
         unsigned is_trace : 1;
         unsigned to_arm : 1;
+        unsigned is_func : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
