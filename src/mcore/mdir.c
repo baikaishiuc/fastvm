@@ -54,6 +54,13 @@ char*     mdir_next(struct mdir *d)
 	}
 }
 
+int             mdir_make(const char *dir)
+{
+    if (CreateDirectoryA(dir, NULL) || ERROR_ALREADY_EXISTS == GetLastError()) return 0;
+
+    return -1;
+}
+
 #else
 #include <dirent.h>
 struct mdir {
@@ -92,6 +99,17 @@ char*     mdir_next(struct mdir *d)
         return NULL;
 
     return dir->d_name;
+}
+
+int mdir_make(const char *dir)
+{
+    struct stat st = { 0 };
+
+    if (stat("/some/directory", &st) == -1) {
+        mkdir("/some/directory", 0700);
+    }
+
+    return 0;
 }
 #endif
 

@@ -96,6 +96,7 @@ struct arm_inst_ctx {
     /* 在机器上运行模拟器时，自己的机器叫host，模拟器里的环境叫target*/
 struct arm_emu_create_param
 {
+    char *filename;
     unsigned char*  elf;
     int             elf_len;
 
@@ -104,10 +105,6 @@ struct arm_emu_create_param
     void            *user_ctx;
     int(*inst_func)(unsigned char *inst, int len,  char *inst_str, void *user_ctx);
 
-    int             dump_dfa;
-    int             dump_enfa;
-    /* function base address */
-    int             baseaddr;
     /* is thumb instruction */
     int             thumb;
 };

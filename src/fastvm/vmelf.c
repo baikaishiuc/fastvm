@@ -125,7 +125,7 @@ void elf32_dump(VMState *elf)
         unsigned char *code = elf->data + elf->code_addr;
 
 		struct arm_emu_create_param param = {0};
-        param.baseaddr = elf->code_addr - 1;
+        param.filename = elf->filename;
         param.thumb = elf->code_addr & 1;
 		param.code = param.thumb ? (code - 1) : code;
 		param.code_len = func->st_size;

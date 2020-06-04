@@ -100,6 +100,8 @@ struct arm_emu {
         struct arm_inst_ctx ctx;
     } code;
 
+    char *filename;
+
     /*导出elf的函数符号时，我们会得到类似于如下的信息:
       16: 0000342d 592   FUNC    GLOBAL DEFAULT  11 JNI_OnLoad
 
@@ -134,7 +136,6 @@ struct arm_emu {
     char inst_fmt[64];
     unsigned int prev_regs[32];
     unsigned int regs[32];
-    unsigned int known;
     int seq_mod;
     /* trace状态性, aspr的当前值 */
     struct arm_cpsr aspr;
@@ -161,7 +162,6 @@ struct arm_emu {
     } dump;
 
     /* target machine内的函数起始位置 */
-    int             baseaddr;
     int             thumb;
     int             decode_inst_flag;
     /* P26 */
@@ -354,7 +354,7 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
     olen = sprintf(o += olen, "%04d ", minst->id);
 
     if (flag & IDUMP_ADDR)
-        olen = sprintf(o += olen, "%08x ", emu->baseaddr + (minst->addr - emu->code.data));
+        olen = sprintf(o += olen, "%08x ", minst->addr - emu->elf.data);
 
     if (flag & IDUMP_STACK_HEIGHT)
         olen = sprintf(o += olen, "%03x ", MEM_STACK_TOP1(emu));
@@ -863,9 +863,7 @@ static unsigned long emu_addr_target2host(struct arm_emu *emu, unsigned long add
 
 static unsigned long emu_addr_host2target(struct arm_emu *emu, unsigned long addr)
 {
-    addr -= emu->baseaddr;
-
-    return (unsigned long)emu->code.data + addr;
+    return (unsigned long)emu->elf.data + addr;
 }
 
 static int thumb_inst_ldrb(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
@@ -1788,13 +1786,13 @@ static int arm_insteng_init(struct arm_emu *emu)
             arm_insteng_add_exp(g_eng, buf, desclist[i].desc[0], desclist[i].funclist[0]);
     }
 
-    if (emu->dump.nfa)
-        reg_node_dump_dot("nfa.dot", &g_eng->enfa);
+    sprintf(buf, "%s/nfa.dot", emu->filename);
+    reg_node_dump_dot(buf, &g_eng->enfa);
 
     arm_insteng_gen_dfa(g_eng);
 
-    if (emu->dump.dfa)
-        reg_node_dump_dot("dfa.dot", &g_eng->dfa);
+    sprintf(buf, "%s/dfa.dot", emu->filename);
+    reg_node_dump_dot(buf, &g_eng->dfa);
 
     arm_insteng_gen_trans2d(g_eng);
 
@@ -1892,7 +1890,7 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
     if (minst->flag.prologue || minst->flag.epilogue)
         return 0;
 
-    emu->regs[ARM_REG_PC] = emu->baseaddr + (minst->addr - emu->code.data) + 4;
+    emu->regs[ARM_REG_PC] = (minst->addr - emu->elf.data) + 4;
 
     memcpy(emu->prev_regs, emu->regs, sizeof (emu->regs));
 
@@ -2062,8 +2060,6 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
     emu->regs[ARM_REG_SP] = PROCESS_STACK_BASE;
     emu->code.pos = 0;
 
-    emu->known = 0;
-
     memset(&emu->it, 0, sizeof (emu->it));
 
     EMU_SET_SEQ_MODE(emu);
@@ -2073,6 +2069,7 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
 
 struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
 {
+    char buf[128];
     struct arm_emu *emu;
 
     emu = calloc(1, sizeof (emu[0]));
@@ -2083,13 +2080,16 @@ struct arm_emu   *arm_emu_create(struct arm_emu_create_param *param)
     emu->code.len = param->code_len;
     emu->elf.data = param->elf;
     emu->elf.len = param->elf_len;
-    emu->baseaddr = param->baseaddr;
-    emu->dump.cfg = 1;
-    emu->dump.nfa = 1;
-    emu->dump.dfa = 1;
+    emu->filename = strdup (basename(param->filename));
+
+    mdir_make(emu->filename);
 
     bitset_init(&emu->data_mark, emu->elf.len >> 2);
-    minst_blk_init(&emu->mblk, NULL, arm_minst_do, emu);
+    sprintf(buf, "sub_%x", emu->code.data - emu->elf.data);
+    minst_blk_init(&emu->mblk, buf, arm_minst_do, emu);
+
+    sprintf(buf, "%s/%s", emu->filename, emu->mblk.funcname);
+    mdir_make(buf);
 
     emu->stack.size = PROCESS_STACK_SIZE;
     emu->stack.data = calloc(1, emu->stack.size);
@@ -2107,6 +2107,9 @@ void        arm_emu_destroy(struct arm_emu *e)
 {
     if (e->stack.data)
         free(e->stack.data);
+
+    if (e->filename)
+        free(e->filename);
 
     minst_blk_uninit(&e->mblk);
     bitset_uninit(&e->data_mark);
@@ -2134,9 +2137,9 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
     return 0;
 }
 
-#define CFG_NODE_ID(addr)       (emu->baseaddr + (addr - emu->code.data))
+#define CFG_NODE_ID(addr)       (addr - emu->elf.data)
 
-static void arm_emu_dump_cfg(struct arm_emu *emu)
+static void arm_emu_dump_cfg(struct arm_emu *emu, char *postfix)
 {
     int i;
     struct minst *succ;
@@ -2145,7 +2148,8 @@ static void arm_emu_dump_cfg(struct arm_emu *emu)
     struct minst_cfg *cfg;
     char obuf[512];
 
-    FILE *fp = fopen("cfg.dot", "w");
+    sprintf(obuf, "%s/%s/cfg_%s.dot", emu->filename, blk->funcname, postfix);
+    FILE *fp = fopen(obuf, "w");
 
     fprintf(fp, "digraph G {");
     fprintf(fp, "node [fontname = \"helvetica\"]\n");
@@ -2188,8 +2192,8 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
         minst = emu->mblk.allinst.ptab[i];
         if (minst_is_b0(minst) && minst->flag.b_need_fixed) {
 
-            int funcstart = (emu->code.data - emu->elf.data);
-            int funcend = funcstart + emu->code.len;
+            unsigned long funcstart = (emu->code.data - emu->elf.data);
+            unsigned long funcend = funcstart + emu->code.len;
 
             if ((minst->host_addr < funcstart) || (minst->host_addr >= funcend)) {
                 minst->flag.is_func = 1;
@@ -2291,10 +2295,12 @@ int         arm_emu_run(struct arm_emu *emu)
 
     minst_blk_gen_reaching_definitions(&emu->mblk);
 
+    arm_emu_dump_cfg(emu, "orig");
+
     minst_blk_const_propagation(emu, 1);
 
     //minst_cfg_classify(&emu->mblk);
-    //arm_emu_trace_flat(emu);
+    arm_emu_trace_flat(emu);
 
 #if 0
     //minst_blk_out_of_order(&emu->mblk);
@@ -2310,8 +2316,6 @@ int         arm_emu_run(struct arm_emu *emu)
 
     arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
 
-    if (emu->dump.cfg)
-        arm_emu_dump_cfg(emu);
 
     return 0;
 }
@@ -2407,32 +2411,17 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 vm_error("prog cant deobfuse");
                 break;
 
-            case MDO_TF_ONLY_ONE:
             case MDO_TF_OUT_CSM:
             case MDO_BRANCH_UNKNOWN:
                 /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
                 last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
                 prev_cfg = minst_trace_find_prev_cfg(blk, &prev_cfg_pos, 0);
 
-                /* 因为我们是trace到最后一个唯一状态节点中，所以
-                1. 删除最后b指令到唯一状态分支的连接
-                2. FIXME:增加被删除b指令到唯一状态分支的真分支的边
-                */
-                if (ret == MDO_TF_ONLY_ONE) {
-                    MTRACE_POP_CFG();
-                    t = prev_cfg->end;
-                    n = (minst_is_bcond(t) && t->flag.b_cond_passed) ? minst_get_true_label(t):minst_get_false_label(t);
-                    minst_del_edge(t, n);
-                    if (t->flag.b_cond_passed)
-                        minst_add_edge(t, minst_get_false_label(last_cfg->end));
-                    else
-                        minst_add_edge(t, minst_get_true_label(last_cfg->end));
-                }
                 /* 
                 1. 假如前cfg节点为已规约节点，则开始进行回溯
                 2. 产生回环时进行回溯
                  */
-                else if (bitset_get(&cfg_visit, prev_cfg->id)) {
+                if (bitset_get(&cfg_visit, prev_cfg->id)) {
                     struct minst *undefined_bcond;
 
                     while (!MSTACK_IS_EMPTY(blk->trace)) {
@@ -2539,6 +2528,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 minst_cfg_classify(blk);
                 minst_blk_const_propagation(emu, 0);
                 trace_flat_times++;
+                arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
                 printf("start trace[%d]\n", trace_flat_times);
                 break;
             }

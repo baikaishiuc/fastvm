@@ -8,6 +8,7 @@
 #include <windows.h>
 #define inline      __inline
 #define strdup      _strdup
+#define itoa        _itoa
 
 #ifndef __GNUC__
 #define strtold     (long double)strtod
