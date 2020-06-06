@@ -2356,13 +2356,32 @@ void        arm_emu_dump(struct arm_emu *emu)
 {
 }
 
+void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
+{
+    struct minst_blk *blk = &emu->mblk;
+    struct minst *minst;
+    char path[MAX_PATH];
+    FILE *fp;
+    int i;
+
+    sprintf(path, "%s/%s/trace_%s.txt", emu->filename, blk->funcname, postfix);
+    fp = fopen(path, "w");
+
+    for (i = 0; i <= blk->trace_top; i++) {
+        minst = blk->trace[i];
+        fprintf(fp, "%d\n", minst->id);
+    }
+
+    fclose(fp);
+}
+
 int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *t, *n;
     struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg, *prev_cfg;
     struct minst_node *succ_node;
-    char bincode[8];
+    char bincode[32];
     int ret, i, trace_start, binlen, prev_cfg_pos;
     int trace_flat_times = 0;
     BITSET_INITS(cfg_visit, blk->allcfg.len);
@@ -2474,6 +2493,10 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     continue;
                 }
 
+                sprintf(bincode, "%d_before", trace_flat_times + 1);
+                arm_emu_dump_trace(emu, bincode);
+
+
                 /* 尝试查找前一个undefined bcond ，假如没有找到，就是第一个undefined bcond，尝试搜索
                 前面有多少个tconst指令 */
                 if (!minst_trace_find_prev_undefined_bcond(blk, &i, -1)) {
@@ -2552,12 +2575,15 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     MSTACK_PUSH(blk->trace, t->succs.minst);
                 }
 
+                sprintf(bincode, "%d_after", trace_flat_times + 1);
+                arm_emu_dump_trace(emu, bincode);
+
                 minst_cfg_classify(blk);
                 trace_flat_times++;
                 arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
                 arm_emu_dump_mblk(emu, bincode);
 
-                minst_blk_const_propagation(emu, 0);
+                minst_blk_const_propagation(emu, 1);
                 strcat(bincode, "o");
                 arm_emu_dump_cfg(emu, bincode);
 
