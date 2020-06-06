@@ -123,7 +123,10 @@ struct minst {
         */
         unsigned in_it_block : 1;
         unsigned last_in_it_block : 1;
+        /* is then */
         unsigned is_t : 1;
+        /* it cond */
+        unsigned it_cond : 4;
 
         unsigned is_const : 1;
         unsigned is_trace : 1;
@@ -211,6 +214,8 @@ int                 minst_get_def(struct minst *minst);
 #define minst_get_false_label(_m)           (_m)->succs.minst
 #define minst_is_tconst(_m)                 ((_m)->flag.is_const || (_m)->flag.is_trace)
 #define minst_set_trace(_m)                 _m->flag.is_trace = 1
+#define minst_in_it_block(_m)               _m->flag.in_it_block
+#define minst_last_in_it_block(_m)          _m->flag.last_in_it_block
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 

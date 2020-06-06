@@ -243,12 +243,14 @@ const int cur_inst_it(struct arm_emu *e)
     return e->it.et[e->it.num - e->it.inblock] == 't';
 }
 
-const char *cur_inst_it_cond(struct arm_emu *e)
+const char *minst_it_cond_str(struct minst *m)
 {
-    if (!e->it.inblock)
+    if (!m->flag.in_it_block)
         return "";
 
-    return (e->it.et[e->it.num - e->it.inblock] == 't') ? condstr[e->it.cond]:condstr[(e->it.cond & 1) ? (e->it.cond - 1):(e->it.cond + 1)];
+    int cond = m->flag.it_cond;
+
+    return m->flag.is_t ? condstr[cond]:condstr[(cond & 1) ? (cond - 1):(cond + 1)];
 }
 
 static char* reglist2str(int reglist, char *buf)
@@ -534,11 +536,11 @@ static int thumb_inst_pop(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
     if (len == 2) {
         reglist = code[1] & 0xdfff;
-        arm_prepare_dump(emu, "pop%s.w %s", cur_inst_it_cond(emu), reglist2str(reglist, buf));
+        arm_prepare_dump(emu, "pop%s.w %s", minst_it_cond_str(minst), reglist2str(reglist, buf));
     }
     else {
         reglist = emu->code.ctx.register_list | (emu->code.ctx.m << ARM_REG_PC);
-        arm_prepare_dump(emu, "pop%s %s", cur_inst_it_cond(emu), reglist2str(reglist, buf));
+        arm_prepare_dump(emu, "pop%s %s", minst_it_cond_str(minst), reglist2str(reglist, buf));
     }
 
     for (i = 0; i < 16; i++) {
@@ -583,7 +585,7 @@ static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     }
     /* P104.T2 */
     else if ((code[0] & 0xf000) == 0x3000) {
-        arm_prepare_dump(emu, "add%s %s, #0x%x", InITBlock(emu)?cur_inst_it_cond(emu):"s", regstr[EC().ld], EC().imm);
+        arm_prepare_dump(emu, "add%s %s, #0x%x", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], EC().imm);
     }
     /* P106.T1*/
     else if ((code[0] & 0xf800) == 0x1800){
@@ -625,11 +627,11 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     /* P449 */
     if ((code[0] & 0xf800) == 0x3800) {
-        arm_prepare_dump(emu, "sub%s %s, #0x%x", InITBlock(emu) ? cur_inst_it_cond(emu):"s", regstr[EC().ld], EC().imm);
+        arm_prepare_dump(emu, "sub%s %s, #0x%x", minst_in_it_block(minst) ? minst_it_cond_str(minst):"s", regstr[EC().ld], EC().imm);
     }
     /* P454 */
     else {
-        arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
+        arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", minst_it_cond_str(minst), emu->code.ctx.imm * 4);
 
         emu->code.ctx.ld = ARM_REG_SP;
         liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
@@ -658,12 +660,12 @@ static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
 static int thumb_inst_sub_reg(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "sub%s %s, %s, %s", InITBlock(emu) ? cur_inst_it_cond(emu):"s", 
+    arm_prepare_dump(emu, "sub%s %s, %s, %s", minst_in_it_block(minst) ? minst_it_cond_str(minst):"s", 
         regstr[emu->code.ctx.ld], regstr[emu->code.ctx.ln], regstr[emu->code.ctx.lm]);
 
     liveness_set2(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ln, emu->code.ctx.lm);
 
-    emu->code.ctx.setflags = !InITBlock(emu);
+    emu->code.ctx.setflags = !minst_in_it_block(minst);
     if (emu->code.ctx.setflags)
         live_def_set(&emu->mblk, ARM_REG_APSR);
 
@@ -679,7 +681,7 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
 {
     struct minst *const_minst;
 
-    arm_prepare_dump(emu, "mov%s %s, %s", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
+    arm_prepare_dump(emu, "mov%s %s, %s", minst_it_cond_str(minst), regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
 
     minst->type = mtype_mov_reg;
 
@@ -770,7 +772,7 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     if (0 == mask) ARM_UNPREDICT();
     if (0xf == firstcond) ARM_UNPREDICT();
     if ((0xe == firstcond) && (BitCount(mask) != 1)) ARM_UNPREDICT();
-    if (InITBlock(emu)) ARM_UNPREDICT();
+    if (minst_in_it_block(minst)) ARM_UNPREDICT();
 
     arm_prepare_dump(emu, "i%s %s", it2str(firstcond, mask, emu->it.et), condstr[firstcond]);
 
@@ -830,7 +832,7 @@ static int t1_inst_cmn(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 
 static int thumb_inst_orr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "orr%s %s, %s", InITBlock(emu)?cur_inst_it_cond(emu):"s", regstr[EC().ld], regstr[EC().lm]);
+    arm_prepare_dump(emu, "orr%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
 
     return 0;
 }
@@ -874,7 +876,7 @@ static int thumb_inst_ldrb(struct arm_emu *emu, struct minst *minst, uint16_t *c
         if (EC().ln == 15) ARM_UNSUPPORT("ldrb");
         if (EC().ld == 13) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "ldrb%s.w %s, [%s, #0x%x]", cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], EC().imm);
+        arm_prepare_dump(emu, "ldrb%s.w %s, [%s, #0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
     }
     else {
         if (EC().ln == 15)  ARM_UNSUPPORT("ldrb");
@@ -883,7 +885,7 @@ static int thumb_inst_ldrb(struct arm_emu *emu, struct minst *minst, uint16_t *c
         if (!EC().p && !EC().w) ARM_UNDEFINED();
         if (BadReg(EC().ld) || (EC().w && (EC().ld == EC().ln))) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "ldrb%s %s, [%s, #%c0x%x]", cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], EC().imm);
+        arm_prepare_dump(emu, "ldrb%s %s, [%s, #%c0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
     }
 
     return 0;
@@ -936,12 +938,12 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
             if (EC().w && Rn == 15) ARM_UNPREDICT();
             if (BadReg(Rt) || BadReg(Rt2) || (Rt == Rt2)) ARM_UNPREDICT();
 
-            arm_prepare_dump(emu, "ldrd%s.w %s,%s,[%s,#%c%x]", cur_inst_it_cond(emu), regstr[Rt], regstr[Rt2], regstr[Rn], EC().u ? '+' : '-', EC().imm);
+            arm_prepare_dump(emu, "ldrd%s.w %s,%s,[%s,#%c%x]", minst_it_cond_str(minst), regstr[Rt], regstr[Rt2], regstr[Rn], EC().u ? '+' : '-', EC().imm);
         }
         /* P184 */
         else if ((code[0] & 0xfff0) == 0xf8d0) {
             if (EC().ln == 15) goto ldr_literal;
-            if ((EC().ld == 15) && InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+            if ((EC().ld == 15) && minst_in_it_block(minst) && !minst_last_in_it_block(minst)) ARM_UNPREDICT();
 
             arm_prepare_dump(emu, "ldr.w %s, [%s,0x%x]", regstr[EC().ld], regstr[EC().ln], emu->code.ctx.imm);
         }
@@ -949,9 +951,9 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
         else if ((code[0] & 0xfff0) == 0xf850) {
             if (EC().ld == 15)  goto ldr_literal;
             if (BadReg(EC().lm)) ARM_UNPREDICT();
-            if ((EC().ld == 15) && InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+            if ((EC().ld == 15) && minst_in_it_block(minst) && !minst_last_in_it_block(minst)) ARM_UNPREDICT();
 
-            arm_prepare_dump(emu, "ldr%s.w %s, [%s,%s,LSL #%x]", cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
+            arm_prepare_dump(emu, "ldr%s.w %s, [%s,%s,LSL #%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
         }
         /* P186 */
         else if (0) {
@@ -993,15 +995,15 @@ static int thumb_inst_strb(struct arm_emu *emu, struct minst *minst, uint16_t *c
 {
     if (len == 1) {
         if ((code[0] & 0x7000) == 0x7000) {
-            arm_prepare_dump(emu, "strb%s %s, [%s,#0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+            arm_prepare_dump(emu, "strb%s %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
         }
     }
     else if (len == 2) {
         if ((code[0] >> 7) & 1)
-            arm_prepare_dump(emu, "strb%s.w %s, [%s, #0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+            arm_prepare_dump(emu, "strb%s.w %s, [%s, #0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
         else {
             arm_prepare_dump(emu, "strb%s %s, [%s, %c#0x%x]", 
-                cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().u ? '+':'-', EC().imm);
+                minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().u ? '+':'-', EC().imm);
 
             /* P425 */
             if (EC().p && EC().u && EC().w) /* FIXME: P425, SEE STRBT on page 4-345 */; 
@@ -1020,14 +1022,14 @@ static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *co
         if (EC().ln == 15) ARM_UNDEFINED();
         if (EC().lp == 15 || BadReg(EC().lm)) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", cur_inst_it_cond(emu), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
+        arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", minst_it_cond_str(minst), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
     }
     else {
         /* FIXME:P421, ln == 15 is undefined */
         if (EC().ln == 15) ARM_UNPREDICT();
         if (EC().lm == 15) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", cur_inst_it_cond(emu), regstr[EC().lm], regstr[EC().ln], EC().imm);
+        arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
     }
 
     return 0;
@@ -1035,7 +1037,7 @@ static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
 static int thumb_inst_strd(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "strd%s %s, %s, [%s, #%c%x]", cur_inst_it_cond(emu), 
+    arm_prepare_dump(emu, "strd%s %s, %s, [%s, #%c%x]", minst_it_cond_str(minst), 
         regstr[EC().ln], regstr[EC().lp], regstr[EC().lm], EC().u ? '+':'-', EC().imm * 4);
 
     if (EMU_IS_CONST_MODE(emu)) {
@@ -1073,14 +1075,14 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
     int imm;
 
     if (1 == len) {
-        arm_prepare_dump(emu, "mov%s %s, #0x%x",  InITBlock(emu)? cur_inst_it_cond(emu):"s", regstr[emu->code.ctx.ld], emu->code.ctx.imm);
+        arm_prepare_dump(emu, "mov%s %s, #0x%x",  minst_in_it_block(minst)? minst_it_cond_str(minst):"s", regstr[emu->code.ctx.ld], emu->code.ctx.imm);
 
         minst_set_const(minst, emu->code.ctx.imm);
     }
     else {
         imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[0], 0, 4, 12) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0);
         if ((inst[0] >> 7) & 1) {
-            arm_prepare_dump(emu, "movt%s %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
+            arm_prepare_dump(emu, "movt%s %s, #0x%x", minst_it_cond_str(minst), regstr[emu->code.ctx.ld], imm);
             liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
 
             struct minst *cminst = minst_get_last_const_definition(&emu->mblk, minst, emu->code.ctx.ld);
@@ -1088,7 +1090,7 @@ static int thumb_inst_mov(struct arm_emu *emu, struct minst *minst, uint16_t *in
                 minst_set_const(minst, imm << 16 | (cminst->ld_imm & 0xffff));
         }
         else {
-            arm_prepare_dump(emu, "mov%sw %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm);
+            arm_prepare_dump(emu, "mov%sw %s, #0x%x", minst_it_cond_str(minst), regstr[emu->code.ctx.ld], imm);
 
             minst_set_const(minst, imm);
         }
@@ -1102,7 +1104,7 @@ static int t1_inst_mov_w(struct arm_emu *emu, struct minst *minst, uint16_t *ins
 {
     int imm = BITS_GET_SHL(inst[0], 10, 1, 11) + BITS_GET_SHL(inst[1], 12, 3, 8) + BITS_GET_SHL(inst[1], 0, 8, 0), imm1;
 
-    arm_prepare_dump(emu, "mov%s.w %s, #0x%x", cur_inst_it_cond(emu), regstr[emu->code.ctx.ld], imm1 = ThumbExpandImmWithC(emu, imm).v);
+    arm_prepare_dump(emu, "mov%s.w %s, #0x%x", minst_it_cond_str(minst), regstr[emu->code.ctx.ld], imm1 = ThumbExpandImmWithC(emu, imm).v);
 
     if (!minst->flag.in_it_block)
         minst_set_const(minst, imm1);
@@ -1148,7 +1150,7 @@ static int thumb_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *co
     int imm;
 
     if (len == 1) {
-        arm_prepare_dump(emu, "add%s sp, #0x%x", cur_inst_it_cond(emu), emu->code.ctx.imm * 4);
+        arm_prepare_dump(emu, "add%s sp, #0x%x", minst_it_cond_str(minst), emu->code.ctx.imm * 4);
 
         liveness_set(&emu->mblk, ARM_REG_SP, ARM_REG_SP);
     }
@@ -1163,7 +1165,7 @@ static int thumb_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *co
                 ARM_UNPREDICT();
         }
 
-        arm_prepare_dump(emu, "add%s%s.w %s,sp,#0x%x", EC().setflags ? "s" : "", cur_inst_it_cond(emu), regstr[Rd], imm);
+        arm_prepare_dump(emu, "add%s%s.w %s,sp,#0x%x", EC().setflags ? "s" : "", minst_it_cond_str(minst), regstr[Rd], imm);
         live_use_set(&emu->mblk, ARM_REG_SP);
     }
     else if ((code[0] & 0xf000) == 0xe000) {
@@ -1172,7 +1174,7 @@ static int thumb_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *co
         if (BadReg(EC().ld) || (EC().ln == 15) || BadReg(EC().lm)) ARM_UNPREDICT();
 
         arm_prepare_dump(emu, "add%s%s.w %s, %s, %s,LSL#%x", EC().setflags ? "s" : "",
-            cur_inst_it_cond(emu), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
+            minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
     }
     else
         ARM_UNDEFINED();
@@ -1200,7 +1202,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         minst->host_addr = (ARM_PC_VAL(emu) + SignExtend(emu->code.ctx.imm, 8) * 2);
         arm_prepare_dump(emu, "b%s 0x%x", condstr[emu->code.ctx.cond], minst->host_addr);
 
-        if (InITBlock(emu)) ARM_UNPREDICT();
+        if (minst_in_it_block(minst)) ARM_UNPREDICT();
     }
     /* b<c>.w <label> */
     else if ((code[1] >> 14 == 2)) {
@@ -1210,7 +1212,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             i2 = NOT(J2(emu) ^ S(emu)) & 1;
             imm = SHL(S(emu), 24) + SHL(i1, 23) + SHL(i2, 22) + BITS_GET_SHL(code[0], 0, 10, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
 
-            if (InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+            if (minst_in_it_block(minst) && !minst_last_in_it_block(minst)) ARM_UNPREDICT();
 
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
         }
@@ -1220,7 +1222,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             if (EC().cond == 0b111)
                 vm_error("not support miscellaneous control instructions");
 
-            if (InITBlock(emu)) ARM_UNPREDICT();
+            if (minst_in_it_block(minst)) ARM_UNPREDICT();
 
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 21);
         }
@@ -1229,7 +1231,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
     }
     /* bl<c>.w <label> */
     else {
-        if (InITBlock(emu) && !LastInITBlock(emu)) ARM_UNPREDICT();
+        if (minst_in_it_block(minst) && !minst_last_in_it_block(minst)) ARM_UNPREDICT();
 
         // P134
         i1 = NOT(S(emu) ^ J1(emu)) & 1;
@@ -1238,12 +1240,12 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             imm = SHL(S(emu), 24) + SHL(i1, 23) + SHL(i2, 22) + BITS_GET_SHL(code[0], 0, 10, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
             minst->flag.to_arm = 0;
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
-            arm_prepare_dump(emu, "bl%s 0x%x", cur_inst_it_cond(emu), minst->host_addr);
+            arm_prepare_dump(emu, "bl%s 0x%x", minst_it_cond_str(minst), minst->host_addr);
         } else {
             imm = SHL(S(emu), 24) + SHL(i1, 23) + SHL(i2, 22) + BITS_GET_SHL(code[0], 0, 10, 12) + BITS_GET_SHL(code[1], 1, 10, 2);
             minst->flag.to_arm = 1;
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
-            arm_prepare_dump(emu, "blx%s 0x%x", cur_inst_it_cond(emu), minst->host_addr);
+            arm_prepare_dump(emu, "blx%s 0x%x", minst_it_cond_str(minst), minst->host_addr);
         }
     }
 
@@ -1308,7 +1310,7 @@ static int thumb_inst_ldmia(struct arm_emu *emu, struct minst *minst, uint16_t *
 
     if (0 == EC().register_list) ARM_UNPREDICT();
 
-    arm_prepare_dump(emu, "ldmia%s %s%c,%s", cur_inst_it_cond(emu), regstr[Rn], (EC().register_list & Rn)?' ':'!', reglist2str(EC().register_list, buf));
+    arm_prepare_dump(emu, "ldmia%s %s%c,%s", minst_it_cond_str(minst), regstr[Rn], (EC().register_list & Rn)?' ':'!', reglist2str(EC().register_list, buf));
 
     for (i = 0; i < 16; i++) {
         if (EC().register_list & (1 << i))
@@ -1829,7 +1831,7 @@ static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct a
 
     /* FIXME，这一句有问题，我在处理IT指令的时候，生成2个cfg，出了当前的IT指令会使用APSR，
     后面的指令可能使用APSR也可能不使用 */
-    if (InITBlock(emu)) {
+    if (minst_in_it_block(minst)) {
         live_use_set(&emu->mblk, ARM_REG_APSR);
     }
 }
@@ -1900,6 +1902,8 @@ static int arm_minst_do(struct arm_emu *emu, struct minst *minst)
     if (InITBlock(emu)) {
         minst->flag.in_it_block = 1;
         minst->flag.is_t = cur_inst_it(emu);
+        minst->flag.it_cond = emu->it.cond;
+        minst->flag.last_in_it_block = LastInITBlock(emu);
     }
 
     arm_liveness_init(emu, minst, &emu->code.ctx);
@@ -2116,11 +2120,14 @@ void        arm_emu_destroy(struct arm_emu *e)
     free(e);
 }
 
-static int arm_emu_dump_mblk(struct arm_emu *emu)
+static int arm_emu_dump_mblk(struct arm_emu *emu, char *postfix)
 {
     struct minst *minst;
     int i;
     char buf[4096];
+
+    sprintf(buf, "%s/%s/inst_%s.txt", emu->filename, emu->mblk.funcname, postfix);
+    FILE *fp = fopen(buf, "w");
 
     arm_emu_cpu_reset(emu);
     emu->decode_inst_flag = FLAG_DISABLE_EMU;
@@ -2131,8 +2138,27 @@ static int arm_emu_dump_mblk(struct arm_emu *emu)
 
         arm_inst_print_format(emu, minst, -1, buf);
 
-        printf("%s\n", buf);
+        fprintf(fp, buf);
+        fprintf(fp, "\n");
     }
+    fclose(fp);
+
+    return 0;
+}
+
+#include "sh.h"
+
+static int arm_gen_sh(struct arm_emu *emu)
+{
+    FILE *fp;
+    char buf[MAX_PATH];
+
+    sprintf(buf, "%s/gen.sh", emu->filename);
+    fp = fopen(buf, "wb");
+
+    fprintf(fp, GEN_SH);
+
+    fclose(fp);
 
     return 0;
 }
@@ -2160,7 +2186,7 @@ static void arm_emu_dump_cfg(struct arm_emu *emu, char *postfix)
         cfg = blk->allcfg.ptab[i];
         if (cfg->flag.dead_code) continue;
 
-        fprintf(fp, "sub_%x [shape=MSquare, label=<<font color='red'><b>sub_%x(%d, %d)</b></font><br/>", 
+        fprintf(fp, "sub_%x [label=<<font color='red'><b>sub_%x(%d, %d)</b></font><br/>", 
             CFG_NODE_ID(cfg->start->addr), CFG_NODE_ID(cfg->start->addr), cfg->id, cfg->csm);
         for (succ = cfg->start; succ; succ = succ->succs.minst) {
             arm_minst_do(emu, succ);
@@ -2290,12 +2316,13 @@ int         arm_emu_run(struct arm_emu *emu)
     /* second pass */
     arm_emu_mblk_fix_pos(emu);
 
+    arm_emu_dump_mblk(emu, "orig");
+    arm_emu_dump_cfg(emu, "orig");
+
     /* third pass */
     minst_blk_liveness_calc(&emu->mblk);
 
     minst_blk_gen_reaching_definitions(&emu->mblk);
-
-    arm_emu_dump_cfg(emu, "orig");
 
     minst_blk_const_propagation(emu, 1);
 
@@ -2312,9 +2339,9 @@ int         arm_emu_run(struct arm_emu *emu)
     minst_blk_const_propagation(emu);
 #endif
 
-    arm_emu_dump_mblk(emu);
-
     arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
+
+    arm_gen_sh(emu);
 
 
     return 0;
@@ -2526,9 +2553,14 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 }
 
                 minst_cfg_classify(blk);
-                minst_blk_const_propagation(emu, 0);
                 trace_flat_times++;
                 arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
+                arm_emu_dump_mblk(emu, bincode);
+
+                minst_blk_const_propagation(emu, 0);
+                strcat(bincode, "o");
+                arm_emu_dump_cfg(emu, bincode);
+
                 printf("start trace[%d]\n", trace_flat_times);
                 break;
             }
