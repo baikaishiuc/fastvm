@@ -11,7 +11,9 @@ enum minst_type {
     mtype_b = 1,
     mtype_bcond,
     mtype_mov_reg,
-    mtype_cmp
+    mtype_cmp,
+    mtype_str,
+    mtype_ldr,
 };
 
 typedef int(* minst_parse_callback)(void *emu, struct minst *minst);
@@ -45,7 +47,7 @@ struct minst_blk {
         unsigned need_liveness : 1;
     } flag;
 
-    struct minst    *trace[512];
+    struct minst    *trace[4096];
     int trace_top;
 
     struct {
@@ -152,6 +154,7 @@ struct minst {
     int ld_imm;
     int ld2_imm;
     struct arm_cpsr apsr;
+    long memaddr;
 };
 
 
@@ -236,8 +239,8 @@ void                minst_pred_del(struct minst *minst, struct minst *pred);
 #define minst_preds_foreach(m, pnode)  for (pnode = &m->preds; pnode; pnode = pnode->next)
 
 void                minst_blk_gen_cfg(struct minst_blk *blk);
-/* 当我们删除一个cfg以后，会造成很多的cfg都变成不可达，删除所有 */
-void                minst_blk_del_unreachable(struct minst_blk *blk, struct minst_cfg *cfg);
+/* 每次从起点做DFS，不可达的都是可删除的节点 */
+int                 minst_blk_del_unreachable(struct minst_blk *blk);
 
 /* 做活跃性分析的时候，需要加上liveness专用的prologue和epilogue
 live prologue 把所有的寄存器设置为def
@@ -248,8 +251,6 @@ void                minst_blk_live_prologue_add(struct minst_blk *blk);
 void                minst_blk_live_epilogue_add(struct minst_blk *blk);
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use);
-
-#define minst_cfg_is_dead(_cfg)          ((minst_preds_count(_cfg->start) == 0) || ((minst_preds_count(_cfg->start) == 1) && _cfg->start->preds.minst->cfg == _cfg))
 
 /* */
 int                 minst_blk_liveness_calc(struct minst_blk *blk);
@@ -339,6 +340,7 @@ struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *mins
 @before 从哪个位置开始
 */
 struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before);
+struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int before);
 struct minst_cfg*   minst_trace_find_prev_cfg(struct minst_blk *blk, int *index, int before);
 /*
 1. 查找上一个有未定义bcond指令

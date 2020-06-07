@@ -517,7 +517,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
         changed = 0;
         for (i = blk->allinst.len - 1; i >= 0; i--) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.dead_code) continue;
+            if (minst->flag.dead_code || (minst->cfg && minst->cfg->flag.dead_code)) continue;
 
             bitset_clone(&in, &minst->in);
             bitset_clone(&out, &minst->out);
@@ -597,7 +597,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
         bitset_clear(&minst->rd_out);
         bitset_clear(&minst->kills);
 
-        if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || (def = minst_get_def(minst)) < 0)
+        if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code || (def = minst_get_def(minst)) < 0)
             continue;
 
         bitset_clone(&minst->kills, &blk->defs[def]);
@@ -609,7 +609,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code)
+            if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code)
                 continue;
 
             bitset_clone(&in, &minst->rd_in);
@@ -945,13 +945,30 @@ int                 minst_blk_out_of_order(struct minst_blk *blk)
 
 struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before)
 {
+    struct minst *m;
     int i;
 
     for (i = before?before:blk->trace_top; i >= 0; i--) {
-        if (minst_get_def((struct minst *)blk->trace[i]) == regm) {
+        m = blk->trace[i];
+        if (minst_get_def(m) == regm) {
             if (index) *index = i;
             return blk->trace[i];
         }
+    }
+
+    return NULL;
+}
+
+struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int before)
+{
+    int i;
+    struct minst *m;
+
+    i = before > 0 ? before : (blk->trace_top + before);
+    for (; i >= 0; i--) {
+        m = blk->trace[i];
+        if ((m->type == mtype_str) && (m->memaddr == memaddr))
+            return m;
     }
 
     return NULL;
@@ -1207,30 +1224,35 @@ int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *
     return 0;
 }
 
-void                minst_blk_del_unreachable(struct minst_blk *blk, struct minst_cfg *cfg)
+int                 minst_blk_del_unreachable(struct minst_blk *blk)
 {
     struct minst *succ;
     struct minst_node *succ_node;
-    struct minst_cfg *stack[128];
-    int stack_top = -1, changed;
+    struct minst_cfg *stack[128], *cfg;
+    int stack_top = -1, pos, changed = 0;
+    BITSET_INITS(visit, blk->allcfg.len);
 
-    MSTACK_PUSH(stack, cfg);
+    MSTACK_PUSH(stack, blk->allcfg.ptab[0]);
 
     while (!MSTACK_IS_EMPTY(stack)) {
         cfg = MSTACK_POP(stack);
-        if (minst_cfg_is_dead(cfg)) {
-            cfg->flag.dead_code = 1;
+        bitset_set(&visit, cfg->id, 1);
 
-            for (changed = 1; changed; ) {
-                changed = 0;
-                minst_succs_foreach(cfg->end, succ_node) {
-                    if (!(succ = succ_node->minst)) continue;
-                    minst_del_edge(cfg->end, succ);
-                    MSTACK_PUSH(stack, succ->cfg);
-                    changed = 1;
-                    break;
-                }
-            }
+        minst_succs_foreach(cfg->end, succ_node) {
+            if (!(succ = succ_node->minst) || !succ->cfg) continue;
+            if (bitset_get(&visit, succ->cfg->id)) continue;
+
+            MSTACK_PUSH(stack, succ->cfg);
         }
     }
+
+    /* 取反就是所有没访问过的节点 */
+    bitset_not(&visit);
+    bitset_foreach(&visit, pos) {
+        cfg = blk->allcfg.ptab[pos];
+        changed = !cfg->flag.dead_code;
+        cfg->flag.dead_code = 1;
+    }
+
+    return changed;
 }

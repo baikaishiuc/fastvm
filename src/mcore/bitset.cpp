@@ -12,6 +12,7 @@ static int      bitset__expand(struct bitset *bs, int len)
 
     if (len <= bs->len4 * 32) {
         bs->len = len;
+        bs->siz4 = (bs->len + 31) / 32;
         return 0;
     }
 
@@ -29,6 +30,7 @@ static int      bitset__expand(struct bitset *bs, int len)
     bs->data = p;
     bs->len4 = len4;
     bs->len = len;
+    bs->siz4 = (bs->len + 31) / 32;
 
     return 0;
 }
@@ -53,6 +55,7 @@ struct bitset*  bitset_init(struct bitset *bs, int size)
 {
     bs->len4 = (size + 31) / 32;
     bs->len = size;
+    bs->siz4 = (bs->len + 31) / 32;
     bs->data = (unsigned int *)calloc(1, bs->len4 * sizeof (int));
     if (NULL == bs->data) {
         free(bs);
@@ -122,7 +125,7 @@ struct bitset*  bitset_or(struct bitset *dst, struct bitset *src)
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         dst->data[i] |= src->data[i];
     }
 
@@ -137,7 +140,7 @@ struct bitset*  bitset_clone(struct bitset *dst, struct bitset *src)
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         dst->data[i] = src->data[i];
     }
 
@@ -152,7 +155,7 @@ struct bitset*  bitset_and(struct bitset *dst, struct bitset *src)
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         dst->data[i] &= src->data[i];
     }
 
@@ -163,7 +166,7 @@ struct bitset*  bitset_not(struct bitset *dst)
 {
     int i;
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         dst->data[i] = ~dst->data[i];
     }
 
@@ -178,7 +181,7 @@ struct bitset*  bitset_sub(struct bitset *dst, struct bitset *src)
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         a = dst->data[i];
         b = src->data[i];
         dst->data[i] = ~(a & b) & a;
@@ -195,7 +198,7 @@ int             bitset_is_equal(struct bitset *dst, struct bitset *src)
         bitset__expand((dst->len > src->len) ? src:dst, (dst->len > src->len)?dst->len:src->len);
     }
 
-    for (i = 0; i < dst->len4; i++) {
+    for (i = 0; i < dst->siz4; i++) {
         if (dst->data[i] != src->data[i])
             return 0;
     }

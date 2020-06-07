@@ -754,6 +754,8 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
         minst_cmp_calc(minst->apsr, ln_def->ld_imm, lm_def->ld_imm);
         minst->flag.is_trace = 1;
+
+        printf("cmp [%d, %d], [%x, %x]\n", ln_def->ld_imm, lm_def->ld_imm, ln_def->ld_imm, lm_def->ld_imm);
     }
 
     return 0;
@@ -896,7 +898,7 @@ static struct arm_inst_desc ldr_iteral_desc =  {"1111 1000 u1 101 1111 ld4 i12",
 static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     int sigcode = (code[0] >> 12) & 0xf, imm;
-    unsigned long addr = 0;
+    long addr = -1;
 
     if (len == 1) {
         if (sigcode == 0b0100) {
@@ -917,7 +919,7 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
                 arm_prepare_dump(emu, "ldr %s, [sp]");
 
             addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
-            live_use_set(&emu->mblk, ARM_REG_PC);
+            live_use_set(&emu->mblk, ARM_REG_SP);
         }
         else {
             if (emu->code.ctx.imm)
@@ -982,6 +984,13 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
         if (use == ARM_REG_PC) {
         }
     }
+    else if (EMU_IS_TRACE_MODE(emu)) {
+        struct minst *m = minst_trace_get_str(&emu->mblk, addr, 0);
+        if (m && minst_is_tconst(m)) {
+            minst->flag.is_trace = 1;
+            minst->ld_imm = m->ld_imm;
+        }
+    }
 
     return 0;
 }
@@ -1017,20 +1026,52 @@ static int thumb_inst_strb(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
 static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    /* P423 */
-    if ((code[0] & 0xf840) == 0xf840) {
-        if (EC().ln == 15) ARM_UNDEFINED();
-        if (EC().lp == 15 || BadReg(EC().lm)) ARM_UNPREDICT();
+    struct minst *s;
+    int imm = 0;
 
-        arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", minst_it_cond_str(minst), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
+    minst->type = mtype_str;
+
+    if (len == 1) {
+        if (emu->code.ctx.imm) 
+            arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[EC().lm], imm = (emu->code.ctx.imm * 4));
+        else
+            arm_prepare_dump(emu, "str %s, [sp]", regstr[EC().lm]);
+
+        /* FIXME:这个地方假设是操作stack的时候，sp的值应该是可以静态分析的，这个假设是没问题的吗？ */
+        minst->memaddr = ARM_SP_VAL(emu) + imm;
+
+        if (EMU_IS_CONST_MODE(emu)) {
+            s = minst_get_last_const_definition(&emu->mblk, minst, EC().lm);
+            if (s) {
+                minst_set_const(minst, s->ld_imm);
+            }
+        }
+        else if (EMU_IS_TRACE_MODE(emu)) {
+            s = minst_trace_get_def(&emu->mblk, EC().lm, NULL, 0);
+
+            if (s && minst_is_tconst(s)) {
+                minst->flag.is_trace = 1;
+                minst->ld_imm = s->ld_imm;
+            }
+        }
     }
     else {
-        /* FIXME:P421, ln == 15 is undefined */
-        if (EC().ln == 15) ARM_UNPREDICT();
-        if (EC().lm == 15) ARM_UNPREDICT();
+        /* P423 */
+        if ((code[0] & 0xf840) == 0xf840) {
+            if (EC().ln == 15) ARM_UNDEFINED();
+            if (EC().lp == 15 || BadReg(EC().lm)) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
+            arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", minst_it_cond_str(minst), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
+        }
+        else {
+            /* FIXME:P421, ln == 15 is undefined */
+            if (EC().ln == 15) ARM_UNPREDICT();
+            if (EC().lm == 15) ARM_UNPREDICT();
+
+            arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
+        }
     }
+
 
     return 0;
 }
@@ -1042,30 +1083,6 @@ static int thumb_inst_strd(struct arm_emu *emu, struct minst *minst, uint16_t *c
 
     if (EMU_IS_CONST_MODE(emu)) {
     }
-
-    return 0;
-}
-
-static int t1_inst_str_10010(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
-    if (emu->code.ctx.imm) 
-        arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[emu->code.ctx.lm], emu->code.ctx.imm * 4);
-    else
-        arm_prepare_dump(emu, "str %s, [sp]", regstr[emu->code.ctx.lm]);
-
-#if 0
-    unsigned long addr;
-    struct emu_temp_var *var;
-    addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
-    if ((var = emu_find_temp_var(emu, addr)))
-        liveness_set(&emu->mblk, var->t, emu->code.ctx.lm);
-    else if (IN_PROCESS_STACK_RANGE(addr)) {
-        var = emu_alloc_temp_var(emu, addr);
-        liveness_set(&emu->mblk, var->t, emu->code.ctx.lm);
-    }
-    else
-        liveness_set(&emu->mblk, -1, emu->code.ctx.lm);
-#endif
 
     return 0;
 }
@@ -1212,7 +1229,8 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             i2 = NOT(J2(emu) ^ S(emu)) & 1;
             imm = SHL(S(emu), 24) + SHL(i1, 23) + SHL(i2, 22) + BITS_GET_SHL(code[0], 0, 10, 12) + BITS_GET_SHL(code[1], 0, 11, 1);
 
-            if (minst_in_it_block(minst) && !minst_last_in_it_block(minst)) ARM_UNPREDICT();
+            if (minst_in_it_block(minst) && !minst_last_in_it_block(minst)) 
+                ARM_UNPREDICT();
 
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
         }
@@ -1262,7 +1280,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
         struct minst *cminst = NULL;
         struct minst *tminst;
 
-        if (minst->flag.is_const || (cminst = minst_get_last_const_definition(&emu->mblk, minst, ARM_REG_APSR))->flag.is_const) {
+        if (minst->flag.is_const || (((cminst = minst_get_last_const_definition(&emu->mblk, minst, ARM_REG_APSR))) && cminst->flag.is_const)) {
             if (minst->flag.is_const)
                 tminst = minst->flag.b_cond_passed ? minst_get_false_label(minst) : minst_get_true_label(minst);
             else {
@@ -1295,11 +1313,6 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             return MDO_BRANCH_UNKNOWN;
     }
 
-    return 0;
-}
-
-static int thumb_inst_ldr_reg(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
-{
     return 0;
 }
 
@@ -1360,7 +1373,7 @@ struct arm_inst_desc desclist[]= {
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, t1_inst_blx_0100}, {"bx", "blx"}},
     {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, thumb_inst_ldr},      {"str", "ldr"}},
     {"0111    0 i5 ln3 lm3",                {thumb_inst_strb},      {"strb<c> <lp>,[<ln>,#<imm>]"}},
-    {"1001    0 lm3 i8",                    {t1_inst_str_10010}, {"str"}},
+    {"1001    0 lm3 i8",                    {thumb_inst_str}, {"str"}},
     {"1001    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add}, {"add", "add"}},
     {"1011    o1 10 m1 rl8",                {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
@@ -2066,8 +2079,6 @@ static int arm_emu_cpu_reset(struct arm_emu *emu)
 
     memset(&emu->it, 0, sizeof (emu->it));
 
-    EMU_SET_SEQ_MODE(emu);
-
     return 0;
 }
 
@@ -2130,6 +2141,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu, char *postfix)
     FILE *fp = fopen(buf, "w");
 
     arm_emu_cpu_reset(emu);
+    EMU_SET_CONST_MODE(emu);
     emu->decode_inst_flag = FLAG_DISABLE_EMU;
     for (i = 0; i < emu->mblk.allinst.len; i++) {
         minst = emu->mblk.allinst.ptab[i];
@@ -2181,6 +2193,7 @@ static void arm_emu_dump_cfg(struct arm_emu *emu, char *postfix)
     fprintf(fp, "node [fontname = \"helvetica\"]\n");
 
     arm_emu_cpu_reset(emu);
+    EMU_SET_CONST_MODE(emu);
 
     for (i = 0; i < blk->allcfg.len; i++) {
         cfg = blk->allcfg.ptab[i];
@@ -2304,6 +2317,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     /* first pass */
     arm_emu_cpu_reset(emu);
+    EMU_SET_SEQ_MODE(emu);
     minst_blk_live_prologue_add(&emu->mblk);
     for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
         ret = arm_insteng_decode(emu, emu->code.data + emu->code.pos, emu->code.len - emu->code.pos);
@@ -2379,7 +2393,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *t, *n;
-    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *state_cfg, *prev_cfg;
+    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *prev_cfg;
     struct minst_node *succ_node;
     char bincode[32];
     int ret, i, trace_start, binlen, prev_cfg_pos;
@@ -2406,17 +2420,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
     minst_cfg_classify(blk);
 
     while (changed) {
-        changed = 0;
-        for (i = 0; i < blk->allcfg.len; i++) {
-            state_cfg = blk->allcfg.ptab[i];
-            if (minst_cfg_is_const_state_machine(state_cfg, NULL)) {
-                changed = 1;
-                break;
-            }
-        }
-
-        if (!changed) continue;
-
         cfg = blk->allcfg.ptab[0];
         bitset_expand(&cfg_visit, blk->allcfg.len);
         MTRACE_PUSH_CFG(cfg);
@@ -2467,7 +2470,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 1. 假如前cfg节点为已规约节点，则开始进行回溯
                 2. 产生回环时进行回溯
                  */
-                if (bitset_get(&cfg_visit, prev_cfg->id)) {
+                if (prev_cfg && bitset_get(&cfg_visit, prev_cfg->id)) {
                     struct minst *undefined_bcond;
 
                     while (!MSTACK_IS_EMPTY(blk->trace)) {
@@ -2506,7 +2509,10 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     }
 
                     /* 假如没有找到tconst bcond指令，则不进行reduce */
-                    if (i == blk->trace_top) break;
+                    if (i == blk->trace_top) {
+                        MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+                        break;
+                    }
 
                     minst_trace_find_prev_cfg(blk, &i, i);
                 }
@@ -2583,9 +2589,11 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
                 arm_emu_dump_mblk(emu, bincode);
 
+#if 0
                 minst_blk_const_propagation(emu, 1);
                 strcat(bincode, "o");
                 arm_emu_dump_cfg(emu, bincode);
+#endif
 
                 printf("start trace[%d]\n", trace_flat_times);
                 break;
@@ -2718,10 +2726,10 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
 
             bitset_clone(&defs, &blk->defs[use_reg]);
             bitset_and(&defs, &minst->rd_in);
-            pret = -1;
+            pret = ret = -1;
             bitset_foreach(&defs, pos) {
                 def_minst = blk->allinst.ptab[pos];
-                if (!def_minst->flag.is_const) continue;
+                if (!def_minst->flag.is_const) break;
 
                 ret = arm_emu_bcond_symbo_exec(emu, cfg, def_minst);
                 if (ret == -1) break;
@@ -2729,7 +2737,7 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
                 else if (pret != ret) break;
             }
 
-            if ((pret == ret) && (ret != -1)) {
+            if (pos < 0) {
                 cfg->end->flag.is_const = 1;
                 cfg->end->flag.b_cond_passed = ret;
                 arm_minst_do(emu, cfg->end);
@@ -2741,14 +2749,7 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
         /* delete unreachable code 
         除了起始cfg节点，其余前驱节点为0的cfg都是不可达的
         */
-        for (i = 1; i < blk->allcfg.len; i++) {
-            cfg = blk->allcfg.ptab[i];
-            if (cfg->flag.dead_code) continue;
-            if (!minst_cfg_is_dead(cfg)) continue;
-
-            minst_blk_del_unreachable(blk, cfg);
-            changed = 1;
-        }
+        changed |= minst_blk_del_unreachable(blk);
 
         if (delcode)
             changed |= minst_blk_dead_code_elim(blk);

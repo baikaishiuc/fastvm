@@ -10,7 +10,9 @@ extern "C" {
 struct bitset
 {
     int len;
+    /* 这里len4和siz4的名字反了····*/
     int len4;
+    int siz4;
     unsigned int *data;
 };
 
