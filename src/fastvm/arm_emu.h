@@ -84,6 +84,7 @@ struct arm_inst_ctx {
     int     m;
     int     setflags;
     int     cond;
+    int     vd;
 
     struct {
         unsigned p : 1;

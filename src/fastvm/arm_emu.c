@@ -1333,6 +1333,39 @@ static int thumb_inst_ldmia(struct arm_emu *emu, struct minst *minst, uint16_t *
     return 0;
 }
 
+/* @AAR, P992 */
+static char *vreglist2str(int d, int i8, char *buf)
+{
+    char tbuf[8];
+    int regs = i8 / 2, r;
+
+    buf[0] = 0;
+    strcat(buf, "{");
+    for (r = 0; r < regs; r++) {
+        strcat(buf, "D");
+        strcat(buf, itoa(d + r, tbuf, 10));
+        if (r != (regs - 1)) strcat(buf, "-");
+    }
+    strcat(buf, "}");
+
+    return buf;
+}
+
+/* @AAR, P992 */
+static int thumb_inst_vpush(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    char buf[32];
+
+    arm_prepare_dump(emu, "vpush%s %s", minst_it_cond_str(minst), vreglist2str(EC().vd, EC().imm, buf));
+
+    return 0;
+}
+
+static int thumb_inst_vpop(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    return 0;
+}
+
 /*
 
 definition about inst reg rule
@@ -1346,10 +1379,11 @@ lp[num]     src3 register
 hm[num]:    high register
 ld[num]     dest register
 le[num]     dest2 register
+vd[num]     vector dest register
 t[num]      type    // P110
 d[num]      add to dest register
 */
-struct arm_inst_desc desclist[]= {
+struct arm_inst_desc desclist[] = {
     {"0000    o1    i5  lm3 ld3",           {t1_inst_lsl, t1_inst_lsr}, {"lsl", "lsr"}},
     {"0001    0     i5  lm3 ld3",           {t1_inst_asr}, {"asr"}},
     {"0001    10 o1 lm3 ln3 ld3",           {t1_inst_add, thumb_inst_sub_reg}, {"add", "sub"}},
@@ -1377,7 +1411,8 @@ struct arm_inst_desc desclist[]= {
     {"1001    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add}, {"add", "add"}},
     {"1011    o1 10 m1 rl8",                {thumb_inst_push, thumb_inst_pop}, {"push", "pop"}},
-    {"1011    0000 o1 i7",                  {thumb_inst_add, thumb_inst_sub}, {"add", "sub"}},
+    {"1011    0000 0 i7",                   {thumb_inst_add}, {"add"}},
+    {"1011    0000 1 i7",                   {thumb_inst_sub}, {"sub"}},
     {"1011    1111 c4 i4",                  {thumb_inst_it}, {"it"}},
     {"1100    1 ln3 rl8",                   {thumb_inst_ldmia}, {"ldmia<c> <Rn>!?, <registers>"}},
     {"1101    c4 i8",                       {thumb_inst_b}, {"b<cond>"}},
@@ -1388,6 +1423,9 @@ struct arm_inst_desc desclist[]= {
 
     {"1110 1001 0010 1101 0 m1 0 rl13",     {thumb_inst_push}, "push.w"},
     {"1110 1000 1011 1101 i1 m1 0 rl13",    {thumb_inst_pop}, "pop.w"},
+
+    {"1110 1101 0d1 10 1101 vd4 1011 i8",   {thumb_inst_vpush}, "vpush<c> <list>"},
+    {"1110 1100 1d1 11 1101 vd4 1011 i8",   {thumb_inst_vpop},  "vpop <list>"},
 
     {"1110 1011 000s1 ln4 0i3 ld4 i2 t2 lm4 ",  {thumb_inst_add}, "add{s}<c>.W <ld>,<ln>,<lm>{, <shift>}"},
     {"1111 0i1 01 000s1 1101 0i3 ld4 i8",       {thumb_inst_add}, "add{S}<c>.W <Rd>,SP#<const>"},
@@ -1596,6 +1634,7 @@ loop_label:
             goto loop_label;
 
             /* register */
+        case 'v':
         case 'l':
             if (s[1] != 'm' && s[1] != 'd' && s[1] != 'n' && s[1] != 'e' && s[1] != 'p')
                 goto fail_label;
@@ -1826,6 +1865,7 @@ static void arm_inst_ctx_init(struct arm_inst_ctx *ctx)
     ctx->ld = -1;
     ctx->lm = -1;
     ctx->ln = -1;
+    ctx->vd = -1;
 }
 
 static void arm_liveness_init(struct arm_emu *emu, struct minst *minst, struct arm_inst_ctx *ctx)
@@ -2009,6 +2049,7 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *co
             exp += 2; i += len;
             break;
 
+        case 'v':
         case 'h':
         case 'l':
             exp++;
@@ -2027,7 +2068,10 @@ int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *oexp, uint8_t *co
                 break;
 
             case 'd':
-                ctx->ld = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8 + d * 8;
+                if (c == 'v')
+                    ctx->vd = BITS_GET(inst, 16 - i - len, len) + d * 16;
+                else
+                    ctx->ld = BITS_GET(inst, 16 - i - len, len) + (c == 'h') * 8 + d * 8;
                 break;
 
             case 'e':
