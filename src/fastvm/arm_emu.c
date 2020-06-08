@@ -625,18 +625,27 @@ static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 
 static int thumb_inst_sub(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    /* P449 */
-    if ((code[0] & 0xf800) == 0x3800) {
-        arm_prepare_dump(emu, "sub%s %s, #0x%x", minst_in_it_block(minst) ? minst_it_cond_str(minst):"s", regstr[EC().ld], EC().imm);
-    }
-    /* P454 */
-    else {
-        arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", minst_it_cond_str(minst), emu->code.ctx.imm * 4);
+    int i32;
+    if (1 == len) {
+        /* P449 */
+        if ((code[0] & 0xf800) == 0x3800) {
+            arm_prepare_dump(emu, "sub%s %s, #0x%x", minst_in_it_block(minst) ? minst_it_cond_str(minst):"s", regstr[EC().ld], EC().imm);
+        }
+        /* P454 */
+        else {
+            arm_prepare_dump(emu, "sub%s sp, sp, #0x%x", minst_it_cond_str(minst), emu->code.ctx.imm * 4);
 
-        emu->code.ctx.ld = ARM_REG_SP;
-        liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
-        if (emu->code.ctx.setflags)
-            live_def_set(&emu->mblk, ARM_REG_APSR);
+            emu->code.ctx.ld = ARM_REG_SP;
+            liveness_set(&emu->mblk, emu->code.ctx.ld, emu->code.ctx.ld);
+            if (emu->code.ctx.setflags)
+                live_def_set(&emu->mblk, ARM_REG_APSR);
+        }
+    }
+    else {
+        i32 = BITS_GET_SHL(code[0], 10, 1, 11) + BITS_GET_SHL(code[1], 12, 3, 8) + BITS_GET_SHL(code[1], 0, 8, 0);
+        i32 = ThumbExpandImm(emu, i32);
+        /* @AAR.P708 T3 */
+        arm_prepare_dump(emu, "sub%s%s %s, %s, #0x%x", EC().setflags?"s":"", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], i32);
     }
 
     if (IS_DISABLE_EMU(emu))
@@ -1518,6 +1527,8 @@ struct arm_inst_desc desclist[] = {
     {"1111 0s1 c4 i6 10 u1 1 w1 i11",       {thumb_inst_b}, "b<c>.w <label>"},
     {"1111 0s1 i10 11 u1 1 w1 i11",         {thumb_inst_b}, "bl<c> <label>"},
     {"1111 0s1 i10 11 u1 0 w1 i10 0",       {thumb_inst_b}, "blx<c> <label>"},
+
+    {"1111 0i1 01 101s1 ln4 0i3 ld4 i8",    {thumb_inst_sub}, "sub{s}<c>.w <ld>,<ln>,#<const>"},
 
     {"1111 0i1 00010 s1 11110 i3 ld4 i8",   {t1_inst_mov_w}, "mov.w"},
     {"1111 0i1 101100 i4 0 i3 ld4 i8",      {thumb_inst_mov}, "movt"},
