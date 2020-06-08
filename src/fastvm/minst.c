@@ -1137,6 +1137,7 @@ int                 minst_cfg_classify(struct minst_blk *blk)
         if (cfg->id == 0) continue;
 
         minst_preds_foreach(cfg->start, pred_node) {
+            if (!pred_node->minst) continue;
             pcfg = pred_node->minst->cfg;
 
             if (bitset_get(&visitall, pcfg->id)) continue;

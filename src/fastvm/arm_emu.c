@@ -780,7 +780,11 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     int firstcond = emu->code.ctx.cond;
     int mask = emu->code.ctx.imm;
 
-    if (0 == mask) ARM_UNPREDICT();
+    if (0 == mask) {
+        arm_prepare_dump(emu, "nop");
+        return 0;
+    }
+
     if (0xf == firstcond) ARM_UNPREDICT();
     if ((0xe == firstcond) && (BitCount(mask) != 1)) ARM_UNPREDICT();
     if (minst_in_it_block(minst)) ARM_UNPREDICT();
@@ -1453,6 +1457,61 @@ static int thumb_inst_teq(struct arm_emu *emu, struct minst *minst, uint16_t *co
     return 0;
 }
 
+static char* vst1_reglist2str(int d, int regs, char *buf)
+{
+    char o[16];
+    buf[0] = 0;
+    strcat(buf, "{");
+    while (regs--) {
+        strcat(buf, "d");
+        strcat(buf, itoa(d++, o, 10));
+        if (regs) strcat(buf, "-");
+    }
+    strcat(buf, "}");
+
+    return buf;
+}
+
+/* @AAR.P1064 */
+static int thumb_inst_vst1(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    char reglist[32];
+    int size = BITS_GET(code[1], 6, 2),
+        align = BITS_GET(code[1], 4, 2),
+        type = BITS_GET(code[1], 8, 4), regs,
+        wback = (EC().lm != 15);
+
+    switch (type) {
+    case 0b0111:
+        regs = 1; if (align >> 1) ARM_UNDEFINED();
+        break;
+
+    case  0b1010:
+        regs = 2; if (align == 0b11) ARM_UNDEFINED();
+        break;
+
+    case 0b0110:
+        regs = 3; if (align >> 1) ARM_UNDEFINED();
+        break;
+
+    case 0b0010:
+        regs = 4;
+        break;
+
+    default:
+        vm_error("Related encodings");
+    }
+
+    if (wback)
+        arm_prepare_dump(emu, "vst1%s.%d %s, [%s]!", minst_it_cond_str(minst), 
+            size * 8, vst1_reglist2str(EC().vd, regs, reglist), regstr[EC().ln]);
+    else
+        arm_prepare_dump(emu, "vst1%s.%d %s, [%s], %s", minst_it_cond_str(minst), 
+            size * 8, vst1_reglist2str(EC().vd, regs, reglist), regstr[EC().ln], regstr[EC().lm]);
+
+    return 0;
+}
+
 /*
 
 definition about inst reg rule
@@ -1543,6 +1602,8 @@ struct arm_inst_desc desclist[] = {
     {"1111 1000 0000 ln4 lm4 1p1 u1 w1 i8",     {thumb_inst_strb}, {"strb<c> <Rt>,[<Rn>,#+/-<imm8>]"}},
     {"1111 1000 1100 ln4 lm4 i12",              {thumb_inst_str}, {"str<c>.w <Rt>,[<Rn>,#<imm12>]"}},
     {"1111 1000 0100 ln4 lp4 000000 i2 lm4",    {thumb_inst_str}, {"str<c>.w <lo>,[<ln>,<lm>{, LSL #<shift>}]"}},
+
+    {"1111 1001 0d1 00 ln4 vd4 i8 lm4",    {thumb_inst_vst1}, {"str<c>.w <lo>,[<ln>,<lm>{, LSL #<shift>}]"}},
 };
 
 static int init_inst_map = 0;
