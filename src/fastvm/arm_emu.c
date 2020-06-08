@@ -797,8 +797,10 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     return 0;
 }
 
-static int t1_inst_eor(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+static int thumb_inst_eor(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    arm_prepare_dump(emu, "eor%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
+
     return 0;
 }
 
@@ -834,7 +836,20 @@ static int t1_inst_cmn(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 
 static int thumb_inst_orr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    arm_prepare_dump(emu, "orr%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
+    int imm;
+
+    if (len == 1) {
+        arm_prepare_dump(emu, "orr%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
+    }
+    else {
+        imm = BITS_GET_SHL(code[1], 12, 3, 2) + BITS_GET_SHL(code[1], 6, 2, 0);
+        if (imm)
+            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s, %d", EC().setflags ? "s":"", minst_it_cond_str(minst), 
+                regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
+        else
+            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s", EC().setflags ? "s":"", minst_it_cond_str(minst), 
+                regstr[EC().ld], regstr[EC().ln], regstr[EC().lm]);
+    }
 
     return 0;
 }
@@ -1366,6 +1381,69 @@ static int thumb_inst_vpop(struct arm_emu *emu, struct minst *minst, uint16_t *c
     return 0;
 }
 
+static char *simd_cmode2dt(int op, int cmode, char *buf)
+{
+    int c = cmode >> 1;
+
+    char *type[] = {
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i16",
+        "i16",
+        "i32",
+    };
+
+    if (c < 7)  return type[c];
+    if (op) {
+        if (cmode & 1) ARM_UNDEFINED();
+
+        return "i64";
+    }
+    else 
+        return (cmode & 1) ? "f32" : "i8";
+}
+
+static char *vregstr(int q, int d, char *buf)
+{
+    sprintf(buf, "%c%d", q?'q':'d', d / (q + 1));
+
+    return buf;
+}
+
+static int thumb_inst_vmov(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    char buf[64], buf1[64];
+    int op = BITS_GET(code[1], 5, 1),
+        q = BITS_GET(code[1], 6, 1),
+        cmode = BITS_GET(code[1], 8, 4),
+        imm = BITS_GET_SHL(code[0], 12, 1, 7) + BITS_GET_SHL(code[0], 0, 3, 4) + BITS_GET_SHL(code[1], 0, 4, 0);
+
+    /* @AAR. P936 */
+    if ((0 == op) && BITS_GET(cmode, 0, 1) == 1 && BITS_GET(cmode, 2, 2) != 0b11) vm_error("vorr immediate");
+    if ((1 == op) && cmode != 0b1110) vm_error("related encodings");
+    if ((1 == q) && ((EC().vd & 1) == 1)) ARM_UNDEFINED();
+
+    arm_prepare_dump(emu, "vmov%s.%s %s, 0x%llx", minst_it_cond_str(minst), simd_cmode2dt(op, cmode, buf), vregstr(q, EC().vd, buf1), AdvSIMDExpandImm(op, cmode, imm));
+    return 0;
+}
+
+static int thumb_inst_teq(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
+{
+    enum SRType stype;
+    int imm = BITS_GET_SHL(code[1], 12, 3, 2) + BITS_GET_SHL(code[1], 6, 2, 0);
+
+    int s = DecodeImmShift(EC().t, imm, &stype);
+
+    if (s)
+        arm_prepare_dump(emu, "teq%s %s, %s, %x", minst_it_cond_str(minst), regstr[EC().ln], regstr[EC().lm], s);
+    else
+        arm_prepare_dump(emu, "teq%s %s, %s", minst_it_cond_str(minst), regstr[EC().ln], regstr[EC().lm]);
+
+    return 0;
+}
+
 /*
 
 definition about inst reg rule
@@ -1393,7 +1471,7 @@ struct arm_inst_desc desclist[] = {
     {"0011    0 ld3 i8",                    {t1_inst_add}, {"add"}},
     {"0011    1 ld3 i8",                    {thumb_inst_sub}, {"sub"}},
 
-    {"0100    0000 o2 lm3 ld3",             {t1_inst_and, t1_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
+    {"0100    0000 o2 lm3 ld3",             {t1_inst_and, thumb_inst_eor, t1_inst_lsl, t1_inst_lsr}, {"and", "eor", "lsl2", "lsr2"}},
     {"0100    0001 o2 lm3 ld3",             {t1_inst_asr, t1_inst_adc, t1_inst_sbc, t1_inst_ror}, {"asr", "adc", "sbc", "ror"}},
     {"0100    0010 0o1 lm3 ld3",            {t1_inst_tst, t1_inst_neg}, {"tst", "neg"}},
     {"0100    0010 1o1 lm3 ln3",            {thumb_inst_cmp, t1_inst_cmn}, {"cmp", "cmn"}},
@@ -1424,8 +1502,14 @@ struct arm_inst_desc desclist[] = {
     {"1110 1001 0010 1101 0 m1 0 rl13",     {thumb_inst_push}, "push.w"},
     {"1110 1000 1011 1101 i1 m1 0 rl13",    {thumb_inst_pop}, "pop.w"},
 
+    {"1110 1010 010s1 ln4 0 i3 ld4 i2 t2 lm4",    {thumb_inst_orr}, "orr{s}<c>.W <ld>,<lm>{, <shift>}"},
+
     {"1110 1101 0d1 10 1101 vd4 1011 i8",   {thumb_inst_vpush}, "vpush<c> <list>"},
     {"1110 1100 1d1 11 1101 vd4 1011 i8",   {thumb_inst_vpop},  "vpop <list>"},
+
+    {"1110 1010 1001 ln4 0i3 1111 i2 t2 lm4",   {thumb_inst_teq},  "teq<c> <ln>, <lm>{, <shift>}"},
+
+    {"111i1 1111 1d1 00 0i3 vd4 i4 0i2 1 i4",   {thumb_inst_vmov},  "vmov"},
 
     {"1110 1011 000s1 ln4 0i3 ld4 i2 t2 lm4 ",  {thumb_inst_add}, "add{s}<c>.W <ld>,<ln>,<lm>{, <shift>}"},
     {"1111 0i1 01 000s1 1101 0i3 ld4 i8",       {thumb_inst_add}, "add{S}<c>.W <Rd>,SP#<const>"},

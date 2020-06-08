@@ -372,3 +372,87 @@ static inline struct bits AddWithCarry(int x, int y, int carry_in)
 
     return result;
 }
+
+static inline int64_t Replicate(int imm, int bn, int n)
+{
+    int64_t i64 = imm;
+
+    while (n--) 
+        i64 = (i64 << bn) + imm;
+
+    return i64;
+}
+
+/* @AAR.P271*/
+static inline int64_t AdvSIMDExpandImm(int op, int cmode, int i8) 
+{
+    int c = cmode >> 1,
+        c0 = cmode & 1,
+        testimm8  = 0;
+    int64_t imm64;
+    int imm32;
+    switch (c) {
+    case 0b000: 
+        imm64 = Replicate(i8, 32, 2); 
+        break;
+
+    case 0b001:
+        testimm8 = 1;
+        imm64 = Replicate(i8 << 8, 32, 2);
+        break;
+
+    case 0b010:
+        testimm8 = 1;
+        imm64 = Replicate(i8 << 16, 32, 2);
+        break;
+
+    case 0b011:
+        testimm8 = 1;
+        imm64 = Replicate(i8 << 24, 32, 2);
+        break;
+
+    case 0b100:
+        imm64 = Replicate(i8, 16, 4);
+        break;
+
+    case 0b101:
+        testimm8 = 1;
+        imm64 = Replicate(i8 << 8, 16, 4);
+        break;
+
+    case 0b110:
+        testimm8 = 1;
+        if (0 == c0)
+            imm64 = Replicate(i8 << 8 | 0xff, 32, 2);
+        else
+            imm64 = Replicate(i8 << 16 | 0xffff, 32, 2);
+        break;
+
+    case 0b111:
+        testimm8 = 0;
+        if ((0 == c0) && (0 == op))
+            imm64 = Replicate(i8, 8, 8);
+        else if ((0 == c0) && (1 == op)) {
+            imm64 = ((int64_t)((i8 & 0x80) ? 0xff : 0x00) << 56)
+                + ((int64_t)((i8 & 0x40) ? 0xff : 0x00) << 48)
+                + ((int64_t)((i8 & 0x20) ? 0xff : 0x00) << 40)
+                + ((int64_t)((i8 & 0x10) ? 0xff : 0x00) << 32)
+                + ((int64_t)((i8 & 0x08) ? 0xff : 0x00) << 24)
+                + ((int64_t)((i8 & 0x04) ? 0xff : 0x00) << 16)
+                + ((int64_t)((i8 & 0x02) ? 0xff : 0x00) << 8)
+                + ((int64_t)(i8 & 0x01) ? 0xff : 0x00);
+        }
+        else if ((1 == c0) && (0 == op)) {
+            imm32 = BITS_GET_SHL(i8, 7, 1, 31)
+                + SHL(NOT(BITS_GET(i8, 6, 1)), 30)
+                + SHL((BITS_GET(i8, 6, 1) ? 0b11111 : 0), 24)
+                + BITS_GET_SHL(i8, 0, 6, 19);
+            imm64 = Replicate(imm32, 32, 2);
+        }
+        else if ((1 == c0) && (1 == op)) ARM_UNDEFINED();
+    }
+
+    if (testimm8 && (i8 == 0)) ARM_UNPREDICT();
+
+    return imm64;
+}
