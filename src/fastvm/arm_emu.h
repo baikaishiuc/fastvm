@@ -131,7 +131,7 @@ arm assembly to binary code
 @return     != NULL     success
             
 */
-char* arm_asm2bin(const char *asm, char *bin, int *olen);
+char* arm_asm2bin(char *bin, int *olen, const char *asm, ...);
 
 #endif /* __arm_emu_h__ */
 

@@ -789,117 +789,6 @@ int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, str
     return 0;
 }
 
-/*
-对抗混淆用的多路径常量传播
-
-@cfg[in]            cfg[n]节点中的任意一条指令，用这条指令来代表这个cfg节点
-@pass[in]           我们假设某个cfg节点只有2条出边，先暂不考虑switch case导致的多(>2)后继节点的情况，
-                    pass代表符合<cond>走入后继节点时，选择的方向
-@regm[in]           检测使用的寄存器
-@d[out]             检测到的从符合Pass条件的走出的分支入边节点
-@id[out]            和d相反 
-@return 0           成功
-        <0          失败
-*/
-int                 minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id)
-{
-    BITSET_INIT(allvisit);
-    BITSET_INIT(iallvisit);
-    struct bitset defs;
-    struct minst *succ = cfg, *start;
-    struct minst *pass_minst, *not_pass_minst;
-    struct minst_node *succ_node;
-
-    bitset_init(&defs, blk->allinst.len + 1);
-    bitset_clone(&defs, &cfg->rd_in);
-    bitset_and(&defs, &blk->defs[reg_use]);
-
-    /* 找到当前cfg的后继出口 */
-    for (; succ; succ = succ->succs.minst) {
-        if (succ->succs.next) {
-            if ((succ->succs.minst->id == (succ->id + 1))) {
-                pass_minst = succ->succs.next->minst;
-                not_pass_minst = succ->succs.minst;
-            }
-            else {
-                not_pass_minst = succ->succs.next->minst;
-                pass_minst = succ->succs.minst;
-            }
-
-            start = pass ? pass_minst : not_pass_minst;
-            break;
-        }
-    }
-
-    struct minst *stack[128];
-    int stack_top = -1, ret = 0;
-
-    bitset_init(&allvisit, blk->allinst.len + 1);
-    bitset_init(&iallvisit, blk->allinst.len + 1);
-    MSTACK_PUSH(stack, start);
-    bitset_set(&allvisit, start->id, 1);
-
-    /* 就是一个广度优先得搜索，并做了一些特殊处理  */
-    while (!MSTACK_IS_EMPTY(stack)) {
-        start = MSTACK_POP(stack);
-
-        for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
-            if (!(succ = succ_node->minst)) continue;
-
-            if (succ->cfg == cfg->cfg) continue;
-            if (bitset_get(&allvisit, succ->id)) continue;
-
-            if (bitset_get(&defs, succ->id)) {
-                if (succ->flag.is_const) {
-                    dynarray_add(d, succ);
-                    bitset_set(&allvisit, succ->id, 1);
-                    continue;
-                }
-                ret = -1; goto exit;
-            }
-
-            MSTACK_PUSH(stack, succ);
-            bitset_set(&allvisit, succ->id, 1);
-        }
-    }
-
-    /* 遍历另外分支的节点 */
-    start = pass ? not_pass_minst:pass_minst;
-    if (bitset_get(&allvisit, start->id)) {
-        ret = -1; goto exit;
-    }
-    MSTACK_PUSH(stack, start);
-    bitset_set(&iallvisit, start->id, 1);
-
-    while (!MSTACK_IS_EMPTY(stack)) {
-        start = MSTACK_POP(stack);
-        for (succ_node = &start->succs; succ_node; succ_node = succ_node->next) {
-            if (!(succ = succ_node->minst)) continue;
-            /* 这条边已经访问过，退出 */
-            if (bitset_get(&iallvisit, succ->id)) continue;
-
-            if (bitset_get(&allvisit, succ->id) && minst_is_bidirect(start, succ)) {
-                ret = -1; goto exit;
-            }
-
-            if (bitset_get(&defs, succ->id)) {
-                dynarray_add(id, succ);
-                bitset_set(&iallvisit, succ->id, 1);
-                continue;
-            }
-
-            MSTACK_PUSH(stack, succ);
-            bitset_set(&allvisit, succ->id, 1);
-        }
-    }
-
-exit:
-    bitset_uninit(&allvisit);
-    bitset_uninit(&iallvisit);
-    bitset_uninit(&defs);
-    return ret;
-}
-
 int                 minst_blk_out_of_order(struct minst_blk *blk)
 {
     struct minst_cfg *cfg;
@@ -948,7 +837,9 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
     struct minst *m;
     int i;
 
-    for (i = before?before:blk->trace_top; i >= 0; i--) {
+    i = (before > 0) ? before : (before + blk->trace_top);
+
+    for (; i >= 0; i--) {
         m = blk->trace[i];
         if (minst_get_def(m) == regm) {
             if (index) *index = i;
@@ -957,6 +848,49 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
     }
 
     return NULL;
+}
+
+int                 minst_trace_get_defs(struct minst_blk *blk, int regm, int before, struct bitset *defs)
+{
+    struct minst *m, *end, *m1;
+    BITSET_INITS(all, blk->allinst.len);
+    struct minst_node *succ_node;
+    struct minst *stack[512];
+    int stack_top = -1;
+
+    before = (before > 0) ? before : (blk->trace_top + before);
+
+    end = blk->trace[before];
+
+    m = blk->trace[0];
+    MSTACK_PUSH(stack, m);
+
+    while (!MSTACK_IS_EMPTY(stack)) {
+        m = MSTACK_POP(stack);
+        bitset_set(&all, m->id, 1);
+        if (m == end) continue;
+
+        minst_succs_foreach(m, succ_node) {
+            m1 = succ_node->minst;
+            if (m1 && !bitset_get(&all, m1->id))
+                MSTACK_PUSH(stack, m1);
+        }
+    }
+
+    bitset_clear(defs);
+    /* 取出所有对regm定值的语句 */
+    bitset_clone(defs, &blk->defs[regm]);
+    /* 在end入口点活跃的regm的定制语句*/
+    bitset_and(defs, &end->rd_in);
+    if (regm == 9) {
+        bitset_dump(&blk->defs[regm]);
+        bitset_dump(defs);
+        //bitset_dump(&all);
+    }
+    /* 在当前trace流中活跃的regm定值语句 */
+    bitset_and(defs, &all);
+
+    return bitset_count(defs);
 }
 
 struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int before)
@@ -1045,37 +979,7 @@ struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *
 
 int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *state_reg)
 {
-    struct minst_blk *blk = cfg->blk;
-    struct minst *end = cfg->end, *minst, *t;
-    int i, use_reg;
-
-    if (cfg->flag.dead_code) return 0;
-    if (minst_preds_count(cfg->start) <= 1) return 0;
-
-    minst = minst_cfg_apsr_get_overdefine_reg(cfg, &use_reg);
-    if ((NULL == minst) || (use_reg == -1))
-        return 0;
-
-    if (minst->type != mtype_mov_reg)
-        return 0;
-
-    BITSET_INITS(defs, blk->allinst.len);
-    bitset_clone(&defs, &blk->defs[use_reg]);
-    bitset_and(&defs, &minst->rd_in);
-    bitset_foreach(&defs, i) {
-        t = blk->allinst.ptab[i];
-        if (t->flag.is_const) continue;
-
-        if ((t->type == mtype_mov_reg)
-            && minst_get_def(t) == minst_get_use(minst)
-            && minst_get_use(t) == minst_get_def(minst)) continue;
-
-        bitset_uninit(&defs);
-        return 0;
-    }
-
-    bitset_uninit(&defs);
-    return 1;
+    return minst_preds_count(cfg->start) >= 7;
 }
 
 int                 minst_cfg_classify(struct minst_blk *blk)

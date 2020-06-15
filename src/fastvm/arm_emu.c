@@ -720,6 +720,8 @@ static int t1_inst_cmp_imm(struct arm_emu *emu, struct minst *minst, uint16_t *c
 {
     arm_prepare_dump(emu, "cmp %s, 0x%x", regstr[emu->code.ctx.lm], emu->code.ctx.imm);
 
+    minst->type = mtype_cmp;
+
     liveness_set(&emu->mblk, ARM_REG_APSR, emu->code.ctx.lm);
 
     return 0;
@@ -1321,7 +1323,7 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             minst_del_edge(minst, tminst);
 
             /* 删除一条边以后，bcond指令就要改成b指令了 */
-            arm_asm2bin("b", bincode, &binlen);
+            arm_asm2bin(bincode, &binlen, "b");
             live_use_clear(&emu->mblk, ARM_REG_APSR);
             t = minst_change(minst, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
         }
@@ -2599,6 +2601,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
     int ret, i, trace_start, binlen, prev_cfg_pos;
     int trace_flat_times = 0;
     BITSET_INITS(cfg_visit, blk->allcfg.len);
+    BITSET_INITS(defs, blk->allinst.len);
 
 #define MTRACE_PUSH_CFG(_cfg) do { \
         struct minst *start = (_cfg)->start; \
@@ -2643,6 +2646,92 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
             case MDO_SUCCESS:
                 if (minst_succs_count(minst) > 1) {
                     if (minst_is_tconst(minst)) {
+                        int index[5], p_index;
+                        int counts;
+                        /* 检查所有tconst结果的bcond语句，确认trace的结果是否是唯一分支 */
+                        struct minst *cmp = minst_trace_get_def(blk, ARM_REG_APSR, &index[0], -1);
+                        struct minst *m1;
+
+                        if (cmp->type != mtype_cmp)
+                            vm_error("found def apsr register un-support inst type");
+
+                        /* 确定cmp 指令中的二个操作数哪个是常量，哪个不是
+                        1. 二个都是常量，那么可以直接删除掉一边，这个在常量优化中已经干掉
+                        2. 一个是常量，一个是trace常量，那么我们需要确认这个trace的常量在当前的trace
+                            节点集合中是否是唯一的，假如是唯一就代表可以优化，假如不是唯一，就要在这个
+                            地方切分cfg节点，比如trace节点可能有2个值
+                        */
+                        struct minst *lm = minst_trace_get_def(blk, cmp->cmp.lm, &index[1], index[0]);
+                        struct minst *ln = minst_trace_get_def(blk, cmp->cmp.ln, &index[2], index[0]);
+                        struct minst *trace_m;
+
+                        trace_m = !lm->flag.is_const ? lm : ln;
+                        index[3] = !lm->flag.is_const ? index[1]:index[2];
+
+                        m1 = minst_trace_get_def(blk, minst_get_def(trace_m), &index[4], index[3]);
+                        if (m1->type == mtype_mov_reg) {
+                            do {
+                                p_index = index[4];
+                                m1 = minst_trace_get_def(blk, minst_get_use(m1), &index[4], index[4]);
+                            } while (m1->type == mtype_mov_reg);
+
+                            counts = minst_trace_get_defs(blk, minst_get_def(m1), p_index, &defs);
+
+                            if (counts > 1) {
+                                printf("found multi-path in const status machine, [%d, %d]\n", m1->id, counts);
+
+                                if (counts != 2)
+                                    vm_error("exit with not support %d const", counts);
+
+                                bitset_foreach(&defs, i) {
+                                    t = blk->allinst.ptab[i];
+                                    if (!t->flag.is_const) {
+                                        vm_error("const machine not const");
+                                    }
+                                }
+
+                                prev_cfg = minst_trace_find_prev_cfg(blk, &prev_cfg_pos, 0);
+                                last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
+
+                                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+
+                                /* 当我们发现常量状态机中需要插入一个cfg时，因为arm中比较一个4字节立即数，需要先移动数据到
+                                寄存器中，所以我们插入了一个mov immediate的指令，但是具体寄存器用哪个呢？
+                                用当前cfg的第一个被def的指令，应该没有问题
+                                除非这个寄存器他的使用和定值都用同一个，但是在这个常亮状态机中不会 */
+                                arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(last_cfg->start), trace_m->ld_imm & 0xffff);
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", minst_get_def(trace_m), minst_get_def(last_cfg->start));
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "b");
+                                minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                if (minst_is_b(prev_cfg->end)) {
+                                    minst_del_edge(prev_cfg->end, last_cfg->start);
+                                    minst_add_edge(prev_cfg->end, cfg->start);
+                                    minst_add_edge(cfg->end, last_cfg->start);
+                                }
+                                else {
+                                    /* 插入一个cfg节点在当前的cfg节点和前一个节点当中
+                                    */
+                                    if (prev_cfg->end->succs.minst == last_cfg->start) 
+                                        prev_cfg->end->succs.minst = cfg->start;
+                                    else 
+                                        prev_cfg->end->succs.next->minst = cfg->start;
+
+                                    minst_pred_del(last_cfg->start, prev_cfg->end);
+
+                                    minst_add_edge(cfg->end, last_cfg->start);
+                                    minst_add_edge(cfg->end, last_cfg->start);
+                                }
+                            }
+                        }
+
                         if (minst->flag.b_cond_passed) 
                             MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
                         else 
@@ -2684,7 +2773,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                             goto loop_label;
                         }
 
-                        bitset_set(&cfg_visit, undefined_bcond->cfg->id, 0);
+                        bitset_set(&cfg_visit, undefined_bcond->cfg->id, 1);
 
                         if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, -1)) {
                             printf("seems we meet least fix point\n");
@@ -2732,7 +2821,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                     if (!cfg->start)    cfg->start = n;
                 }
                 /* cfg末尾需要添加一条实际的jmp指令 */
-                arm_asm2bin("b", bincode, &binlen);
+                arm_asm2bin(bincode, &binlen, "b");
                 t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
                 cfg->end = t;
 
@@ -2789,8 +2878,8 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
                 arm_emu_dump_mblk(emu, bincode);
 
-#if 0
-                minst_blk_const_propagation(emu, 1);
+                minst_blk_const_propagation(emu, 0);
+#if 1
                 strcat(bincode, "o");
                 arm_emu_dump_cfg(emu, bincode);
 #endif
@@ -2958,19 +3047,63 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
     return 0;
 }
 
-char *arm_asm2bin(const char *asm, char *bin, int *len)
+char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
 {
-    static char bin2[8];
-    short t1;
-    int c;
+    char buf[128];
+    short t1, t2;
+    int i, len, rd, imm, rm, rn;
 
-    if (!bin)
-        bin = bin2;
+    va_list ap;
+    va_start(ap, asm);
+    vsnprintf(buf, sizeof (buf), asm, ap);
+    va_end(ap);
 
-    c = tolower(*asm);
-    switch (c) {
+    len = strlen(buf);
+    for (i = 0; i < len; i++)
+        buf[i] = tolower(buf[i]);
+
+    switch (buf[0]) {
     case 'b':
+        /* @AAR.P334 */
         t1 = 0xe000;
+        if (buf[1] == 'e') {
+        }
+        len = 2;
+        break;
+
+    case 'c':
+        sscanf(buf, "cmp r%d, r%d", &rn, &rm);
+        t1 = 0b0100010100000000;
+        t1 |= rm << 4;
+        t1 |= rn & 3;
+        t1 |= (rn & 0x8) << 7;
+        len = 2;
+        break;
+
+    case 'm':
+        rd = atoi(strchr(buf, 'r') + 1);
+        imm = atoi(strchr (buf, ',') + 1);
+        if (buf[3] == 't') {
+            /* P491 */
+            t1 = 0b1111001011000000;
+            t2 = 0b0000000000000000;
+            t1 |= BITS_GET_SHL(imm, 11, 1, 10);
+            t1 |= BITS_GET_SHL(imm, 12, 4, 0);
+            t2 |= rd << 8;
+            t2 |= BITS_GET_SHL(imm, 8, 3, 12);
+            t2 |= BITS_GET_SHL(imm, 0, 8, 0);
+        }
+        else {
+            /* P484 */
+            t1 = 0b1111001001000000;
+            t2 = 0b0000000000000000;
+            t1 |= ((imm >> 1) & 1) << 10;
+            t1 |= imm & 0xf;
+            t2 |= ((imm >> 8) & 7) << 12;
+            t2 |= rd << 8;
+            t2 |= imm & 0xff;
+        }
+        len = 4;
         break;
 
     default:
@@ -2978,9 +3111,11 @@ char *arm_asm2bin(const char *asm, char *bin, int *len)
     }
 
     memcpy(bin, &t1, 2);
+    if (len == 4)
+        memcpy(bin,  &t2, 2);
 
-    if (len)
-        *len = 2;
+    if (olen)
+        *olen = len;
 
     return bin;
 }

@@ -45,6 +45,7 @@ struct bitset
     int             bitset_is_empty(struct bitset *bs);
     int             bitset_next_bit_pos(struct bitset *bs, int pos);
     int             bitset_count(struct bitset *bs);
+    void            bitset_dump(struct bitset *bs);
 
 #define bitset_foreach(bs, _i) \
     for (_i = bitset_next_bit_pos(bs, 0); _i >= 0; _i = bitset_next_bit_pos(bs, _i + 1)) 

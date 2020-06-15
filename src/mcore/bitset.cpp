@@ -267,3 +267,15 @@ void            bitset_expand(struct bitset *bs, int len)
 {
     bitset__expand(bs, len);
 }
+
+void            bitset_dump(struct bitset *bs)
+{
+    int i;
+
+    printf("{");
+    bitset_foreach(bs, i) {
+        printf("%d ", i);
+    }
+    printf("}");
+}
+

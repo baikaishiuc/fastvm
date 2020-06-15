@@ -100,6 +100,9 @@ struct minst {
     struct bitset rd_out;
     struct bitset kills;
 
+    struct bitset t_in;
+    struct bitset t_out;
+
     struct minst_node preds;
     struct minst_node succs;
 
@@ -340,6 +343,10 @@ struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *mins
 @before 从哪个位置开始
 */
 struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *index, int before);
+/*
+判断在某点出的寄存器，在trace流(除最后一点)的后继节点中是否有多个定义
+*/
+int                 minst_trace_get_defs(struct minst_blk *blk, int regm, int before, struct bitset *defs);
 struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int before);
 struct minst_cfg*   minst_trace_find_prev_cfg(struct minst_blk *blk, int *index, int before);
 /*
@@ -361,8 +368,6 @@ struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *
 */
 int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *def_val);
 
-int  minst_blk_get_all_branch_reg_const_def(struct minst_blk *blk, 
-    struct minst *cfg, int pass, int reg_use, struct dynarray *d, struct dynarray *id);
 
 #ifdef __cplusplus
 }
