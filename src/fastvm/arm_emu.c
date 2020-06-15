@@ -2517,6 +2517,8 @@ int         arm_emu_run(struct arm_emu *emu)
 {
     int ret;
 
+    arm_gen_sh(emu);
+
     /* first pass */
     arm_emu_cpu_reset(emu);
     EMU_SET_SEQ_MODE(emu);
@@ -2555,10 +2557,7 @@ int         arm_emu_run(struct arm_emu *emu)
     minst_blk_const_propagation(emu);
 #endif
 
-    arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
-
-    arm_gen_sh(emu);
-
+    //arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
 
     return 0;
 }
@@ -2772,7 +2771,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                             MSTACK_PUSH(blk->trace, succ_node->minst);
                             goto loop_label;
                         }
-
                         bitset_set(&cfg_visit, undefined_bcond->cfg->id, 1);
 
                         if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, -1)) {
@@ -2893,6 +2891,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 exit_label:
     bitset_uninit(&cfg_visit);
     minst_blk_const_propagation(emu, 1);
+    arm_emu_dump_cfg(emu, "final");
 
     return 0;
 }
