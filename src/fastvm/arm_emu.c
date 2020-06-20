@@ -578,7 +578,7 @@ static int t1_inst_add1(struct arm_emu *emu, struct minst *minst, uint16_t *code
 
 static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    int imm32;
+    int imm32, skip = 0, setflags = 0;
     if ((code[0] & 0xf000) == 0xa000) {
         arm_prepare_dump(emu, "add %s, sp, #0x%x", regstr[emu->code.ctx.ld], imm32 = emu->code.ctx.imm * 4);
         live_use_set(&emu->mblk, ARM_REG_SP);
@@ -586,19 +586,25 @@ static int t1_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     /* P104.T2 */
     else if ((code[0] & 0xf000) == 0x3000) {
         arm_prepare_dump(emu, "add%s %s, #0x%x", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], EC().imm);
+
+        setflags = !minst_in_it_block(minst);
     }
     /* P106.T1*/
     else if ((code[0] & 0xf800) == 0x1800){
         arm_prepare_dump(emu, "add %s, %s, %s", regstr[EC().ld], regstr[EC().ln], regstr[EC().lm]);
+        skip = 1;
+        setflags = !minst_in_it_block(minst);
     }
     /* P106.T2 */
     else if ((code[0] & 0xff00) == 0x4400) {
         arm_prepare_dump(emu, "add %s, %s", regstr[emu->code.ctx.ld], regstr[emu->code.ctx.lm]);
     }
 
-    if (ConditionPassed(emu) && emu->code.ctx.setflags) {
+    if (!skip)
+        live_use_set(&emu->mblk, EC().ld);
+
+    if (setflags)
         live_def_set(&emu->mblk, ARM_REG_APSR);
-    }
 
     if (IS_DISABLE_EMU(emu))
         return 0;
@@ -816,6 +822,8 @@ static int thumb_inst_eor(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     arm_prepare_dump(emu, "eor%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
 
+    live_use_set(&emu->mblk, EC().ld);
+
     return 0;
 }
 
@@ -851,20 +859,26 @@ static int t1_inst_cmn(struct arm_emu *emu, struct minst *minst, uint16_t *code,
 
 static int thumb_inst_orr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    int imm;
+    int imm, s;
 
     if (len == 1) {
         arm_prepare_dump(emu, "orr%s %s, %s", minst_in_it_block(minst)?minst_it_cond_str(minst):"s", regstr[EC().ld], regstr[EC().lm]);
+        live_use_set(&emu->mblk, EC().ld);
+
+        s = !minst_in_it_block(minst);
     }
     else {
         imm = BITS_GET_SHL(code[1], 12, 3, 2) + BITS_GET_SHL(code[1], 6, 2, 0);
         if (imm)
-            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s, %d", EC().setflags ? "s":"", minst_it_cond_str(minst), 
+            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s, %d", (s = EC().setflags) ? "s":"", minst_it_cond_str(minst), 
                 regstr[EC().ld], regstr[EC().ln], regstr[EC().lm], EC().imm);
         else
-            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s", EC().setflags ? "s":"", minst_it_cond_str(minst), 
+            arm_prepare_dump(emu, "orr%s%s.w %s, %s, %s", (s = EC().setflags) ? "s":"", minst_it_cond_str(minst), 
                 regstr[EC().ld], regstr[EC().ln], regstr[EC().lm]);
     }
+
+    if (s)
+        live_def_set(&emu->mblk, ARM_REG_APSR);
 
     return 0;
 }
@@ -1172,8 +1186,11 @@ static int t1_inst_blx_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
     arm_prepare_dump(emu, "blx %s", regstr[emu->code.ctx.lm]);
 
     live_def_set(&emu->mblk, ARM_REG_R0);
+    live_def_set(&emu->mblk, ARM_REG_R1);
     for (i = 0; i < 4; i++)
         live_use_set(&emu->mblk, ARM_REG_R0 + i);
+
+    minst->type = mtype_bl;
 
     return 0;
 }
@@ -1295,10 +1312,23 @@ static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code
             minst->host_addr = ARM_PC_VAL(emu) + SignExtend(imm, 25);
             arm_prepare_dump(emu, "blx%s 0x%x", minst_it_cond_str(minst), minst->host_addr);
         }
+
+        /* 这个地方设置函数的use和def是不严格的，我们需要严格遍历每个函数的内部，才能计算出他们的参数和返回值
+        这里为了方便，直接把r0-r3当成use，r0-r1当成返回值 */
+        live_use_set(&emu->mblk, ARM_REG_R0);
+        live_use_set(&emu->mblk, ARM_REG_R1);
+        live_use_set(&emu->mblk, ARM_REG_R2);
+        live_use_set(&emu->mblk, ARM_REG_R3);
+        live_def_set(&emu->mblk, ARM_REG_R0);
+        live_def_set(&emu->mblk, ARM_REG_R1);
+
+        minst->type = mtype_bl;
     }
 
-    minst->type = (emu->code.ctx.cond == ARM_COND_AL) ? mtype_b : mtype_bcond;
-    minst->flag.b_cond = emu->code.ctx.cond;
+    if (!minst->type) {
+        minst->type = (emu->code.ctx.cond == ARM_COND_AL) ? mtype_b : mtype_bcond;
+        minst->flag.b_cond = emu->code.ctx.cond;
+    }
 
     if (minst_is_bcond(minst))
         live_use_set(&emu->mblk, ARM_REG_APSR);
@@ -2513,55 +2543,6 @@ static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
 
 int         arm_emu_trace_flat(struct arm_emu *emu);
 
-int         arm_emu_run(struct arm_emu *emu)
-{
-    int ret;
-
-    arm_gen_sh(emu);
-
-    /* first pass */
-    arm_emu_cpu_reset(emu);
-    EMU_SET_SEQ_MODE(emu);
-    minst_blk_live_prologue_add(&emu->mblk);
-    for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
-        ret = arm_insteng_decode(emu, emu->code.data + emu->code.pos, emu->code.len - emu->code.pos);
-        if (ret < 0) {
-            return -1;
-        }
-        emu->code.pos += ret;
-    }
-    minst_blk_live_epilogue_add(&emu->mblk);
-    /* second pass */
-    arm_emu_mblk_fix_pos(emu);
-
-    arm_emu_dump_mblk(emu, "orig");
-    arm_emu_dump_cfg(emu, "orig");
-
-    /* third pass */
-    minst_blk_liveness_calc(&emu->mblk);
-
-    minst_blk_gen_reaching_definitions(&emu->mblk);
-
-    minst_blk_const_propagation(emu, 1);
-
-    //minst_cfg_classify(&emu->mblk);
-    arm_emu_trace_flat(emu);
-
-#if 0
-    //minst_blk_out_of_order(&emu->mblk);
-
-    minst_blk_copy_propagation(&emu->mblk);
-
-    minst_blk_dead_code_elim(&emu->mblk);
-
-    minst_blk_const_propagation(emu);
-#endif
-
-    //arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
-
-    return 0;
-}
-
 int         arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len)
 {
     return 0;
@@ -2590,14 +2571,69 @@ void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
     fclose(fp);
 }
 
+int         arm_emu_dump_csm(struct arm_emu *emu)
+{
+    struct minst_blk *blk = &emu->mblk;
+    struct minst_cfg *cfg, *csm_cfg = NULL;
+    struct minst *m, *lm_minst, *ln_minst, *m_cmp;
+    int i, st_reg;
+    BITSET_INIT(defs);
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+        if (minst_preds_count(cfg->start) >= 7) {
+            csm_cfg = cfg;
+            break;
+        }
+    }
+
+    if (!csm_cfg || (csm_cfg->end->type != mtype_bcond))
+        vm_error("not found const state machine");
+
+    m_cmp = m = minst_cfg_get_last_def(csm_cfg, csm_cfg->end, ARM_REG_APSR);
+
+    lm_minst = minst_get_last_const_definition(blk, m, m->cmp.lm);
+    if (!lm_minst->flag.is_const)
+        vm_error("Sorry, this versionn only support one variable csm");
+
+    ln_minst = minst_cfg_get_last_def(csm_cfg, m, m->cmp.ln);
+    if (ln_minst->type != mtype_mov_reg)
+        vm_error("csm define ln must be another register");
+
+    st_reg = minst_get_use(ln_minst);
+
+    bitset_clone(&defs, &blk->defs[st_reg]);
+    bitset_and(&defs, &ln_minst->rd_in);
+
+    printf("csm[%d] st_reg[r%d]\n", csm_cfg->id, st_reg);
+    bitset_foreach(&defs, i) {
+        m = blk->allinst.ptab[i];
+        if (m->flag.is_const) {
+            if (m->ld_imm > 0)
+                printf("minist[%d] = 0x%x\n", m->id, m->ld_imm);
+            else
+                printf("minist[%d] = %d\n", m->id, m->ld_imm);
+        }
+        else if (m->type == mtype_mov_reg) {
+            if (minst_get_use(m) != m_cmp->cmp.ln) {
+                arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
+            }
+        }
+        else
+            vm_error("Not support csm assign minst[%d]", m->id);
+    }
+
+    return 0;
+}
+
 int         arm_emu_trace_flat(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *t, *n;
-    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *prev_cfg;
+    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *prev_cfg, *true_cfg, *false_cfg;
     struct minst_node *succ_node;
     char bincode[32];
-    int ret, i, trace_start, binlen, prev_cfg_pos;
+    int ret, i, j, trace_start, binlen, prev_cfg_pos;
     int trace_flat_times = 0;
     BITSET_INITS(cfg_visit, blk->allcfg.len);
     BITSET_INITS(defs, blk->allinst.len);
@@ -2649,7 +2685,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                         int counts;
                         /* 检查所有tconst结果的bcond语句，确认trace的结果是否是唯一分支 */
                         struct minst *cmp = minst_trace_get_def(blk, ARM_REG_APSR, &index[0], -1);
-                        struct minst *m1;
+                        struct minst *m1, *false_m;
 
                         if (cmp->type != mtype_cmp)
                             vm_error("found def apsr register un-support inst type");
@@ -2687,33 +2723,62 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                                     if (!t->flag.is_const) {
                                         vm_error("const machine not const");
                                     }
+
+                                    if (t->ld_imm != trace_m->ld_imm) {
+                                        false_m = t;
+                                    }
                                 }
 
                                 prev_cfg = minst_trace_find_prev_cfg(blk, &prev_cfg_pos, 0);
                                 last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
 
-                                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-
                                 /* 当我们发现常量状态机中需要插入一个cfg时，因为arm中比较一个4字节立即数，需要先移动数据到
                                 寄存器中，所以我们插入了一个mov immediate的指令，但是具体寄存器用哪个呢？
                                 用当前cfg的第一个被def的指令，应该没有问题
                                 除非这个寄存器他的使用和定值都用同一个，但是在这个常亮状态机中不会 */
-                                arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(last_cfg->start), trace_m->ld_imm & 0xffff);
-                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                {
+                                    cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
 
-                                arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
-                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(last_cfg->start), trace_m->ld_imm & 0xffff);
+                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
-                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", minst_get_def(trace_m), minst_get_def(last_cfg->start));
-                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
+                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
-                                arm_asm2bin(bincode, &binlen, "b");
-                                minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                    arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", minst_get_def(trace_m), minst_get_def(last_cfg->start));
+                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                    arm_asm2bin(bincode, &binlen, "b");
+                                    t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                    t->flag.undefined_bcond = 1;
+                                }
+
+                                {
+                                    true_cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+
+                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(trace_m), trace_m->ld_imm & 0xffff);
+                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
+                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                }
+
+                                {
+                                    false_cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+
+                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(trace_m), false_m->ld_imm & 0xffff);
+                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (false_m->ld_imm >> 16) & 0xffff);
+                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                }
+                                /* 第一条边是false边 */
+                                minst_add_edge(cfg->end, false_cfg->start);
+                                minst_add_edge(cfg->end, true_cfg->start);
 
                                 if (minst_is_b(prev_cfg->end)) {
                                     minst_del_edge(prev_cfg->end, last_cfg->start);
                                     minst_add_edge(prev_cfg->end, cfg->start);
-                                    minst_add_edge(cfg->end, last_cfg->start);
                                 }
                                 else {
                                     /* 插入一个cfg节点在当前的cfg节点和前一个节点当中
@@ -2724,10 +2789,17 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                                         prev_cfg->end->succs.next->minst = cfg->start;
 
                                     minst_pred_del(last_cfg->start, prev_cfg->end);
-
-                                    minst_add_edge(cfg->end, last_cfg->start);
-                                    minst_add_edge(cfg->end, last_cfg->start);
                                 }
+
+                                minst_add_edge(true_cfg->end, last_cfg->start);
+                                minst_add_edge(false_cfg->end, last_cfg->start);
+
+                                EMU_SET_CONST_MODE(emu);
+                                for (i = cfg->start->id; i < blk->allinst.len; i++) {
+                                    arm_minst_do(emu, blk->allinst.ptab[i]);
+                                }
+                                minst_blk_const_propagation(emu, 0);
+                                EMU_SET_TRACE_MODE(emu);
                             }
                         }
 
@@ -2758,7 +2830,7 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 1. 假如前cfg节点为已规约节点，则开始进行回溯
                 2. 产生回环时进行回溯
                  */
-                if (prev_cfg && bitset_get(&cfg_visit, prev_cfg->id)) {
+                if (prev_cfg && prev_cfg->flag.reduced) {
                     struct minst *undefined_bcond;
 
                     while (!MSTACK_IS_EMPTY(blk->trace)) {
@@ -2766,12 +2838,11 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
                         minst_succs_foreach(undefined_bcond, succ_node) {
                             if (!succ_node->minst) continue;
-                            if (bitset_get(&cfg_visit, succ_node->minst->cfg->id)) continue;
+                            if (succ_node->f.visited) continue;
 
                             MSTACK_PUSH(blk->trace, succ_node->minst);
                             goto loop_label;
                         }
-                        bitset_set(&cfg_visit, undefined_bcond->cfg->id, 1);
 
                         if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, -1)) {
                             printf("seems we meet least fix point\n");
@@ -2803,6 +2874,20 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
 
                     minst_trace_find_prev_cfg(blk, &i, i);
                 }
+                else {
+                    for (j = i; j <= blk->trace_top; j++) {
+                        t = blk->trace[j];
+                        if (minst_is_bcond(t) && minst_is_tconst(t))
+                            break;
+                    }
+
+                    /* 2个undefined bcond 之间没有其他节点 */
+                    if (j > blk->trace_top) {
+                        minst_edge_set_visited(minst, minst->succs.minst);
+                        MSTACK_PUSH(blk->trace, minst->succs.minst);
+                        break;
+                    }
+                }
 
                 /* 把trace流上的节点从前驱节点的后继中删除 */
                 minst_del_edge(blk->trace[i], blk->trace[i+1]);
@@ -2823,7 +2908,6 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
                 cfg->end = t;
 
-
                 /* 
                 1. 连接start节点到trace节点
                 2. 连接新的cfg到最后一个undefined bcond cfg中
@@ -2832,6 +2916,8 @@ int         arm_emu_trace_flat(struct arm_emu *emu)
                 minst_add_edge(t, cfg->start);
                 minst_add_edge(cfg->end, last_cfg->start);
 
+                cfg->flag.reduced = 1;
+                minst_edge_set_visited(t, cfg->start);
                 bitset_set(&cfg_visit, cfg->id, 1);
                 bitset_set(&cfg_visit, t->cfg->id, 1);
 
@@ -2892,6 +2978,7 @@ exit_label:
     bitset_uninit(&cfg_visit);
     minst_blk_const_propagation(emu, 1);
     arm_emu_dump_cfg(emu, "final");
+    minst_edge_clear_visited(blk);
 
     return 0;
 }
@@ -3118,3 +3205,56 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
 
     return bin;
 }
+
+int         arm_emu_run(struct arm_emu *emu)
+{
+    int ret;
+
+    arm_gen_sh(emu);
+
+    /* first pass */
+    arm_emu_cpu_reset(emu);
+    EMU_SET_SEQ_MODE(emu);
+    minst_blk_live_prologue_add(&emu->mblk);
+    for (emu->code.pos = 0; emu->code.pos < emu->code.len; ) {
+        ret = arm_insteng_decode(emu, emu->code.data + emu->code.pos, emu->code.len - emu->code.pos);
+        if (ret < 0) {
+            return -1;
+        }
+        emu->code.pos += ret;
+    }
+    minst_blk_live_epilogue_add(&emu->mblk);
+    /* second pass */
+    arm_emu_mblk_fix_pos(emu);
+
+    arm_emu_dump_cfg(emu, "orig");
+
+    /* third pass */
+    minst_blk_liveness_calc(&emu->mblk);
+
+    minst_blk_gen_reaching_definitions(&emu->mblk);
+
+    minst_blk_const_propagation(emu, 1);
+
+    arm_emu_dump_cfg(emu, "new");
+    arm_emu_dump_mblk(emu, "orig");
+
+    //arm_emu_dump_csm(emu);
+    //minst_cfg_classify(&emu->mblk);
+    //arm_emu_trace_flat(emu);
+
+#if 0
+    //minst_blk_out_of_order(&emu->mblk);
+
+    minst_blk_copy_propagation(&emu->mblk);
+
+    minst_blk_dead_code_elim(&emu->mblk);
+
+    minst_blk_const_propagation(emu);
+#endif
+
+    //arm_emu_dump_defs1(emu, 354, ARM_REG_R2);
+
+    return 0;
+}
+

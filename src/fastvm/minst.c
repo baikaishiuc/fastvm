@@ -216,7 +216,11 @@ int                 minst_succs_count(struct minst *minst)
 int                 minst_preds_count(struct minst *minst)
 {
     int i;
-    struct minst_node *pred_node = &minst->preds;
+    struct minst_node *pred_node;
+
+    if (!minst) return 0;
+
+    pred_node = &minst->preds;
 
     for (i = 0; pred_node; pred_node = pred_node->next) {
         if (pred_node->minst) i++;
@@ -553,14 +557,16 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
         changed = 0;
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue)
+            /* 死代码删除只在四元式中进行，函数不参与死代码删除计算 */
+            if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue || (minst->type == mtype_bl))
                 continue;
 
+            /* 四元式一定有def的，没有def的指令一般是 bl, it, cmp等等*/
             if (bitset_is_empty(&minst->def))
                 continue;
 
             bitset_clone(&def, &minst->def);
-            if (!changed && !bitset_is_equal(bitset_and(&def, &minst->out), &minst->def)) {
+            if (!changed && bitset_is_empty(bitset_and(&def, &minst->out))) {
                 minst_del_from_cfg(minst);
                 ret = changed = 1;
             }
@@ -938,7 +944,7 @@ struct minst*       minst_trace_find_prev_undefined_bcond(struct minst_blk *blk,
     for (; i >= 0; i--) {
         minst = blk->trace[i];
         if (minst_succs_count(minst) > 1) {
-            if (!minst_is_tconst(minst)) {
+            if (minst->flag.undefined_bcond || !minst_is_tconst(minst)) {
                 *index = i;
                 return minst;
             }
@@ -1157,7 +1163,37 @@ int                 minst_blk_del_unreachable(struct minst_blk *blk)
         cfg = blk->allcfg.ptab[pos];
         changed = !cfg->flag.dead_code;
         cfg->flag.dead_code = 1;
+        printf("cfg[%d] is be deleted\n", cfg->id);
     }
 
     return changed;
+}
+
+int                 minst_edge_clear_visited(struct minst_blk *blk)
+{
+    struct minst_node *succ_node;
+    struct minst *m;
+    int i;
+
+    for (i = 0; i < blk->allinst.len; i++) {
+        m = blk->allinst.ptab[i];
+        minst_succs_foreach(m, succ_node) {
+            succ_node->f.visited = 0;
+        }
+    }
+
+    return 0;
+}
+
+int                 minst_edge_set_visited(struct minst *from, struct minst *to)
+{
+    struct minst_node *succ_node;
+
+    minst_succs_foreach(from, succ_node) {
+        if (succ_node->minst == to) {
+            succ_node->f.visited = 1;
+        }
+    }
+
+    return 0;
 }

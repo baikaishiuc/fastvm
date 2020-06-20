@@ -8,12 +8,14 @@ extern "C" {
 #endif
 
 enum minst_type {
-    mtype_b = 1,
+    mtype_null,
+    mtype_b,
     mtype_bcond,
     mtype_mov_reg,
     mtype_cmp,
     mtype_str,
     mtype_ldr,
+    mtype_bl,   // function
 };
 
 typedef int(* minst_parse_callback)(void *emu, struct minst *minst);
@@ -61,6 +63,9 @@ struct minst_blk {
 };
 
 struct minst_node {
+    struct {
+        unsigned visited : 1;
+    } f;
     struct minst *minst;
     struct minst_node *next;
 };
@@ -74,6 +79,7 @@ struct minst_cfg {
 
     struct {
         unsigned dead_code : 1;
+        unsigned reduced : 1;
     } flag;
 
     int     id;
@@ -137,6 +143,7 @@ struct minst {
         unsigned is_trace : 1;
         unsigned to_arm : 1;
         unsigned is_func : 1;
+        unsigned undefined_bcond : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
@@ -367,6 +374,8 @@ struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *
             -1      cant calc
 */
 int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *def_val);
+int                 minst_edge_clear_visited(struct minst_blk *blk);
+int                 minst_edge_set_visited(struct minst *from, struct minst *to);
 
 
 #ifdef __cplusplus
