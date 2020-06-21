@@ -557,8 +557,12 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
         changed = 0;
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            /* 死代码删除只在四元式中进行，函数不参与死代码删除计算 */
-            if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue || (minst->type == mtype_bl))
+            /* 
+            1. 死代码删除只在四元式中进行，函数不参与死代码删除计算
+            2. str指令不参与计算，因为有很强的副作用 */
+            if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue 
+                || (minst->type == mtype_bl)
+                || (minst->type == mtype_str))
                 continue;
 
             /* 四元式一定有def的，没有def的指令一般是 bl, it, cmp等等*/
@@ -586,6 +590,19 @@ int                 minst_get_def(struct minst *minst)
         return minst->ld;
 
     return minst->ld = bitset_next_bit_pos(&minst->def, 0);
+}
+
+int                 minst_get_use(struct minst *minst)
+{
+    int pos = bitset_next_bit_pos(&((minst)->use), 0);
+
+    if (pos != ARM_REG_APSR) return pos;
+
+    int pos1 = bitset_next_bit_pos(&((minst)->use), pos + 1);
+
+    if (pos1 != -1) return pos1;
+
+    return pos;
 }
 
 int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
@@ -907,7 +924,7 @@ struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int
     i = before > 0 ? before : (blk->trace_top + before);
     for (; i >= 0; i--) {
         m = blk->trace[i];
-        if ((m->type == mtype_str) && (m->memaddr == memaddr))
+        if ((m->type == mtype_str) && (m->temp->addr == memaddr))
             return m;
     }
 
@@ -975,9 +992,9 @@ struct minst*       minst_trace_find_prev_bcond(struct minst_blk *blk, int *inde
 struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *minst, int reg_def)
 {
     for (; minst; minst = minst->preds.minst) {
-        if (minst == cfg->start) break;
-
         if (minst_get_def(minst) == reg_def) return minst;
+
+        if (minst == cfg->start) break;
     }
 
     return NULL;
@@ -1196,4 +1213,32 @@ int                 minst_edge_set_visited(struct minst *from, struct minst *to)
     }
 
     return 0;
+}
+
+struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr)
+{
+    struct minst_temp *temp;
+    int i;
+
+    for (i = 0; i < blk->tvar.len; i++) {
+        temp = blk->tvar.ptab[i];
+        if (temp->addr == addr)
+            return temp;
+    }
+
+    temp = calloc(1, sizeof (temp[0]));
+    if (!temp)
+        vm_error("minst_temp_alloc() alloc failure");
+
+    temp->addr = addr;
+    /* 前32个是系统保留寄存器变量 */
+    temp->tid = (blk->tvar_id++) + 32;
+    dynarray_add(&blk->tvar, temp);
+
+    return temp;
+}
+
+struct minst_temp*  minst_temp_get(struct minst_blk *blk, int t)
+{
+    return NULL;
 }

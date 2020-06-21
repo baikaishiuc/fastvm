@@ -216,6 +216,15 @@ struct arm_inst_desc {
 static struct reg_node*     arm_insteng_parse(uint8_t *code, int len, int *olen);
 static int arm_minst_do(struct arm_emu *emu, struct minst *minst);
 
+static const char* reg2str(int reg)
+{
+    static char buf[20];
+
+    if (reg < 32) return regstr[reg];
+    sprintf(buf, "t%d", reg);
+    return buf;
+}
+
 char *it2str(int firstcond, int mask, char *buf)
 {
     int i, j;
@@ -942,7 +951,7 @@ static struct arm_inst_desc ldr_iteral_desc =  {"1111 1000 u1 101 1111 ld4 i12",
 static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     int sigcode = (code[0] >> 12) & 0xf, imm;
-    long addr = -1;
+    unsigned long addr = 0;
 
     if (len == 1) {
         if (sigcode == 0b0100) {
@@ -963,7 +972,10 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
                 arm_prepare_dump(emu, "ldr %s, [sp]");
 
             addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
-            live_use_set(&emu->mblk, ARM_REG_SP);
+            if (!minst->temp) {
+                minst->temp = minst_temp_alloc(&emu->mblk, addr);
+                live_use_set(&emu->mblk, minst->temp->tid);
+            }
         }
         else {
             if (emu->code.ctx.imm)
@@ -1023,10 +1035,15 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
             ARM_UNDEFINED();
     }
 
+    minst->type = mtype_ldr;
+
     if (EMU_IS_CONST_MODE(emu)) {
-        int use = minst_get_use(minst);
-        if (use == ARM_REG_PC) {
-        }
+        struct minst *const_m = minst_get_last_const_definition(&emu->mblk, minst, minst_get_use(minst));
+        if (!const_m)
+            return 0;
+
+        minst->flag.is_const = 1;
+        minst->ld_imm = const_m->ld_imm;
     }
     else if (EMU_IS_TRACE_MODE(emu)) {
         struct minst *m = minst_trace_get_str(&emu->mblk, addr, 0);
@@ -1072,6 +1089,7 @@ static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *co
 {
     struct minst *s;
     int imm = 0;
+    unsigned long memaddr;
 
     minst->type = mtype_str;
 
@@ -1082,7 +1100,11 @@ static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *co
             arm_prepare_dump(emu, "str %s, [sp]", regstr[EC().lm]);
 
         /* FIXME:这个地方假设是操作stack的时候，sp的值应该是可以静态分析的，这个假设是没问题的吗？ */
-        minst->memaddr = ARM_SP_VAL(emu) + imm;
+        memaddr = ARM_SP_VAL(emu) + imm;
+        if (!minst->temp) {
+            minst->temp = minst_temp_alloc(&emu->mblk, memaddr);
+            live_def_set(&emu->mblk, minst->temp->tid);
+        }
 
         if (EMU_IS_CONST_MODE(emu)) {
             s = minst_get_last_const_definition(&emu->mblk, minst, EC().lm);
@@ -1116,6 +1138,14 @@ static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *co
         }
     }
 
+    if (EMU_IS_CONST_MODE(emu)) {
+        struct minst *const_m = minst_get_last_const_definition(&emu->mblk, minst, minst_get_use(minst));
+
+        if (!const_m || !minst->temp) return 0;
+
+        minst->flag.is_const = 1;
+        minst->ld_imm = const_m->ld_imm;
+    }
 
     return 0;
 }
@@ -2519,7 +2549,7 @@ static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
     BITSET_INIT(defs);
     int pos;
 
-    if (inst_id >= emu->mblk.allcfg.len)
+    if (inst_id >= emu->mblk.allinst.len)
         return -1;
 
     minst = emu->mblk.allinst.ptab[inst_id];
@@ -2527,7 +2557,7 @@ static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
     bitset_clone(&defs, &emu->mblk.defs[reg_def]);
     bitset_and(&defs, &minst->rd_in);
 
-    printf("[inst_id:%d] %s def list\n", inst_id, regstr[reg_def]);
+    printf("[inst_id:%d] %s def list\n", inst_id, reg2str(reg_def));
     for (pos = bitset_next_bit_pos(&defs, 0); pos >= 0; pos = bitset_next_bit_pos(&defs, pos + 1)) {
         def_minst = emu->mblk.allinst.ptab[pos];
         if (def_minst->flag.is_const)
@@ -2618,9 +2648,17 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
             if (minst_get_use(m) != m_cmp->cmp.ln) {
                 arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
             }
+            else {
+                //printf("save reg minst[%d]\n", m->id);
+            }
         }
-        else
-            vm_error("Not support csm assign minst[%d]", m->id);
+        else if (m->type == mtype_ldr){
+            arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
+        }
+        else {
+            printf("Not support csm assign minst[%d]\n", m->id);
+            //vm_error("Not support csm assign minst[%d]", m->id);
+        }
     }
 
     return 0;
@@ -3239,7 +3277,7 @@ int         arm_emu_run(struct arm_emu *emu)
     arm_emu_dump_cfg(emu, "new");
     arm_emu_dump_mblk(emu, "orig");
 
-    //arm_emu_dump_csm(emu);
+    arm_emu_dump_csm(emu);
     //minst_cfg_classify(&emu->mblk);
     //arm_emu_trace_flat(emu);
 

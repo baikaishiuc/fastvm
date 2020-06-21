@@ -20,6 +20,8 @@ enum minst_type {
 
 typedef int(* minst_parse_callback)(void *emu, struct minst *minst);
 
+#define REGS_NUM             (SYS_REG_NUM + 32)
+
 struct minst_blk {
     char *funcname;
     void *emu;
@@ -35,12 +37,12 @@ struct minst_blk {
     /**/
     struct dynarray allcfg;
 
-    /* 只处理系统寄存器列表 */
+    /* 处理寄存器加额外32个内存变量，后面改成变长 */
     /* 某寄存器所有def指令集合，数据为指令id */
-    struct bitset     defs[32];
+    struct bitset     defs[REGS_NUM];
 
     /* 某寄存器所有use指令集合，数据为指令id */
-    struct bitset     uses[32];
+    struct bitset     uses[REGS_NUM];
 
     struct dynarray     const_insts;
 
@@ -164,25 +166,25 @@ struct minst {
     int ld_imm;
     int ld2_imm;
     struct arm_cpsr apsr;
-    long memaddr;
+    struct minst_temp *temp;
 };
 
 
 #define live_def_set(blk, reg)       do { \
         bitset_set(&minst->def, reg, 1); \
-        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+        if ((reg < REGS_NUM) && (reg > -1)) \
             bitset_set(&((blk)->defs[reg]), minst->id, 1); \
     } while (0)
 
 #define live_use_set(blk, reg)       do { \
         bitset_set(&minst->use, reg, 1); \
-        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+        if ((reg < REGS_NUM) && (reg > -1)) \
             bitset_set(&((blk)->uses[reg]), minst->id, 1); \
     } while (0)
 
 #define live_use_clear(blk, reg)    do { \
         bitset_set(&minst->use, reg, 0); \
-        if ((reg < SYS_REG_NUM) && (reg > -1)) \
+        if ((reg < REGS_NUM) && (reg > -1)) \
             bitset_set(&((blk)->uses[reg]), minst->id, 0); \
     } while (0)
 
@@ -217,7 +219,14 @@ struct minst_cfg*   minst_cfg_new(struct minst_blk *blk, struct minst *start, st
 void                minst_cfg_delete(struct minst_cfg *cfg);
 
 int                 minst_get_def(struct minst *minst);
-#define             minst_get_use(m)        bitset_next_bit_pos(&((m)->use), 0)
+/*
+FIXME:
+调整了minst_get_use的行为，因为it指令的原因
+
+minst有多个use时，挑取第一个非apsr的use，
+只有一个use时，返回那一个
+*/
+int                 minst_get_use(struct minst *minst);
 #define             minst_set_const(m, imm) do { \
         m->flag.is_const = 1; \
         m->ld_imm = imm; \
@@ -377,6 +386,14 @@ int                 minst_bcond_symbo_exec(struct minst_cfg *cfg, struct minst *
 int                 minst_edge_clear_visited(struct minst_blk *blk);
 int                 minst_edge_set_visited(struct minst *from, struct minst *to);
 
+struct minst_temp
+{
+    unsigned long   addr;
+    int             tid;
+};
+
+struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr);
+struct minst_temp*  minst_temp_get(struct minst_blk *blk, int t);
 
 #ifdef __cplusplus
 }
