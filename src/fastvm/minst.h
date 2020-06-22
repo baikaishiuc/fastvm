@@ -62,6 +62,13 @@ struct minst_blk {
     minst_parse_callback minst_do;
 
     struct minst*       epilogue;
+
+    struct {
+        struct minst_cfg    *cfg;
+        int                 st_reg;
+        int                 save_reg;
+        int                 base_reg;
+    } csm;
 };
 
 struct minst_node {
@@ -330,7 +337,7 @@ int                 minst_blk_out_of_order(struct minst_blk *blk);
 // MCIC P.464
 5. 无法被const propagation 中的 constant conditions干掉(?)
 */
-int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *reg);
+int                 minst_cfg_is_csm(struct minst_cfg *cfg);
 
 int                 minst_cfg_classify(struct minst_blk *blk);
 
@@ -393,7 +400,12 @@ struct minst_temp
 };
 
 struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr);
-struct minst_temp*  minst_temp_get(struct minst_blk *blk, int t);
+
+/*
+deobfuse
+*/
+int minst_dob_analyze(struct minst_blk *blk);
+int minst_cfg_is_csm_branch(struct minst_blk *blk, struct minst_cfg *cfg);
 
 #ifdef __cplusplus
 }

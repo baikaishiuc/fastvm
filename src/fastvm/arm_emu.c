@@ -2605,12 +2605,13 @@ void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
 @def_m  定值指令
 @pred   csm的前节点
 */
-int         arm_emu_trace_csm(struct arm_emu *emu, struct minst_cfg *csm, struct minst *def_m, struct minst *pred)
+int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, struct minst *pred)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst *minst, *jmp;
-    struct minst_cfg *start_cfg, *cfg;
-    int pos, ret, trace_start, i;
+    struct minst *minst, *jmp, *t, *n;
+    struct minst_cfg *cfg;
+    int ret, i, binlen;
+    char bincode[32];
 
     MSTACK_INIT(blk->trace);
     MSTACK_PUSH(blk->trace, def_m);         
@@ -2633,7 +2634,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst_cfg *csm, struct
 
                 cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
                 /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
-                for (trace_start = 2; i <= blk->trace_top; i++) {
+                for (i = 2; i <= blk->trace_top; i++) {
                     t = blk->trace[i];
 
                     if (minst_is_b0(t)) continue;
@@ -2646,52 +2647,38 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst_cfg *csm, struct
                 arm_asm2bin(bincode, &binlen, "b");
                 t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
                 cfg->end = t;
+
+                minst_del_edge(blk->trace[1], blk->trace[2]);
+                minst_add_edge(blk->trace[1], cfg->start);
+                minst_add_edge(cfg->end, jmp);
+                minst_blk_const_propagation(emu, 0);
+                break;
             }
         }
         else
             MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
     }
 
-exit_label:
-
     EMU_SET_CONST_MODE(emu);
+
+    return 0;
 }
 
 int         arm_emu_dump_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst_cfg *cfg, *csm_cfg = NULL;
-    struct minst *m, *lm_minst, *ln_minst, *m_cmp;
-    int i, st_reg;
+    struct minst_cfg *csm_cfg = NULL;
+    struct minst *m;
+    int i;
     BITSET_INIT(defs);
 
-    for (i = 0; i < blk->allcfg.len; i++) {
-        cfg = blk->allcfg.ptab[i];
-        if (minst_preds_count(cfg->start) >= 7) {
-            csm_cfg = cfg;
-            break;
-        }
-    }
+    minst_dob_analyze(blk);
 
-    if (!csm_cfg || (csm_cfg->end->type != mtype_bcond))
-        vm_error("not found const state machine");
+    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
+    bitset_and(&defs, &blk->csm.cfg->start->rd_in);
 
-    m_cmp = m = minst_cfg_get_last_def(csm_cfg, csm_cfg->end, ARM_REG_APSR);
-
-    lm_minst = minst_get_last_const_definition(blk, m, m->cmp.lm);
-    if (!lm_minst->flag.is_const)
-        vm_error("Sorry, this versionn only support one variable csm");
-
-    ln_minst = minst_cfg_get_last_def(csm_cfg, m, m->cmp.ln);
-    if (ln_minst->type != mtype_mov_reg)
-        vm_error("csm define ln must be another register");
-
-    st_reg = minst_get_use(ln_minst);
-
-    bitset_clone(&defs, &blk->defs[st_reg]);
-    bitset_and(&defs, &ln_minst->rd_in);
-
-    printf("csm[%d] st_reg[r%d]\n", csm_cfg->id, st_reg);
+    printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
+        blk->csm.cfg->id, blk->csm.base_reg, blk->csm.st_reg, blk->csm.save_reg);
     bitset_foreach(&defs, i) {
         m = blk->allinst.ptab[i];
         if (m->flag.is_const) {
@@ -2701,7 +2688,7 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
                 printf("minist[%d] = %d\n", m->id, m->ld_imm);
         }
         else if (m->type == mtype_mov_reg) {
-            if (minst_get_use(m) != m_cmp->cmp.ln) {
+            if (minst_get_use(m) != blk->csm.st_reg) {
                 arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
             }
             else {
@@ -2723,7 +2710,7 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
 
     minst_preds_foreach(csm_cfg->start, pred_node) {
         pred = pred_node->minst;
-        bitset_clone(&defs, &blk->defs[st_reg]);
+        bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
         bitset_and(&defs, &pred->rd_out);
 
         if (bitset_count(&defs) != 1) {
@@ -2733,7 +2720,7 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
 
         pos = bitset_next_bit_pos(&defs, 0);
         m = blk->allinst.ptab[pos];
-        arm_emu_trace_csm(emu, csm_cfg, m);
+        arm_emu_trace_csm(emu, m, pred);
     }
 
     return 0;

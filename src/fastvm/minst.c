@@ -1000,7 +1000,7 @@ struct minst*       minst_cfg_get_last_def(struct minst_cfg *cfg, struct minst *
     return NULL;
 }
 
-int                 minst_cfg_is_const_state_machine(struct minst_cfg *cfg, int *state_reg)
+int                 minst_cfg_is_csm(struct minst_cfg *cfg)
 {
     return minst_preds_count(cfg->start) >= 7;
 }
@@ -1019,7 +1019,7 @@ int                 minst_cfg_classify(struct minst_blk *blk)
     for (i = 0; i < blk->allcfg.len; i++) {
         cfg = blk->allcfg.ptab[i];
         if (cfg->flag.dead_code) continue;
-        if (minst_cfg_is_const_state_machine(cfg, NULL)) {
+        if (minst_cfg_is_csm(cfg)) {
             printf("csm[%d:%d-%d]\n", cfg->id, cfg->start->id, cfg->end->id);
 
             MSTACK_PUSH(stack, cfg);
@@ -1238,7 +1238,54 @@ struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr)
     return temp;
 }
 
-struct minst_temp*  minst_temp_get(struct minst_blk *blk, int t)
+int minst_dob_analyze(struct minst_blk *blk)
 {
-    return NULL;
+    int i;
+    struct minst_cfg *cfg, *csm_cfg;
+    struct minst *cmp, *m;
+
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+        if (minst_cfg_is_csm(cfg)) {
+            csm_cfg = cfg;
+            break;
+        }
+    }
+
+    if (!csm_cfg || (csm_cfg->end->type != mtype_bcond))
+        vm_error("not found const state machine");
+
+    blk->csm.cfg = csm_cfg;
+
+    cmp = minst_cfg_get_last_def(csm_cfg, csm_cfg->end, ARM_REG_APSR);
+
+    blk->csm.base_reg = cmp->cmp.lm;
+    blk->csm.st_reg = cmp->cmp.ln;
+
+    m = minst_cfg_get_last_def(csm_cfg, cmp, blk->csm.st_reg);
+    if (!m || (m->type != mtype_mov_reg))
+        vm_error("csm[%d] not found save reg\n", cmp->id);
+
+    blk->csm.save_reg = minst_get_use(m);
+
+    return 1;
+}
+
+int minst_cfg_is_csm_branch(struct minst_blk *blk, struct minst_cfg *cfg)
+{
+    struct minst *end = cfg->end;
+    struct minst *cmp;
+
+    if (end->type != mtype_bcond
+        || cfg->csm != CSM_IN
+        || NULL == (cmp = minst_cfg_get_last_def(cfg, end, ARM_REG_APSR))
+        || NULL == minst_get_last_const_definition(blk, cmp, cmp->cmp.lm)
+        || cmp->cmp.lm != blk->csm.base_reg
+        || cmp->cmp.ln != blk->csm.st_reg)
+        return 0;
+
+    if (!minst_get_last_const_definition(blk, end, blk->csm.base_reg)) 
+        vm_error("found not const base reg[%d] in csm, is that you want? \n", end->id);
+
+    return 1;
 }
