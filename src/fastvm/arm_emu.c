@@ -2601,6 +2601,62 @@ void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
     fclose(fp);
 }
 
+/*
+@def_m  定值指令
+@pred   csm的前节点
+*/
+int         arm_emu_trace_csm(struct arm_emu *emu, struct minst_cfg *csm, struct minst *def_m, struct minst *pred)
+{
+    struct minst_blk *blk = &emu->mblk;
+    struct minst *minst, *jmp;
+    struct minst_cfg *start_cfg, *cfg;
+    int pos, ret, trace_start, i;
+
+    MSTACK_INIT(blk->trace);
+    MSTACK_PUSH(blk->trace, def_m);         
+    MSTACK_PUSH(blk->trace, pred);
+    EMU_SET_TRACE_MODE(emu);
+
+    while (!MSTACK_IS_EMPTY(blk->trace)) {
+        minst = MSTACK_POP(blk->trace);
+
+        ret = arm_minst_do(emu, minst);
+
+        if (minst_succs_count(minst) > 1) {
+            if (minst_is_tconst(minst)) {
+                jmp = minst->flag.b_cond_passed ? minst_get_true_label(minst) : minst_get_false_label(minst);
+
+                if (minst_cfg_is_csm_branch(&emu->mblk, jmp->cfg)) {
+                    MSTACK_PUSH(blk->trace, jmp);
+                    continue;
+                }
+
+                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+                /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
+                for (trace_start = 2; i <= blk->trace_top; i++) {
+                    t = blk->trace[i];
+
+                    if (minst_is_b0(t)) continue;
+
+                    n = minst_new_copy(cfg, blk->trace[i]);
+
+                    if (!cfg->start)    cfg->start = n;
+                }
+                /* cfg末尾需要添加一条实际的jmp指令 */
+                arm_asm2bin(bincode, &binlen, "b");
+                t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                cfg->end = t;
+            }
+        }
+        else
+            MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
+    }
+
+exit_label:
+
+    EMU_SET_CONST_MODE(emu);
+}
+
 int         arm_emu_dump_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
@@ -2659,6 +2715,25 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
             printf("Not support csm assign minst[%d]\n", m->id);
             //vm_error("Not support csm assign minst[%d]", m->id);
         }
+    }
+
+    int pos;
+    struct minst_node *pred_node;
+    struct minst *pred;
+
+    minst_preds_foreach(csm_cfg->start, pred_node) {
+        pred = pred_node->minst;
+        bitset_clone(&defs, &blk->defs[st_reg]);
+        bitset_and(&defs, &pred->rd_out);
+
+        if (bitset_count(&defs) != 1) {
+            printf("skip one more def status register\n");
+            continue;
+        }
+
+        pos = bitset_next_bit_pos(&defs, 0);
+        m = blk->allinst.ptab[pos];
+        arm_emu_trace_csm(emu, csm_cfg, m);
     }
 
     return 0;
