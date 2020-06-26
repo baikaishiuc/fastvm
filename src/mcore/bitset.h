@@ -50,7 +50,10 @@ struct bitset
 #define bitset_foreach(bs, _i) \
     for (_i = bitset_next_bit_pos(bs, 0); _i >= 0; _i = bitset_next_bit_pos(bs, _i + 1)) 
 
+#define bitset_1th(bs)      bitset_next_bit_pos(bs, 0)
+
 #define u4_bit_set(a, pos)      (a |= 1 << pos)
+#define u4_bit_test(a, pos)     (a & (1 << pos))
 
 #if defined(__cplusplus)
 }

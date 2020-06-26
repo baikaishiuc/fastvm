@@ -75,6 +75,12 @@ void                minst_blk_uninit(struct minst_blk *blk)
     memset(blk, 0, sizeof (blk[0]));
 }
 
+void                minst_blk_add_funcend(struct minst_blk *blk, struct minst *m)
+{
+    m->flag.funcend = 1;
+    bitset_set(&blk->funcends, m->id, 1);
+}
+
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node)
 {
     struct minst *minst;
@@ -140,6 +146,7 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     dst->ld_imm = src->ld_imm;
     dst->cfg = cfg;
     dst->copy_from = src;
+    dst->type = src->type;
     memcpy(dst->addr, src->addr, src->len);
 
     if (!cfg->start) cfg->start = dst;
@@ -397,23 +404,27 @@ void                minst_blk_gen_cfg(struct minst_blk *blk)
     for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
 
-        if (minst->flag.prologue || minst->flag.epilogue)
-            continue;
-
         if (!start) {
             cur_grp_minst = minst;
             start = 1;
             cfg = minst_cfg_new(blk, minst, NULL);
+            cfg->flag.prologue = 1;
         }
         /* 1. 物理前指令是跳转指令，自动切块
            2. 当前节点有多个前节点 
            3. 前节点不是物理前节点 */
         else if (
             //!minst->flag.in_it_block && !prev_minst->flag.in_it_block && 
-            (minst_is_b0(prev_minst) || prev_minst->succs.next || minst->preds.next || minst->preds.minst != blk->allinst.ptab[i - 1])) {
-
+            (minst_is_b0(prev_minst) 
+                || prev_minst->succs.next 
+                || minst->preds.next 
+                || minst->preds.minst != blk->allinst.ptab[i - 1])
+                || (prev_minst->flag.prologue != minst->flag.prologue)
+                || (prev_minst->flag.epilogue != minst->flag.epilogue)) {
             cfg = minst_cfg_new(blk, minst, NULL);
             cur_grp_minst = minst;
+
+            if (minst->flag.epilogue) cfg->flag.epilogue = 1;
         }
 
         minst->cfg = cfg;
@@ -466,7 +477,7 @@ static int arm_epi_use_reglist[] = {
     ARM_REG_R15,
 };
 
-void                minst_blk_live_prologue_add(struct minst_blk *mblk)
+void                minst_blk_live_prologue_add(struct minst_blk *mblk, int sp_val)
 {
     int i;
     struct minst *minst = minst_new(mblk, NULL, 0, NULL);
@@ -476,30 +487,65 @@ void                minst_blk_live_prologue_add(struct minst_blk *mblk)
     for (i = 0; i < 16; i++) {
         live_def_set(mblk, i);
     }
+
+    minst = minst_new(mblk, NULL, 0, NULL);
+    minst->flag.prologue = 1;
+    minst->flag.is_const = 1;
+    minst->ld_imm = sp_val;
+    live_def_set(mblk, ARM_REG_SP);
 }
 
-void                minst_blk_live_epilogue_add(struct minst_blk *mblk)
+void                minst_blk_live_epilogue_add(struct minst_blk *blk)
 {
-    int i, len;
-    struct minst *minst = minst_new(mblk, NULL, 0, NULL);
+    int i, j, len;
+    struct minst *minst = blk->allinst.ptab[blk->allinst.len - 1];
+    struct minst *m, *succ;
 
-    minst->flag.epilogue = 1;
-
-    mblk->epilogue = minst;
-
-    for (i = 0; i < 16; i++) {
-        live_use_set(mblk, i);
+    if (!minst->flag.funcend) {
+        minst_blk_add_funcend(blk, minst);
     }
-    live_use_clear(mblk, ARM_REG_R12);
-    live_use_clear(mblk, ARM_REG_R2);
-    live_use_clear(mblk, ARM_REG_R3);
 
-    minst_succ_add(mblk->allinst.ptab[0], mblk->allinst.ptab[1]);
-    minst_pred_add(mblk->allinst.ptab[1], mblk->allinst.ptab[0]);
+    for (i = 0; i < blk->allinst.len; i++) {
+        m = blk->allinst.ptab[i];
+        if (m->flag.prologue) {
+            minst_add_edge(m, blk->allinst.ptab[i+1]);
+            continue;
+        }
+        break;
+    }
 
-    len = mblk->allinst.len;
-    minst_succ_add(mblk->allinst.ptab[len - 2], mblk->allinst.ptab[len - 1]);
-    minst_pred_add(mblk->allinst.ptab[len - 1], mblk->allinst.ptab[len - 2]);
+    bitset_foreach(&blk->funcends, i) {
+        m = blk->allinst.ptab[i];
+        /* 给funcend节点，添加epilogue时，需要删除他和以前的后继节点的关联*/
+        if ((succ = m->succs.minst))
+            minst_del_edge(m, succ);
+
+        minst = minst_new(blk, NULL, 0, NULL);
+        minst->addr = blk->text_sec.data + blk->text_sec.len;
+        blk->text_sec.len += 1;
+        minst->len = 1;
+
+        minst->flag.epilogue = 1;
+
+        live_use_set(blk, ARM_REG_R0);
+
+        len = blk->allinst.len;
+
+        minst_add_edge(m, minst);
+
+        if (m->type == mtype_bl) {
+            bitset_clear(&m->use);
+        }
+
+        /* pop 指令非常特殊 */
+        while (m->type == mtype_pop) {
+            bitset_foreach(&m->def, j) {
+                live_use_set(blk, j);
+            }
+
+            m = m->preds.minst;
+        }
+    }
 }
 
 
@@ -548,6 +594,7 @@ int                 minst_blk_liveness_calc(struct minst_blk *blk)
 
 int                 minst_blk_dead_code_elim(struct minst_blk *blk)
 {
+    struct minst_cfg *cfg;
     struct minst *minst;
     int changed = 1, i, ret = 0;
     struct bitset def = { 0 };
@@ -577,6 +624,17 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
         }
 
         minst_blk_liveness_calc(blk);
+    }
+
+    /* 删除一个节点且这个节点就是跳转指令的的cfg*/
+    for (i = 0; i < blk->allcfg.len; i++) {
+        cfg = blk->allcfg.ptab[i];
+        if (cfg->flag.dead_code) continue;
+        if (cfg->start != cfg->end) continue;
+        if (cfg->start->type != mtype_b) continue;
+        if ((minst_preds_count(cfg->start) == 1) && (minst_succs_count(cfg->end) == 1)) {
+            minst_del_from_cfg(cfg->start);
+        }
     }
 
     bitset_uninit(&def);
@@ -620,9 +678,8 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
         bitset_clear(&minst->rd_out);
         bitset_clear(&minst->kills);
 
-        if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code || (def = minst_get_def(minst)) < 0)
+        if (minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code || (def = minst_get_def(minst)) < 0)
             continue;
-
         bitset_clone(&minst->kills, &blk->defs[def]);
         bitset_set(&minst->kills, minst->id, 0);
     }
@@ -632,7 +689,7 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk)
 
         for (i = 0; i < blk->allinst.len; i++) {
             minst = blk->allinst.ptab[i];
-            if (minst->flag.prologue || minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code)
+            if (minst->flag.epilogue || minst->flag.dead_code || minst->cfg->flag.dead_code)
                 continue;
 
             bitset_clone(&in, &minst->rd_in);
@@ -666,49 +723,44 @@ int                 minst_blk_value_numbering(struct minst_blk *blk)
 
 int                 minst_blk_copy_propagation(struct minst_blk *blk)
 {
-    int i, direct;
-    struct minst *minst, *def_minst, *pred;
-    struct bitset defs;
+    int i, use, changed = 1, ret = 0;
+    struct minst *m, *def_m;
+    BITSET_INITS(defs, blk->allinst.len);
 
-    bitset_init(&defs, blk->allinst.len + 1);
+    while (changed) {
+        changed = 0;
+        for (i = 0; i < blk->allinst.len; i++) {
+            m = blk->allinst.ptab[i];
+            if ((m->type == mtype_mov_reg) || (m->type == mtype_ldr)) {
+                use = minst_get_use(m);
+                bitset_clone(&defs, &blk->defs[use]);
+                bitset_and(&defs, &m->rd_in);
 
-    for (i = 0; i < blk->allinst.len; i++) {
-        minst = blk->allinst.ptab[i];
-        if (minst->flag.dead_code) continue;
-        if (minst->type == mtype_mov_reg) {
-            bitset_clone(&defs, &minst->rd_in);
-            bitset_and(&defs, &blk->defs[minst_get_use(minst)]);
+                if ((bitset_count(&defs) == 1)) {
+                    def_m = blk->allinst.ptab[bitset_1th(&defs)];
+                    if (m->preds.minst != def_m) continue;
 
-            if (bitset_count(&defs) != 1)
-                continue;
-            
-            def_minst = blk->allinst.ptab[bitset_next_bit_pos(&defs, 0)];
-            if (def_minst->type != mtype_mov_reg)
-                continue;
+                    if ((m->type == mtype_mov_reg) && (def_m->type == mtype_mov_reg)
+                        && (minst_get_def(m) == minst_get_use(def_m)) && (minst_get_use(m) == minst_get_def(def_m))) {
+                        minst_del_from_cfg(m);
+                        ret = changed = 1; break;
+                    }
 
-            /* FIX by value numbering */
-            pred = minst->preds.minst;
-            for (direct = 0; pred; pred = pred->preds.minst) {
-                if (minst_get_def(pred) == minst_get_def(minst)) break;
-                if (pred->preds.next) break;
-
-                if (pred == def_minst)
-                    direct = 1;
-            }
-
-            if (!direct)
-                continue;
-
-            if ((minst_get_def(def_minst) == minst_get_use(minst))
-                && (minst_get_use(def_minst) == minst_get_def(minst))) {
-                minst->flag.dead_code = 1;
+                    if ((m->type == mtype_ldr) && (def_m->type == mtype_str)
+                        && (minst_get_def(m) == minst_get_use(def_m)) && (minst_get_use(m) == minst_get_def(def_m))) {
+                        minst_del_from_cfg(m);
+                        ret = changed = 1;  break;
+                    }
+                }
             }
         }
+
+        minst_blk_liveness_calc(blk);
+        minst_blk_gen_reaching_definitions(blk);
     }
 
     bitset_uninit(&defs);
-
-    return 0;
+    return ret;
 }
 
 int                 minst_blk_regalloc(struct minst_blk *blk)
@@ -1016,26 +1068,21 @@ int                 minst_cfg_classify(struct minst_blk *blk)
 
     BITSET_INITS(visitall, blk->allcfg.len);
 
-    for (i = 0; i < blk->allcfg.len; i++) {
-        cfg = blk->allcfg.ptab[i];
-        if (cfg->flag.dead_code) continue;
-        if (minst_cfg_is_csm(cfg)) {
-            printf("csm[%d:%d-%d]\n", cfg->id, cfg->start->id, cfg->end->id);
+    cfg = blk->csm.cfg;
+    printf("csm[%d:%d-%d]\n", cfg->id, cfg->start->id, cfg->end->id);
+    MSTACK_PUSH(stack, cfg);
+    bitset_set(&visitall, cfg->id, 1);
+    while (!MSTACK_IS_EMPTY(stack)) {
+        cfg = MSTACK_POP(stack);
 
-            MSTACK_PUSH(stack, cfg);
-            bitset_set(&visitall, cfg->id, 1);
-            while (!MSTACK_IS_EMPTY(stack)) {
-                cfg = MSTACK_POP(stack);
+        minst_succs_foreach(cfg->end, succ_node) {
+            if (!succ_node->minst) continue;
+            tcfg = (succ_node->minst->cfg);
+            if (!tcfg || tcfg->flag.dead_code) continue;
+            if (bitset_get(&visitall, tcfg->id)) continue;
 
-                minst_succs_foreach(cfg->end, succ_node) {
-                    tcfg = (succ_node->minst->cfg);
-                    if (!tcfg || tcfg->flag.dead_code) continue;
-                    if (bitset_get(&visitall, tcfg->id)) continue;
-
-                    MSTACK_PUSH(stack, tcfg);
-                    bitset_set(&visitall, tcfg->id, 1);
-                }
-            }
+            MSTACK_PUSH(stack, tcfg);
+            bitset_set(&visitall, tcfg->id, 1);
         }
     }
 
@@ -1056,9 +1103,11 @@ int                 minst_cfg_classify(struct minst_blk *blk)
     2. 弹出栈顶节点，假如栈顶节点的所有前序节点的所有后续节点都为不可达节点，则入栈，持续2
     */
     bitset_clear(&visitall);
-    m = blk->epilogue->preds.minst;
-    MSTACK_PUSH(stack, m->cfg);
-    bitset_set(&visitall, m->cfg->id, 1);
+    bitset_foreach(&blk->funcends, i) {
+        m = blk->allinst.ptab[i];
+        MSTACK_PUSH(stack, m->cfg);
+        bitset_set(&visitall, m->cfg->id, 1);
+    }
     while (!MSTACK_IS_EMPTY(stack)) {
         cfg = MSTACK_POP(stack);
         if (cfg->id == 0) continue;
@@ -1178,9 +1227,11 @@ int                 minst_blk_del_unreachable(struct minst_blk *blk)
     bitset_not(&visit);
     bitset_foreach(&visit, pos) {
         cfg = blk->allcfg.ptab[pos];
-        changed = !cfg->flag.dead_code;
-        cfg->flag.dead_code = 1;
-        printf("cfg[%d] is be deleted\n", cfg->id);
+        if (!cfg->flag.dead_code) {
+            changed = 1;
+            cfg->flag.dead_code = 1;
+            printf("cfg[%d] is be deleted\n", cfg->id);
+        }
     }
 
     return changed;
@@ -1218,13 +1269,8 @@ int                 minst_edge_set_visited(struct minst *from, struct minst *to)
 struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr)
 {
     struct minst_temp *temp;
-    int i;
 
-    for (i = 0; i < blk->tvar.len; i++) {
-        temp = blk->tvar.ptab[i];
-        if (temp->addr == addr)
-            return temp;
-    }
+    if ((temp = minst_temp_get(blk, addr))) return temp;
 
     temp = calloc(1, sizeof (temp[0]));
     if (!temp)
@@ -1238,11 +1284,28 @@ struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr)
     return temp;
 }
 
+struct minst_temp * minst_temp_get(struct minst_blk *blk, unsigned long addr)
+{
+    struct minst_temp *temp;
+    int i;
+
+    for (i = 0; i < blk->tvar.len; i++) {
+        temp = blk->tvar.ptab[i];
+        if (temp->addr == addr)
+            return temp;
+    }
+
+    return NULL;
+}
+
 int minst_dob_analyze(struct minst_blk *blk)
 {
     int i;
     struct minst_cfg *cfg, *csm_cfg;
     struct minst *cmp, *m;
+
+    blk->csm.st_reg = -1;
+    blk->csm.st_reg = -1;
 
     for (i = 0; i < blk->allcfg.len; i++) {
         cfg = blk->allcfg.ptab[i];
@@ -1267,25 +1330,6 @@ int minst_dob_analyze(struct minst_blk *blk)
         vm_error("csm[%d] not found save reg\n", cmp->id);
 
     blk->csm.save_reg = minst_get_use(m);
-
-    return 1;
-}
-
-int minst_cfg_is_csm_branch(struct minst_blk *blk, struct minst_cfg *cfg)
-{
-    struct minst *end = cfg->end;
-    struct minst *cmp;
-
-    if (end->type != mtype_bcond
-        || cfg->csm != CSM_IN
-        || NULL == (cmp = minst_cfg_get_last_def(cfg, end, ARM_REG_APSR))
-        || NULL == minst_get_last_const_definition(blk, cmp, cmp->cmp.lm)
-        || cmp->cmp.lm != blk->csm.base_reg
-        || cmp->cmp.ln != blk->csm.st_reg)
-        return 0;
-
-    if (!minst_get_last_const_definition(blk, end, blk->csm.base_reg)) 
-        vm_error("found not const base reg[%d] in csm, is that you want? \n", end->id);
 
     return 1;
 }

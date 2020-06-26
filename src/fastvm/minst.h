@@ -16,6 +16,9 @@ enum minst_type {
     mtype_str,
     mtype_ldr,
     mtype_bl,   // function
+    mtype_it,
+    mtype_def,
+    mtype_pop,
 };
 
 typedef int(* minst_parse_callback)(void *emu, struct minst *minst);
@@ -61,14 +64,16 @@ struct minst_blk {
 
     minst_parse_callback minst_do;
 
-    struct minst*       epilogue;
-
     struct {
         struct minst_cfg    *cfg;
         int                 st_reg;
         int                 save_reg;
         int                 base_reg;
+        int                 reg[2];
     } csm;
+
+    /* 分析函数的所有出口集合 */
+    struct bitset   funcends;
 };
 
 struct minst_node {
@@ -89,6 +94,8 @@ struct minst_cfg {
     struct {
         unsigned dead_code : 1;
         unsigned reduced : 1;
+        unsigned prologue : 1;
+        unsigned epilogue : 1;
     } flag;
 
     int     id;
@@ -133,6 +140,8 @@ struct minst {
         unsigned prologue : 1;
         /* live 后置指令 */
         unsigned epilogue : 1;
+        /* 标注是否执行到程序结束 */
+        unsigned funcend : 1;
         /* 是否在It块中，是的话，需要调整他的前置节点，为什么呢
         比如, a -> b -> c
 
@@ -153,6 +162,8 @@ struct minst {
         unsigned to_arm : 1;
         unsigned is_func : 1;
         unsigned undefined_bcond : 1;
+        unsigned def_oper : 1;
+        unsigned callee_restore : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
@@ -181,6 +192,12 @@ struct minst {
         bitset_set(&minst->def, reg, 1); \
         if ((reg < REGS_NUM) && (reg > -1)) \
             bitset_set(&((blk)->defs[reg]), minst->id, 1); \
+    } while (0)
+
+#define live_def_set1(blk, m, reg)       do { \
+        bitset_set(&m->def, reg, 1); \
+        if ((reg < REGS_NUM) && (reg > -1)) \
+            bitset_set(&((blk)->defs[reg]), m->id, 1); \
     } while (0)
 
 #define live_use_set(blk, reg)       do { \
@@ -212,6 +229,8 @@ void                minst_blk_delete(struct minst_blk *mblk);
 
 void                minst_blk_init(struct minst_blk *blk, char *funcname, minst_parse_callback callback, void *emu);
 void                minst_blk_uninit(struct minst_blk *blk);
+
+void                minst_blk_add_funcend(struct minst_blk *blk, struct minst *m);
 
 struct minst*       minst_new(struct minst_blk *blk, unsigned char *code, int len, void *reg_node);
 struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src);
@@ -273,7 +292,7 @@ live prologue 把所有的寄存器设置为def
 live epilogue 把所有的寄存器设置为use
 不这样做他会把function proglogue和epilog识别为死代码
 */
-void                minst_blk_live_prologue_add(struct minst_blk *blk);
+void                minst_blk_live_prologue_add(struct minst_blk *blk, int spval);
 void                minst_blk_live_epilogue_add(struct minst_blk *blk);
 
 int                 minst_blk_is_on_start_unique_path(struct minst_blk *blk, struct minst *def, struct minst *use);
@@ -289,6 +308,16 @@ int                 minst_blk_gen_reaching_definitions(struct minst_blk *blk);
 
 int                 minst_blk_value_numbering(struct minst_blk *blk);
 
+/* copy progagation */
+/* 我们暂时不做复杂的复写传播，只做简单的类似于
+
+str r0, [esp + 0xc]
+ldr r0, [esp + 0xc]
+
+mov r6, r5
+mov r5, r6
+，这个也可以靠寄存器分配干掉
+*/
 int                 minst_blk_copy_propagation(struct minst_blk *blk);
 
 int                 minst_blk_regalloc(struct minst_blk *blk);
@@ -400,12 +429,12 @@ struct minst_temp
 };
 
 struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr);
+struct minst_temp * minst_temp_get(struct minst_blk *blk, unsigned long addr);
 
 /*
 deobfuse
 */
 int minst_dob_analyze(struct minst_blk *blk);
-int minst_cfg_is_csm_branch(struct minst_blk *blk, struct minst_cfg *cfg);
 
 #ifdef __cplusplus
 }
