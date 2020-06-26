@@ -733,6 +733,9 @@ static int t1_inst_mov_0100(struct arm_emu *emu, struct minst *minst, uint16_t *
             // minst->apsr.c = carry;
             // FIXME:setflags
         }
+        else {
+            minst->flag.is_trace = 0;
+        }
     }
 
     return 0;
@@ -784,11 +787,11 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
         if (!lm_def)
             lm_def = minst_get_last_const_definition(&emu->mblk, minst, EC().lm);
 
-        if (!ln_def || !lm_def)
+        if (!ln_def || !lm_def
+            || !minst_is_tconst(ln_def) || !minst_is_tconst(lm_def)) {
+            minst->flag.is_trace = 0;
             return 0;
-
-        if (!minst_is_tconst(ln_def) || !minst_is_tconst(lm_def))
-            return 0;
+        }
 
         minst_cmp_calc(minst->apsr, ln_def->ld_imm, lm_def->ld_imm);
         minst->flag.is_trace = 1;
@@ -1438,8 +1441,10 @@ bl_label:
 
             minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
         }
-        else
+        else {
+            minst->flag.is_trace = 0;
             return MDO_BRANCH_UNKNOWN;
+        }
     }
 
     return 0;
@@ -1951,7 +1956,7 @@ static int arm_insteng_gen_dfa(struct arm_inst_engine *eng)
     int stack_top = -1, i, j, need_split;
 
 #define istack_push(a)            (node_stack[++stack_top] = a)
-#define istack_pop()            node_stack[stack_top--]        
+#define istack_pop()            node_stack[stack_top--]
 #define istack_is_empty()        (stack_top == -1)
 
     dynarray_add(&dfa_root->set, nfa_root);
@@ -2817,27 +2822,6 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
     while (changed) {
         changed = 0;
 
-#if 0
-        bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
-        bitset_and(&defs, &csm_cfg->start->rd_in);
-
-        bitset_foreach(&defs, pos) {
-            m = blk->allinst.ptab[pos];
-
-            if (!m->flag.is_const) {
-                continue;
-            }
-
-            printf("*********start trace[%d,  %d]\n", i+1, m->id);
-            if (arm_emu_trace_csm(emu, m))
-                continue;
-
-            arm_emu_dump_cfg(emu, itoa(++trace_times, buf, 10));
-            minst_cfg_classify(blk);
-            changed = 1;
-        }
-#endif
-
         for (i = 0; i < blk->allcfg.len; i++) {
             cfg = blk->allcfg.ptab[i];
             /* 遍历所有的csm内节点 */
@@ -3520,7 +3504,7 @@ int         arm_emu_run(struct arm_emu *emu)
 #endif
     arm_emu_dump_mblk(emu, "finial");
 
-    arm_emu_dump_defs1(emu, 161, 37);
+    // arm_emu_dump_defs1(emu, 161, 37);
 
     return 0;
 }
