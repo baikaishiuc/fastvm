@@ -2661,7 +2661,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *jmp = NULL, *t, *n;
     struct minst_cfg *cfg, *cfg1;
-    int ret, i, binlen, trace_start;
+    int ret, i, binlen, trace_start, tconst_times = 0;
     char bincode[32];
 
     printf("*********start trace[%d,  %d]\n", trace_time, def_m->id);
@@ -2689,6 +2689,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
             if (minst_is_tconst(minst)) {
                 jmp = minst->flag.b_cond_passed ? minst_get_true_label(minst) : minst_get_false_label(minst);
                 MSTACK_PUSH(blk->trace, jmp);
+                tconst_times++;
                 continue;
             }
             else if ((def_m->cfg == minst->cfg) && (minst->type == mtype_it)) {
@@ -2705,24 +2706,9 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                 MSTACK_PUSH(blk->trace, jmp);
                 continue;
             }
-            else {
-                for (i = 0; i <= blk->trace_top; i++) {
-                    t = blk->trace[i];
-                    if (minst_succs_count(t) > 1) {
-                        /* 刚进入trace直接碰到undefined bcond，直接返回 */
-                        if (t == minst) {
-                            printf("meet first undefined bcond, return\n");
-                            return -1;
-                        }
-
-                        /* 假如是it指令，而且是def指令所在的cfg，则跳过 */
-                        if ((t->type == mtype_it) && (t->cfg == def_m->cfg))
-                            continue;
-
-                        /* 假如都不是，进行reduce */
-                        break;
-                    }
-                }
+            else if (0 == tconst_times){
+                printf("meet first undefined bcond[%d], return\n", minst->id);
+                return -1;
             }
         }
         else
