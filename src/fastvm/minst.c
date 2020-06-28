@@ -262,11 +262,16 @@ struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr)
     return dynarray_find(&blk->allinst, (void *)addr);
 }
 
-void                minst_succ_add(struct minst *minst, struct minst *succ)
+void                minst_succ_add(struct minst *minst, struct minst *succ, int truel)
 {
     struct minst_node *tnode;
     if (!minst || !succ)
         return;
+
+    minst_succs_foreach(minst->succs, tnode) {
+        if (tnode->f.true_label == truel)
+            vm_error("minst[%d] already have %s label", minst->id, truel?"true":"false");
+    }
 
     if (!minst->succs.minst)
         minst->succs.minst = succ;
@@ -277,6 +282,7 @@ void                minst_succ_add(struct minst *minst, struct minst *succ)
 
         tnode->minst = succ;
         tnode->next = minst->succs.next;
+        tnode->f.true_label = truel;
 
         minst->succs.next = tnode;
     }
@@ -294,7 +300,7 @@ void                minst_pred_add(struct minst *minst, struct minst *pred)
     else {
         tnode = calloc(1, sizeof (tnode[0]));
         if (!tnode)
-            vm_error("minst_succ_add() calloc failure");
+            vm_error("minst_pred_add() calloc failure");
 
         tnode->minst = pred;
         tnode->next = minst->preds.next;
@@ -309,8 +315,10 @@ void                minst_succ_del(struct minst *minst, struct minst *succ)
 
     for (; succ_node; prev_node = succ_node, succ_node = succ_node->next) {
         if (succ_node->minst == succ) {
-            for (; succ_node->next; prev_node = succ_node, succ_node = succ_node->next)
+            for (; succ_node->next; prev_node = succ_node, succ_node = succ_node->next) {
                 succ_node->minst = succ_node->next->minst;
+                succ_node->f = succ_node->next->f;
+            }
 
             if (succ_node == &minst->succs) {
                 succ_node->minst = NULL;
@@ -1358,9 +1366,4 @@ int minst_dob_analyze(struct minst_blk *blk)
     blk->csm.save_reg = minst_get_use(m);
 
     return 1;
-}
-
-
-void                minst_add_edge1(struct minst *minst, struct minst *succ, int true_label)
-{
 }

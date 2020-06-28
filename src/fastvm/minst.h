@@ -277,9 +277,15 @@ void                minst_add_true_edge(struct minst *minst, struct minst *succ)
 void                minst_add_false_edge(struct minst *minst, struct minst *succ);
 
 #define minst_add_edge(minst, succ)     do { \
-        minst_succ_add(minst, succ); \
+        minst_succ_add(minst, succ, 0); \
         minst_pred_add(succ, minst); \
     } while (0)
+
+#define minst_add_true_edge(minst, succ)     do { \
+        minst_succ_add(minst, succ, 1); \
+        minst_pred_add(succ, minst); \
+    } while (0)
+
 #define minst_del_edge(minst, succ)     do { \
         minst_succ_del(minst, succ); \
         minst_pred_del(succ, minst); \
