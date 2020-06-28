@@ -79,6 +79,8 @@ struct minst_blk {
 struct minst_node {
     struct {
         unsigned visited : 1;
+        /* 当碰到bcond节点时，指示后继节点哪个是真值节点 */
+        unsigned true_label: 1;
     } f;
     struct minst *minst;
     struct minst_node *next;
@@ -271,6 +273,9 @@ void                minst_succ_add(struct minst *minst, struct minst *succ);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
 void                minst_succ_del(struct minst *minst, struct minst *succ);
 void                minst_pred_del(struct minst *minst, struct minst *pred);
+void                minst_add_true_edge(struct minst *minst, struct minst *succ);
+void                minst_add_false_edge(struct minst *minst, struct minst *succ);
+
 #define minst_add_edge(minst, succ)     do { \
         minst_succ_add(minst, succ); \
         minst_pred_add(succ, minst); \
@@ -280,8 +285,8 @@ void                minst_pred_del(struct minst *minst, struct minst *pred);
         minst_pred_del(succ, minst); \
     } while (0)
 
-#define minst_succs_foreach(m, snode)  for (snode = &m->succs; snode; snode = snode->next)
-#define minst_preds_foreach(m, pnode)  for (pnode = &m->preds; pnode; pnode = pnode->next)
+#define minst_succs_foreach(m, snode)  for (snode = &(m)->succs; snode; snode = snode->next)
+#define minst_preds_foreach(m, pnode)  for (pnode = &(m)->preds; pnode; pnode = pnode->next)
 
 void                minst_blk_gen_cfg(struct minst_blk *blk);
 /* 每次从起点做DFS，不可达的都是可删除的节点 */
@@ -431,10 +436,13 @@ struct minst_temp
 struct minst_temp * minst_temp_alloc(struct minst_blk *blk, unsigned long addr);
 struct minst_temp * minst_temp_get(struct minst_blk *blk, unsigned long addr);
 
+void    minst_dump_defs(struct minst_blk *blk, int inst_id, int def_reg);
+
 /*
 deobfuse
 */
 int minst_dob_analyze(struct minst_blk *blk);
+int minst_dob_csm_expand(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }

@@ -376,8 +376,7 @@ void                minst_del_from_cfg(struct minst *minst)
         if (!(pred = pred_node->minst)) continue;
         for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
             if (!(succ = succ_node->minst)) continue;
-            minst_succ_add(pred, succ);
-            minst_pred_add(succ, pred);
+            minst_add_edge(pred, succ);
         }
     }
 
@@ -1298,6 +1297,33 @@ struct minst_temp * minst_temp_get(struct minst_blk *blk, unsigned long addr)
     return NULL;
 }
 
+void    minst_dump_defs(struct minst_blk *blk, int inst_id, int reg_def)
+{
+    struct minst *minst, *def_minst;
+    BITSET_INIT(defs);
+    int pos;
+
+    if (inst_id >= blk->allinst.len)
+        return;
+
+    minst = blk->allinst.ptab[inst_id];
+
+    bitset_clone(&defs, &blk->defs[reg_def]);
+    bitset_and(&defs, &minst->rd_in);
+
+    printf("[inst_id:%d] %s def list\n", inst_id, arm_reg2str(reg_def));
+    bitset_foreach(&defs, pos) {
+        def_minst = blk->allinst.ptab[pos];
+        if (def_minst->flag.is_const)
+            printf("%d const=0x%x\n", pos, def_minst->ld_imm);
+        else
+            printf("%d unknown\n", pos);
+    }
+    printf("\n");
+
+    bitset_uninit(&defs);
+}
+
 int minst_dob_analyze(struct minst_blk *blk)
 {
     int i;
@@ -1332,4 +1358,9 @@ int minst_dob_analyze(struct minst_blk *blk)
     blk->csm.save_reg = minst_get_use(m);
 
     return 1;
+}
+
+
+void                minst_add_edge1(struct minst *minst, struct minst *succ, int true_label)
+{
 }
