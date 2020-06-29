@@ -269,12 +269,13 @@ int                 minst_get_use(struct minst *minst);
 
 struct minst*       minst_blk_find(struct minst_blk *blk, unsigned long addr);
 
-void                minst_succ_add(struct minst *minst, struct minst *succ);
+void                minst_succ_add(struct minst *minst, struct minst *succ, int truel);
 void                minst_pred_add(struct minst *minst, struct minst *pred);
 void                minst_succ_del(struct minst *minst, struct minst *succ);
 void                minst_pred_del(struct minst *minst, struct minst *pred);
-void                minst_add_true_edge(struct minst *minst, struct minst *succ);
-void                minst_add_false_edge(struct minst *minst, struct minst *succ);
+void                minst_del_from_cfg(struct minst *minst);
+
+#define minst_add_false_edge            minst_add_edge
 
 #define minst_add_edge(minst, succ)     do { \
         minst_succ_add(minst, succ, 0); \
@@ -448,7 +449,6 @@ void    minst_dump_defs(struct minst_blk *blk, int inst_id, int def_reg);
 deobfuse
 */
 int minst_dob_analyze(struct minst_blk *blk);
-int minst_dob_csm_expand(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }

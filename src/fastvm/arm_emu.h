@@ -132,6 +132,7 @@ arm assembly to binary code
             
 */
 char* arm_asm2bin(char *bin, int *olen, const char *asm, ...);
+const char* arm_reg2str(int reg);
 
 #endif /* __arm_emu_h__ */
 

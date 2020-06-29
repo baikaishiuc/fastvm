@@ -268,8 +268,8 @@ void                minst_succ_add(struct minst *minst, struct minst *succ, int 
     if (!minst || !succ)
         return;
 
-    minst_succs_foreach(minst->succs, tnode) {
-        if (tnode->f.true_label == truel)
+    minst_succs_foreach(minst, tnode) {
+        if (tnode->minst && (tnode->f.true_label == truel))
             vm_error("minst[%d] already have %s label", minst->id, truel?"true":"false");
     }
 
@@ -361,8 +361,11 @@ void                minst_del_from_cfg(struct minst *minst)
 {
     struct minst_cfg *cfg = minst->cfg;
     struct minst_node *pred_node, *succ_node;
-    struct minst *pred, *succ;
+    struct minst *pred, *succ = minst->succs.minst;
     int inst_count = minst_cfg_inst_count(cfg);
+
+    if (minst_succs_count(minst) > 1)
+        vm_error("cant delete succs > 1 minst[%d]\n", minst->id);
 
     if (minst->flag.dead_code)
         vm_error("minst[%d] already be delete", minst->id);
@@ -380,23 +383,22 @@ void                minst_del_from_cfg(struct minst *minst)
     }
 
     /* 删除一个节点以后，需要把这个节点的所有前驱节点，连接到他的后继节点以后 */
-    for (pred_node = &minst->preds; pred_node; pred_node = pred_node->next) {
+    minst_preds_foreach(minst, pred_node) {
         if (!(pred = pred_node->minst)) continue;
-        for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
-            if (!(succ = succ_node->minst)) continue;
-            minst_add_edge(pred, succ);
+        minst_succs_foreach(pred, succ_node) {
+            if (succ_node->minst == minst) {
+                succ_node->minst = succ;
+                minst_pred_add(succ, pred);
+                break;
+            }
         }
     }
 
     while ((pred = minst->preds.minst)) {
         minst_pred_del(minst, pred);
-        minst_succ_del(pred, minst);
     }
 
-    while ((succ = minst->succs.minst)) {
-        minst_pred_del(succ, minst);
-        minst_succ_del(minst, succ);
-    }
+    minst_del_edge(minst, succ);
 
     /* 打上dead_code的标志 */
     minst->flag.dead_code = 1;

@@ -224,7 +224,7 @@ struct arm_inst_desc {
 static struct reg_node*     arm_insteng_parse(uint8_t *code, int len, int *olen);
 static int arm_minst_do(struct arm_emu *emu, struct minst *minst);
 
-static const char* reg2str(int reg)
+const char* arm_reg2str(int reg)
 {
     static char buf[20];
 
@@ -782,8 +782,8 @@ static int thumb_inst_cmp(struct arm_emu *emu, struct minst *minst, uint16_t *co
     } else if (EMU_IS_TRACE_MODE(emu)) {
         if (minst->flag.is_const)   return 0;
 
-        struct minst *ln_def = minst_trace_get_def(&emu->mblk, emu->code.ctx.ln, NULL, 0);
-        struct minst *lm_def = minst_trace_get_def(&emu->mblk, emu->code.ctx.lm, NULL, 0);
+        struct minst *ln_def = minst_trace_get_def(&emu->mblk, EC().ln, NULL, 0);
+        struct minst *lm_def = minst_trace_get_def(&emu->mblk, EC().lm, NULL, 0);
         if (!lm_def)
             lm_def = minst_get_last_const_definition(&emu->mblk, minst, EC().lm);
 
@@ -2557,8 +2557,7 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
                 if (!b_minst)
                     vm_error("arm emu minst[%d] host_addr[0x%x] target_addr[0x%x] not found", minst->id, minst->host_addr, target_addr);
 
-                minst_succ_add(minst, b_minst);
-                minst_pred_add(b_minst, minst);
+                minst_add_true_edge(minst, b_minst);
             }
 
             minst->flag.b_need_fixed = 2;
@@ -2570,14 +2569,12 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
             }
 
             if (same) {
-                minst_succ_add(minst->preds.minst, succ);
-                minst_pred_add(succ, minst->preds.minst);
+                minst_add_true_edge(minst->preds.minst, succ);
                 for (; ((i+1) < emu->mblk.allinst.len) && ((struct minst *)emu->mblk.allinst.ptab[i+1])->flag.in_it_block; i++);
             }
             else {
                 for (succ_node = &minst->succs; succ_node; succ_node = succ_node->next) {
-                    minst_succ_add(minst->preds.minst, succ_node->minst);
-                    minst_pred_add(succ_node->minst, minst->preds.minst);
+                    minst_add_true_edge(minst->preds.minst, succ_node->minst);
 
                     if (!succ_node->minst->flag.in_it_block)
                         break;
@@ -2593,34 +2590,6 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 }
 
 int         minst_blk_const_propagation(struct arm_emu *emu, int delcode);
-
-static int  arm_emu_dump_defs1(struct arm_emu *emu, int inst_id, int reg_def)
-{
-    struct minst *minst, *def_minst;
-    BITSET_INIT(defs);
-    int pos;
-
-    if (inst_id >= emu->mblk.allinst.len)
-        return -1;
-
-    minst = emu->mblk.allinst.ptab[inst_id];
-
-    bitset_clone(&defs, &emu->mblk.defs[reg_def]);
-    bitset_and(&defs, &minst->rd_in);
-
-    printf("[inst_id:%d] %s def list\n", inst_id, reg2str(reg_def));
-    bitset_foreach(&defs, pos) {
-        def_minst = emu->mblk.allinst.ptab[pos];
-        if (def_minst->flag.is_const)
-            printf("%d const=0x%x\n", pos, def_minst->ld_imm);
-        else
-            printf("%d unknown\n", pos);
-    }
-    printf("\n");
-
-    bitset_uninit(&defs);
-    return 0;
-}
 
 int         arm_emu_trace_flat(struct arm_emu *emu);
 
@@ -2759,6 +2728,112 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     return 0;
 }
 
+int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
+{
+    struct minst_node *succ_node;
+    struct minst *m, *succ, *t;
+    struct minst_cfg *csm_cfg, *cfg, *root_cfg = NULL, *parent_cfg;
+    BITSET_INIT(defs);
+    BITSET_INIT(defs1);
+    char bincode[16];
+    int i, j, binlen, count;
+
+    minst_dob_analyze(blk);
+
+    csm_cfg = blk->csm.cfg;
+
+    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
+    bitset_and(&defs, &blk->csm.cfg->start->rd_in);
+
+    printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
+        blk->csm.cfg->id, blk->csm.base_reg, blk->csm.st_reg, blk->csm.save_reg);
+    bitset_foreach(&defs, i) {
+        m = blk->allinst.ptab[i];
+        if (m->flag.is_const) {
+            if (m->ld_imm > 0)
+                printf("minist[%d] = 0x%x\n", m->id, m->ld_imm);
+            else
+                printf("minist[%d] = %d\n", m->id, m->ld_imm);
+        }
+        else if (m->type == mtype_mov_reg) {
+            if (minst_get_use(m) != blk->csm.st_reg) {
+                printf("try to expand %d inst\n", m->id);
+                int use = minst_get_use(m), def = minst_get_def(m);
+                minst_dump_defs(blk, m->id, use);
+
+                minst_succs_foreach(m->cfg->end, succ_node) {
+                    succ = succ_node->minst;
+                    if (!bitset_get(&succ->in, def)) continue;
+
+                    bitset_clone(&defs1, &blk->defs[use]);
+                    bitset_and(&defs1, &m->rd_in);
+
+                    if ((count = bitset_count(&defs1)) > 1) {
+                        bitset_foreach(&defs1, j) {
+                            t = blk->allinst.ptab[j];
+                            /*mtype_def要特殊处理，它是由我为了解决blx指令产生多def额外引入的指令*/
+                            if (t->type == mtype_def)
+                                continue;
+
+                            if (!t->flag.is_const)
+                                vm_error("%d inst definition %d not is const\n", m->id, t->id);
+
+                            // root 
+                            {
+                                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+                                arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", def, t->ld_imm & 0xffff);
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", def, (t->ld_imm >> 16) & 0xffff);
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", use, def);
+                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                                arm_asm2bin(bincode, &binlen, "beq");
+                                t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                            }
+
+                            if (!root_cfg) {
+                                parent_cfg = cfg;
+                                root_cfg = cfg;
+
+                                /* FIXME: 这个地方没有调用minst_del_edge，是因为假如在链表循环的内部删除链表，非常的危险，所以采取了替换规则 */
+                                succ_node->minst = cfg->start;
+                                minst_pred_del(succ, m);
+                                minst_pred_add(cfg->start, m);
+                            }
+                            else {
+                                minst_add_true_edge(cfg->end, succ);
+                                minst_add_false_edge(parent_cfg->end, cfg->start);
+                            }
+                        }
+
+                        /* 最后的一个节点由于其特殊性，不需要beq和cmp指令 */
+                        minst_del_from_cfg(cfg->end);
+                        minst_del_from_cfg(cfg->end);
+
+                        minst_add_true_edge(root_cfg->end, succ);
+                        minst_add_false_edge(root_cfg->end, succ);
+                    }
+                }
+            }
+            else {
+                //printf("save reg minst[%d]\n", m->id);
+            }
+        }
+        else if (m->type == mtype_ldr){
+            minst_dump_defs(blk, m->id, minst_get_use(m));
+        }
+        else {
+            printf("Not support csm assign minst[%d]\n", m->id);
+            //vm_error("Not support csm assign minst[%d]", m->id);
+        }
+    }
+
+    return 0;
+}
+
 int         arm_emu_dump_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
@@ -2786,14 +2861,14 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
         }
         else if (m->type == mtype_mov_reg) {
             if (minst_get_use(m) != blk->csm.st_reg) {
-                arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
+                minst_dump_defs(blk, m->id, minst_get_use(m));
             }
             else {
                 //printf("save reg minst[%d]\n", m->id);
             }
         }
         else if (m->type == mtype_ldr){
-            arm_emu_dump_defs1(emu, m->id, minst_get_use(m));
+            minst_dump_defs(blk, m->id, minst_get_use(m));
         }
         else {
             printf("Not support csm assign minst[%d]\n", m->id);
