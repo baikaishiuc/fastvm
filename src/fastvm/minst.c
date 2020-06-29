@@ -404,6 +404,20 @@ void                minst_del_from_cfg(struct minst *minst)
     minst->flag.dead_code = 1;
 }
 
+void                minst_replace_edge(struct minst *from, struct minst *to, struct minst *rep)
+{
+    struct minst_node *succ_node;
+
+    minst_succs_foreach(from, succ_node) {
+        if (succ_node->minst == to) {
+            succ_node->minst = rep;
+        }
+    }
+
+    minst_pred_del(to, from);
+    minst_pred_add(rep, from);
+}
+
 void                minst_blk_gen_cfg(struct minst_blk *blk)
 {
     int i, start = 0;

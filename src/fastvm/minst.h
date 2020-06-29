@@ -274,6 +274,7 @@ void                minst_pred_add(struct minst *minst, struct minst *pred);
 void                minst_succ_del(struct minst *minst, struct minst *succ);
 void                minst_pred_del(struct minst *minst, struct minst *pred);
 void                minst_del_from_cfg(struct minst *minst);
+void                minst_replace_edge(struct minst *from, struct minst *to, struct minst *rep);
 
 #define minst_add_false_edge            minst_add_edge
 
