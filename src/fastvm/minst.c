@@ -267,19 +267,20 @@ void                minst_succ_add(struct minst *minst, struct minst *succ, int 
             vm_error("minst[%d] already have %s label", minst->id, truel?"true":"false");
     }
 
-    if (!minst->succs.minst)
-        minst->succs.minst = succ;
+    if (!minst->succs.minst) {
+        tnode = &minst->succs;
+    }
     else {
         tnode = calloc(1, sizeof (tnode[0]));
         if (!tnode)
             vm_error("minst_succ_add() calloc failure");
 
-        tnode->minst = succ;
         tnode->next = minst->succs.next;
-        tnode->f.true_label = truel;
-
         minst->succs.next = tnode;
     }
+
+    tnode->minst = succ;
+    tnode->f.true_label = truel;
 }
 
 void                minst_pred_add(struct minst *minst, struct minst *pred)

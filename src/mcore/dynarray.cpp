@@ -104,3 +104,15 @@ void* dynarray_find(struct dynarray *arr, void *a)
 
     return NULL;
 }
+
+int dynarray_exist(struct dynarray *d, int k)
+{
+    int i;
+
+    for (i = 0; i < d->len; i++) {
+        if ((int)d->ptab[i] == k)
+            return 1;
+    }
+
+    return 0;
+}

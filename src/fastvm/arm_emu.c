@@ -2737,7 +2737,9 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
     BITSET_INIT(defs);
     BITSET_INIT(defs1);
     char bincode[16];
-    int i, j, binlen, count, inst_start;
+    int i, j, binlen, count, inst_start, is_end;
+    struct dynarray d = { 0 };
+
 
     minst_dob_analyze(blk);
 
@@ -2770,7 +2772,9 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
                     bitset_clone(&defs1, &blk->defs[use]);
                     bitset_and(&defs1, &m->rd_in);
 
+                    dynarray_reset(&d);
                     if ((count = bitset_count(&defs1)) > 1) {
+                        root_cfg = parent_cfg = NULL;
                         bitset_foreach(&defs1, j) {
                             t = blk->allinst.ptab[j];
                             /*mtype_def要特殊处理，它是由我为了解决blx指令产生多def额外引入的指令*/
@@ -2779,6 +2783,12 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
 
                             if (!t->flag.is_const)
                                 vm_error("%d inst definition %d not is const\n", m->id, t->id);
+
+                            if (dynarray_exist(&d, t->ld_imm)) continue;
+
+                            dynarray_add(&d, (void *)t->ld_imm);
+
+                            is_end = (bitset_next_bit_pos(&defs1, j+ 1) == -1);
 
                             // root 
                             {
@@ -2789,11 +2799,13 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
                                 arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", def, (t->ld_imm >> 16) & 0xffff);
                                 minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
-                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", use, def);
-                                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                if (!is_end) {
+                                    arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", use, def);
+                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
-                                arm_asm2bin(bincode, &binlen, "beq");
-                                t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                    arm_asm2bin(bincode, &binlen, "beq");
+                                    minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                }
                             }
 
                             if (!root_cfg) {
@@ -2801,22 +2813,17 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
                                 root_cfg = cfg;
 
                                 /* FIXME: 这个地方没有调用minst_del_edge，是因为假如在链表循环的内部删除链表，非常的危险，所以采取了替换规则 */
-                                succ_node->minst = cfg->start;
-                                minst_pred_del(succ, m);
-                                minst_pred_add(cfg->start, m);
+                                minst_replace_edge(m->cfg->end, succ, cfg->start);
                             }
                             else {
-                                minst_add_true_edge(cfg->end, succ);
                                 minst_add_false_edge(parent_cfg->end, cfg->start);
                             }
+
+                            if (is_end)
+                                minst_add_false_edge(cfg->end, succ);
+                            else
+                                minst_add_true_edge(cfg->end, succ);
                         }
-
-                        /* 最后的一个节点由于其特殊性，不需要beq和cmp指令 */
-                        minst_del_from_cfg(cfg->end);
-                        minst_del_from_cfg(cfg->end);
-
-                        minst_add_true_edge(root_cfg->end, succ);
-                        minst_add_false_edge(root_cfg->end, succ);
                     }
                 }
             }
@@ -2838,6 +2845,7 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
         arm_minst_do(emu, blk->allinst.ptab[i]);
     }
 
+    dynarray_reset(&d);
     arm_emu_dump_cfg(emu, "expand");
 
     return 0;
@@ -3450,11 +3458,12 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
         break;
 
     case 'c':
+        /* @AAR.P372*/
         sscanf(buf, "cmp r%d, r%d", &rn, &rm);
         t1 = 0b0100010100000000;
-        t1 |= rm << 4;
-        t1 |= rn & 3;
-        t1 |= (rn & 0x8) << 7;
+        t1 |= rm << 3;
+        t1 |= rn & 7;
+        t1 |= (rn >> 3) << 7;
         len = 2;
         break;
 
