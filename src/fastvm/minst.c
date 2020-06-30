@@ -161,9 +161,6 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
     struct minst_blk *blk = cfg->blk;
     struct minst *minst = minst_new(blk, NULL, 0, NULL);
 
-    if (type != mtype_b)
-        vm_error("minst_new_t() only support b");
-
     minst->addr = blk->text_sec.data + blk->text_sec.len;
     minst->len = len;
     blk->text_sec.len += len;
@@ -172,9 +169,6 @@ struct minst*       minst_new_t(struct minst_cfg *cfg, enum minst_type type, voi
     minst->type = type;
     minst->reg_node = reg_node;
     minst->cfg = cfg;
-
-    if (type == mtype_bcond)
-        live_use_set(blk, ARM_REG_APSR);
 
     if (!cfg->start) cfg->start = minst;
     else minst_add_edge(cfg->end, minst);

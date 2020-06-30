@@ -2708,8 +2708,9 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
         cfg->end = t;
 
         t = blk->trace[trace_start - 1];
-        minst_del_edge(t->cfg->end, blk->trace[trace_start]);
-        minst_add_edge(t->cfg->end, cfg->start);
+        minst_replace_edge(t->cfg->end, blk->trace[trace_start], cfg->start);
+        //minst_del_edge(t->cfg->end, blk->trace[trace_start]);
+        //minst_add_edge(t->cfg->end, cfg->start);
         minst_add_edge(cfg->end, jmp);
         minst_blk_const_propagation(emu, 1);
         break;
@@ -2736,7 +2737,7 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
     BITSET_INIT(defs);
     BITSET_INIT(defs1);
     char bincode[16];
-    int i, j, binlen, count;
+    int i, j, binlen, count, inst_start;
 
     minst_dob_analyze(blk);
 
@@ -2747,6 +2748,7 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
 
     printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
         blk->csm.cfg->id, blk->csm.base_reg, blk->csm.st_reg, blk->csm.save_reg);
+    inst_start = blk->allinst.len;
     bitset_foreach(&defs, i) {
         m = blk->allinst.ptab[i];
         if (m->flag.is_const) {
@@ -2831,6 +2833,13 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
         }
     }
 
+    EMU_SET_CONST_MODE(emu);
+    for (i = inst_start; i < blk->allinst.len; i++) {
+        arm_minst_do(emu, blk->allinst.ptab[i]);
+    }
+
+    arm_emu_dump_cfg(emu, "expand");
+
     return 0;
 }
 
@@ -2838,48 +2847,20 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst_cfg *csm_cfg = NULL, *cfg;
-    struct minst *m;
-    int i, j, k, trace_times;
+    int i, j, k, trace_times, changed;
     BITSET_INIT(defs);
     BITSET_INIT(defs1);
 
     minst_dob_analyze(blk);
     csm_cfg = blk->csm.cfg;
 
-    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
-    bitset_and(&defs, &blk->csm.cfg->start->rd_in);
+    minst_cfg_classify(blk);
 
-    printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
-        blk->csm.cfg->id, blk->csm.base_reg, blk->csm.st_reg, blk->csm.save_reg);
-    bitset_foreach(&defs, i) {
-        m = blk->allinst.ptab[i];
-        if (m->flag.is_const) {
-            if (m->ld_imm > 0)
-                printf("minist[%d] = 0x%x\n", m->id, m->ld_imm);
-            else
-                printf("minist[%d] = %d\n", m->id, m->ld_imm);
-        }
-        else if (m->type == mtype_mov_reg) {
-            if (minst_get_use(m) != blk->csm.st_reg) {
-                minst_dump_defs(blk, m->id, minst_get_use(m));
-            }
-            else {
-                //printf("save reg minst[%d]\n", m->id);
-            }
-        }
-        else if (m->type == mtype_ldr){
-            minst_dump_defs(blk, m->id, minst_get_use(m));
-        }
-        else {
-            printf("Not support csm assign minst[%d]\n", m->id);
-            //vm_error("Not support csm assign minst[%d]", m->id);
-        }
-    }
-
-    int changed = 1;
+    minst_dob_csm_expand(emu, blk);
+    return 0;
 
     trace_times = 1;
-    minst_cfg_classify(blk);
+    changed = 1;
     while (changed) {
         changed = 0;
 
@@ -3479,7 +3460,7 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
 
     case 'm':
         rd = atoi(strchr(buf, 'r') + 1);
-        imm = atoi(strchr (buf, ',') + 1);
+        imm = strtol(strstr (buf, "0x") + 2, NULL, 16);
         if (buf[3] == 't') {
             /* P491 */
             t1 = 0b1111001011000000;
@@ -3494,8 +3475,8 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
             /* P484 */
             t1 = 0b1111001001000000;
             t2 = 0b0000000000000000;
-            t1 |= ((imm >> 1) & 1) << 10;
-            t1 |= imm & 0xf;
+            t1 |= ((imm >> 11) & 1) << 10;
+            t1 |= (imm >> 12) & 0xf;
             t2 |= ((imm >> 8) & 7) << 12;
             t2 |= rd << 8;
             t2 |= imm & 0xff;
@@ -3509,7 +3490,7 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
 
     memcpy(bin, &t1, 2);
     if (len == 4)
-        memcpy(bin,  &t2, 2);
+        memcpy(bin + 2,  &t2, 2);
 
     if (olen)
         *olen = len;
