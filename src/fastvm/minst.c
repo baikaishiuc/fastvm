@@ -1378,3 +1378,40 @@ int minst_dob_analyze(struct minst_blk *blk)
 
     return 1;
 }
+
+int minst_dump_csm(struct minst_blk *blk)
+{
+    BITSET_INIT(defs);
+    struct minst *m;
+    int i;
+
+    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
+    bitset_and(&defs, &blk->csm.cfg->start->rd_in);
+
+    printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
+        blk->csm.cfg->id, blk->csm.base_reg, blk->csm.st_reg, blk->csm.save_reg);
+
+    bitset_foreach(&defs, i) {
+        m = blk->allinst.ptab[i];
+        if (m->flag.is_const) {
+            if (m->ld_imm > 0)
+                printf("minist[%d] = 0x%x\n", m->id, m->ld_imm);
+            else
+                printf("minist[%d] = %d\n", m->id, m->ld_imm);
+        }
+        else if (m->type == mtype_mov_reg) {
+            if (minst_get_use(m) != blk->csm.st_reg) {
+                minst_dump_defs(blk, m->id, minst_get_use(m));
+            }
+        }
+        else if (m->type == mtype_ldr){
+            minst_dump_defs(blk, m->id, minst_get_use(m));
+        }
+        else {
+            printf("Not support csm assign minst[%d]\n", m->id);
+            //vm_error("Not support csm assign minst[%d]", m->id);
+        }
+    }
+
+    return 0;
+}

@@ -2729,7 +2729,12 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     return 0;
 }
 
-int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
+int minst_csm_dump(struct arm_emu *emu, struct minst_blk *blk)
+{
+    return 0;
+}
+
+int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
 {
     struct minst_node *succ_node;
     struct minst *m, *succ, *t;
@@ -2845,13 +2850,15 @@ int minst_dob_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
         arm_minst_do(emu, blk->allinst.ptab[i]);
     }
 
+    minst_blk_const_propagation(emu, 0);
+
     dynarray_reset(&d);
     arm_emu_dump_cfg(emu, "expand");
 
     return 0;
 }
 
-int         arm_emu_dump_csm(struct arm_emu *emu)
+int         arm_emu_reduce_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst_cfg *csm_cfg = NULL, *cfg;
@@ -2864,7 +2871,7 @@ int         arm_emu_dump_csm(struct arm_emu *emu)
 
     minst_cfg_classify(blk);
 
-    minst_dob_csm_expand(emu, blk);
+    minst_csm_expand(emu, blk);
     return 0;
 
     trace_times = 1;
@@ -3540,7 +3547,7 @@ int         arm_emu_run(struct arm_emu *emu)
     arm_emu_dump_cfg(emu, "new");
     arm_emu_dump_mblk(emu, "orig");
 
-    arm_emu_dump_csm(emu);
+    arm_emu_reduce_csm(emu);
     //minst_cfg_classify(&emu->mblk);
     //arm_emu_trace_flat(emu);
 

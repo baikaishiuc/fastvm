@@ -450,6 +450,7 @@ void    minst_dump_defs(struct minst_blk *blk, int inst_id, int def_reg);
 deobfuse
 */
 int minst_dob_analyze(struct minst_blk *blk);
+int minst_dump_csm(struct minst_blk *blk);
 
 #ifdef __cplusplus
 }
