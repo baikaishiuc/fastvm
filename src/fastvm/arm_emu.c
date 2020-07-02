@@ -836,8 +836,16 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
     if (EMU_IS_TRACE_MODE(emu)) {
         struct minst *t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, 0, 0);
 
-        if (!t || !minst_is_tconst(t))
-            return MDO_BRANCH_UNKNOWN;
+        if (!t || !minst_is_tconst(t)) {
+            minst->flag.is_trace = 0;
+            return 0;
+        }
+
+        minst_set_trace(minst);
+        minst->apsr = t->apsr;
+
+        minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, EC().cond);
+
     }
 
     return 0;
@@ -2524,7 +2532,8 @@ static void arm_emu_dump_cfg(struct arm_emu *emu, char *postfix)
             这个问题，现在默认是跳过这2个cfg的
             */
             if (tnode->minst)
-                fprintf(fp, "sub_%x -> sub_%x\n", CFG_NODE_ID(cfg->start->addr), CFG_NODE_ID(tnode->minst->addr));
+                fprintf(fp, "sub_%x -> sub_%x [label = \"%s\" ]\n", CFG_NODE_ID(cfg->start->addr), CFG_NODE_ID(tnode->minst->addr),
+                    tnode->f.true_label?"true":"");
         }
     }
     fprintf(fp, "}");
@@ -2557,10 +2566,17 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
                 if (!b_minst)
                     vm_error("arm emu minst[%d] host_addr[0x%x] target_addr[0x%x] not found", minst->id, minst->host_addr, target_addr);
 
-                minst_add_true_edge(minst, b_minst);
+                if (minst->type == mtype_bcond)
+                    minst_add_true_edge(minst, b_minst);
+                else
+                    minst_add_false_edge(minst, b_minst);
             }
 
             minst->flag.b_need_fixed = 2;
+        }
+
+        if (minst->type == mtype_it) {
+            minst->succs.f.true_label = 1;
         }
 
         if (minst->flag.in_it_block) {
@@ -2569,7 +2585,7 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
             }
 
             if (same) {
-                minst_add_true_edge(minst->preds.minst, succ);
+                minst_add_false_edge(minst->preds.minst, succ);
                 for (; ((i+1) < emu->mblk.allinst.len) && ((struct minst *)emu->mblk.allinst.ptab[i+1])->flag.in_it_block; i++);
             }
             else {
@@ -2676,7 +2692,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                     continue;
                 }
                 exit1:
-                printf("meet first undefined bcond[%d], return\n", minst->id);
+                printf("meet first undefined bcond[%d] cfg[%d], return\n", minst->id, minst->cfg->id);
                 return -1;
             }
         }
@@ -2736,7 +2752,7 @@ int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
     struct minst_cfg *csm_cfg, *cfg, *root_cfg = NULL, *parent_cfg;
     BITSET_INIT(defs);
     char bincode[16];
-    int i, j, binlen, inst_start, is_end;
+    int i, j, binlen, inst_start, is_end, last_def, changed = 0;
     struct dynarray d = { 0 };
 
     minst_dob_analyze(blk);
@@ -2772,6 +2788,12 @@ expand_label:
                     succ = succ_node->minst;
                     if (!bitset_get(&succ->in, def)) continue;
 
+                    succ2 = succ;
+                    while (minst_get_def(succ2) == -1) {
+                        succ2 = succ2->succs.minst;
+                    }
+                    last_def = minst_get_def(succ2);
+
                     root_cfg = parent_cfg = NULL;
                     for (j = 0; j < d.len; j++) {
                         t = d.ptab[j];
@@ -2781,9 +2803,9 @@ expand_label:
                         // root 
                         {
                             cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-                            if (0) {
-                                arm_asm2bin(bincode, &binlen, "ldr r%d, [sp, 0x%x]", use, );
-                                minst_new_t(cfg, mtype_ldr, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                            if (j == 0) {
+                                arm_asm2bin(bincode, &binlen, "mov r%d, r%d", last_def, def);
+                                minst_new_t(cfg, mtype_ldr, arm_insteng_parse(bincode, binlen, NULL), bincode, binlen);
                             }
 
                             arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", def, t->ld_imm & 0xffff);
@@ -2793,16 +2815,7 @@ expand_label:
                             minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
                             if (!is_end) {
-                                /* FIXME: */
-                                if (use > 32) {
-                                    succ2 = succ;
-                                    while (minst_get_def(succ2) == -1) {
-                                        succ2 = succ2->succs.minst;
-                                    }
-                                    use = minst_get_def(succ2);
-                                }
-
-                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", use , def);
+                                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", last_def , def);
                                 minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
                                 arm_asm2bin(bincode, &binlen, "beq");
@@ -2825,6 +2838,8 @@ expand_label:
                             minst_add_false_edge(cfg->end, succ);
                         else
                             minst_add_true_edge(cfg->end, succ);
+
+                        changed = 1;
                     }
                 }
             }
@@ -2853,7 +2868,7 @@ expand_label:
 
     minst_dump_csm(blk);
 
-    return 0;
+    return changed;
 }
 
 int         arm_emu_reduce_csm(struct arm_emu *emu)
@@ -3440,7 +3455,7 @@ int         minst_blk_const_propagation(struct arm_emu *emu, int delcode)
 
 char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
 {
-    char buf[128];
+    char buf[128], *pos;
     short t1, t2;
     int i, len, rd, imm, rm, rn;
 
@@ -3481,29 +3496,39 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
         break;
 
     case 'm':
-        rd = atoi(strchr(buf, 'r') + 1);
-        imm = strtol(strstr (buf, "0x") + 2, NULL, 16);
-        if (buf[3] == 't') {
-            /* P491 */
-            t1 = 0b1111001011000000;
-            t2 = 0b0000000000000000;
-            t1 |= BITS_GET_SHL(imm, 11, 1, 10);
-            t1 |= BITS_GET_SHL(imm, 12, 4, 0);
-            t2 |= rd << 8;
-            t2 |= BITS_GET_SHL(imm, 8, 3, 12);
-            t2 |= BITS_GET_SHL(imm, 0, 8, 0);
+        if ((pos = strstr(buf, "0x"))) {
+            rd = atoi(strchr(buf, 'r') + 1);
+            imm = strtol(pos + 2, NULL, 16);
+            if (buf[3] == 't') {
+                /* P491 */
+                t1 = 0b1111001011000000;
+                t2 = 0b0000000000000000;
+                t1 |= BITS_GET_SHL(imm, 11, 1, 10);
+                t1 |= BITS_GET_SHL(imm, 12, 4, 0);
+                t2 |= rd << 8;
+                t2 |= BITS_GET_SHL(imm, 8, 3, 12);
+                t2 |= BITS_GET_SHL(imm, 0, 8, 0);
+            }
+            else {
+                /* P484 */
+                t1 = 0b1111001001000000;
+                t2 = 0b0000000000000000;
+                t1 |= ((imm >> 11) & 1) << 10;
+                t1 |= (imm >> 12) & 0xf;
+                t2 |= ((imm >> 8) & 7) << 12;
+                t2 |= rd << 8;
+                t2 |= imm & 0xff;
+            }
+            len = 4;
         }
         else {
-            /* P484 */
-            t1 = 0b1111001001000000;
-            t2 = 0b0000000000000000;
-            t1 |= ((imm >> 11) & 1) << 10;
-            t1 |= (imm >> 12) & 0xf;
-            t2 |= ((imm >> 8) & 7) << 12;
-            t2 |= rd << 8;
-            t2 |= imm & 0xff;
+            sscanf(buf, "mov r%d, r%d", &rd, &rm);
+            t1 = 0b0100011000000000;
+            t1 |= rd & 0x7;
+            t1 |= (rd & 0x8) << 7;
+            t1 |= rm << 3;
+            len = 2;
         }
-        len = 4;
         break;
 
     default:

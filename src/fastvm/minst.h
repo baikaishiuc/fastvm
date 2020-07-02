@@ -261,8 +261,10 @@ int                 minst_get_use(struct minst *minst);
         m->ld_imm = imm; \
     } while (0)
 
-#define minst_get_true_label(_m)            (_m)->succs.next->minst
-#define minst_get_false_label(_m)           (_m)->succs.minst
+//#define minst_get_true_label(_m)            (_m)->succs.next->minst
+//#define minst_get_false_label(_m)           (_m)->succs.minst
+#define minst_get_true_label(_m)            ((_m)->succs.f.true_label ? (_m)->succs.minst:(_m)->succs.next->minst)
+#define minst_get_false_label(_m)           ((_m)->succs.f.true_label ? (_m)->succs.next->minst:(_m)->succs.minst)
 #define minst_is_tconst(_m)                 ((_m)->flag.is_const || (_m)->flag.is_trace)
 #define minst_set_trace(_m)                 _m->flag.is_trace = 1
 #define minst_in_it_block(_m)               _m->flag.in_it_block
