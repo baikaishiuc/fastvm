@@ -2781,6 +2781,11 @@ expand_label:
                         // root 
                         {
                             cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+                            if (0) {
+                                arm_asm2bin(bincode, &binlen, "ldr r%d, [sp, 0x%x]", use, );
+                                minst_new_t(cfg, mtype_ldr, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                            }
+
                             arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", def, t->ld_imm & 0xffff);
                             minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
@@ -3453,6 +3458,7 @@ char *arm_asm2bin(char *bin, int *olen, const char *asm, ...)
         /* @AAR.P334 */
         t1 = 0xe000;
         if (buf[1] == 'e') {
+            t1 = 0xd000;
         }
         len = 2;
         break;
