@@ -166,6 +166,7 @@ struct minst {
         unsigned undefined_bcond : 1;
         unsigned def_oper : 1;
         unsigned callee_restore : 1;
+        unsigned like_it : 1;
     } flag;
 
     unsigned long host_addr;            // jump address, need be fixed in second pass
@@ -451,6 +452,12 @@ deobfuse
 */
 int minst_dob_analyze(struct minst_blk *blk);
 int minst_dump_csm(struct minst_blk *blk);
+
+/* 
+@return     0       success
+            <0      返回值不是都为常数
+*/
+int minst_get_all_const_definition(struct minst_blk *blk, struct minst *m, struct dynarray *d);
 
 #ifdef __cplusplus
 }

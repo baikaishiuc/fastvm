@@ -1415,3 +1415,52 @@ int minst_dump_csm(struct minst_blk *blk)
 
     return 0;
 }
+
+int minst_get_all_const_definition(struct minst_blk *blk, struct minst *m, struct dynarray *d)
+{
+    struct minst *stack[128], *t, *t2;
+    int stack_top = -1, i, use;
+    BITSET_INIT(defs);
+    BITSET_INIT(rlist);
+
+    dynarray_reset(d);
+
+    MSTACK_PUSH(stack, m);
+
+    while (!MSTACK_IS_EMPTY(stack)) {
+        t = MSTACK_POP(stack);
+        if (t->flag.is_const) {
+            for (i = 0; i < d->len;i ++) {
+                if (((struct minst *)d->ptab[i])->ld_imm == t->ld_imm)
+                    break;
+            }
+
+            if (i == d->len)
+                dynarray_add(d, t);
+            continue;
+        }
+
+        switch (t->type) {
+        case mtype_mov_reg:
+        case mtype_ldr:
+        case mtype_str:
+            use = minst_get_use(t);
+            bitset_clone(&defs, &blk->defs[use]);
+            bitset_and(&defs, &t->rd_in);
+
+            bitset_foreach(&defs, i) {
+                t2 = blk->allinst.ptab[i];
+                MSTACK_PUSH(stack, t2);
+            }
+            break;
+
+        case mtype_def:
+            break;
+
+        default:
+            return -1;
+        }
+    }
+
+    return 0;
+}
