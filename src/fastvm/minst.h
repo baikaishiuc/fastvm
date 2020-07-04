@@ -109,6 +109,7 @@ struct minst_cfg {
 #define minst_is_b(m)       (m->type == mtype_b)
 #define minst_is_bcond(m)   (m->type == mtype_bcond)
 #define minst_is_b0(m)      (minst_is_b(m) || minst_is_bcond(m))
+#define minst_is_dead_code(m)   (m->flag.dead_code || (m->cfg && m->cfg->flag.dead_code))
 
 struct minst {
     unsigned char *addr;

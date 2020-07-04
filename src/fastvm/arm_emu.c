@@ -392,7 +392,7 @@ static int arm_inst_print_format(struct arm_emu *emu, struct minst *minst, unsig
 
     if (flag & IDUMP_STATUS) {
         olen = sprintf(o += olen, "[");
-        olen = sprintf(o += olen, "%c", minst->flag.dead_code ? 'D':' ');
+        olen = sprintf(o += olen, "%c", minst_is_dead_code(minst) ? 'D':' ');
         olen = sprintf(o += olen, "]");
     }
 
@@ -2607,8 +2607,6 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 
 int         minst_blk_const_propagation(struct arm_emu *emu, int delcode);
 
-int         arm_emu_trace_flat(struct arm_emu *emu);
-
 int         arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len)
 {
     return 0;
@@ -2742,6 +2740,9 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
 
     EMU_SET_CONST_MODE(emu);
 
+    //arm_emu_dump_mblk(emu, "final");
+    //exit(0);
+
     return 0;
 }
 
@@ -2819,7 +2820,7 @@ expand_label:
                                 minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
                                 arm_asm2bin(bincode, &binlen, "beq");
-                                minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+                                minst_new_t(cfg, 0, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
                             }
                         }
 
@@ -2939,363 +2940,6 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
             if (changed) break;
         }
     }
-
-    return 0;
-}
-
-int         arm_emu_trace_flat(struct arm_emu *emu)
-{
-    struct minst_blk *blk = &emu->mblk;
-    struct minst *minst, *t, *n;
-    struct minst_cfg *cfg = blk->allcfg.ptab[0], *last_cfg, *prev_cfg, *true_cfg, *false_cfg;
-    struct minst_node *succ_node;
-    char bincode[32];
-    int ret, i, j, trace_start, binlen, prev_cfg_pos;
-    int trace_flat_times = 0;
-    BITSET_INITS(cfg_visit, blk->allcfg.len);
-    BITSET_INITS(defs, blk->allinst.len);
-
-#define MTRACE_PUSH_CFG(_cfg) do { \
-        struct minst *start = (_cfg)->start; \
-        for (; start != _cfg->end; start = start->succs.minst) \
-            MSTACK_PUSH(blk->trace, start); \
-        MSTACK_PUSH(blk->trace, start); \
-    } while (0)
-
-#define MTRACE_POP_CFG() do { \
-        struct minst *end = MSTACK_TOP(blk->trace); \
-        struct minst_cfg *end_cfg = end->cfg; \
-        while (end->id != end_cfg->start->id) \
-            end = MSTACK_POP(blk->trace); \
-        MSTACK_POP(blk->trace); \
-    } while (0)
-
-    int changed = 1;
-
-    minst_cfg_classify(blk);
-
-    while (changed) {
-        cfg = blk->allcfg.ptab[0];
-        bitset_expand(&cfg_visit, blk->allcfg.len);
-        MTRACE_PUSH_CFG(cfg);
-
-        if (MSTACK_IS_EMPTY(blk->trace))
-            vm_error("not found start path to const state machine cfg node");
-
-        printf("start trace[%d]\n", trace_flat_times+1);
-        while (!MSTACK_IS_EMPTY(blk->trace)) {
-            minst = MSTACK_TOP(blk->trace);
-            EMU_SET_TRACE_MODE(emu);
-
-            if (minst->cfg->csm  == CSM_OUT)
-                ret = MDO_TF_OUT_CSM;
-            else
-                ret = arm_minst_do(emu, minst);
-
-            printf("minst= %d \n", minst->id);
-
-            switch (ret) {
-            case MDO_SUCCESS:
-                if (minst_succs_count(minst) > 1) {
-                    if (minst_is_tconst(minst)) {
-                        int index[5], p_index;
-                        int counts;
-                        /* 检查所有tconst结果的bcond语句，确认trace的结果是否是唯一分支 */
-                        struct minst *cmp = minst_trace_get_def(blk, ARM_REG_APSR, &index[0], -1);
-                        struct minst *m1, *false_m;
-
-                        if (cmp->type != mtype_cmp)
-                            vm_error("found def apsr register un-support inst type");
-
-                        /* 确定cmp 指令中的二个操作数哪个是常量，哪个不是
-                        1. 二个都是常量，那么可以直接删除掉一边，这个在常量优化中已经干掉
-                        2. 一个是常量，一个是trace常量，那么我们需要确认这个trace的常量在当前的trace
-                            节点集合中是否是唯一的，假如是唯一就代表可以优化，假如不是唯一，就要在这个
-                            地方切分cfg节点，比如trace节点可能有2个值
-                        */
-                        struct minst *lm = minst_trace_get_def(blk, cmp->cmp.lm, &index[1], index[0]);
-                        struct minst *ln = minst_trace_get_def(blk, cmp->cmp.ln, &index[2], index[0]);
-                        struct minst *trace_m;
-
-                        trace_m = !lm->flag.is_const ? lm : ln;
-                        index[3] = !lm->flag.is_const ? index[1]:index[2];
-
-                        m1 = minst_trace_get_def(blk, minst_get_def(trace_m), &index[4], index[3]);
-                        if (m1->type == mtype_mov_reg) {
-                            do {
-                                p_index = index[4];
-                                m1 = minst_trace_get_def(blk, minst_get_use(m1), &index[4], index[4]);
-                            } while (m1->type == mtype_mov_reg);
-
-                            counts = minst_trace_get_defs(blk, minst_get_def(m1), p_index, &defs);
-
-                            if (counts > 1) {
-                                printf("found multi-path in const status machine, [%d, %d]\n", m1->id, counts);
-
-                                if (counts != 2)
-                                    vm_error("exit with not support %d const", counts);
-
-                                bitset_foreach(&defs, i) {
-                                    t = blk->allinst.ptab[i];
-                                    if (!t->flag.is_const) {
-                                        vm_error("const machine not const");
-                                    }
-
-                                    if (t->ld_imm != trace_m->ld_imm) {
-                                        false_m = t;
-                                    }
-                                }
-
-                                prev_cfg = minst_trace_find_prev_cfg(blk, &prev_cfg_pos, 0);
-                                last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
-
-                                /* 当我们发现常量状态机中需要插入一个cfg时，因为arm中比较一个4字节立即数，需要先移动数据到
-                                寄存器中，所以我们插入了一个mov immediate的指令，但是具体寄存器用哪个呢？
-                                用当前cfg的第一个被def的指令，应该没有问题
-                                除非这个寄存器他的使用和定值都用同一个，但是在这个常亮状态机中不会 */
-                                {
-                                    cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-
-                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(last_cfg->start), trace_m->ld_imm & 0xffff);
-                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-
-                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
-                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-
-                                    arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", minst_get_def(trace_m), minst_get_def(last_cfg->start));
-                                    minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-
-                                    arm_asm2bin(bincode, &binlen, "b");
-                                    t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-                                    t->flag.undefined_bcond = 1;
-                                }
-
-                                {
-                                    true_cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-
-                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(trace_m), trace_m->ld_imm & 0xffff);
-                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-
-                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (trace_m->ld_imm >> 16) & 0xffff);
-                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-                                }
-
-                                {
-                                    false_cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-
-                                    arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", minst_get_def(trace_m), false_m->ld_imm & 0xffff);
-                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-
-                                    arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", minst_get_def(last_cfg->start), (false_m->ld_imm >> 16) & 0xffff);
-                                    minst_new_t(true_cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-                                }
-                                /* 第一条边是false边 */
-                                minst_add_edge(cfg->end, false_cfg->start);
-                                minst_add_edge(cfg->end, true_cfg->start);
-
-                                if (minst_is_b(prev_cfg->end)) {
-                                    minst_del_edge(prev_cfg->end, last_cfg->start);
-                                    minst_add_edge(prev_cfg->end, cfg->start);
-                                }
-                                else {
-                                    /* 插入一个cfg节点在当前的cfg节点和前一个节点当中
-                                    */
-                                    if (prev_cfg->end->succs.minst == last_cfg->start) 
-                                        prev_cfg->end->succs.minst = cfg->start;
-                                    else 
-                                        prev_cfg->end->succs.next->minst = cfg->start;
-
-                                    minst_pred_del(last_cfg->start, prev_cfg->end);
-                                }
-
-                                minst_add_edge(true_cfg->end, last_cfg->start);
-                                minst_add_edge(false_cfg->end, last_cfg->start);
-
-                                EMU_SET_CONST_MODE(emu);
-                                for (i = cfg->start->id; i < blk->allinst.len; i++) {
-                                    arm_minst_do(emu, blk->allinst.ptab[i]);
-                                }
-                                minst_blk_const_propagation(emu, 0);
-                                EMU_SET_TRACE_MODE(emu);
-                            }
-                        }
-
-                        if (minst->flag.b_cond_passed) 
-                            MSTACK_PUSH(blk->trace, minst_get_true_label(minst));
-                        else 
-                            MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
-                    }
-                    else {
-                        vm_error("unknown branch cant enter in case\n");
-                    }
-                }
-                else 
-                    MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
-                break;
-
-            case MDO_CANT_TRACE:
-                vm_error("prog cant deobfuse");
-                break;
-
-            case MDO_TF_OUT_CSM:
-            case MDO_BRANCH_UNKNOWN:
-                /* 开始对trace进行平坦化，第一步先申请 cfg 节点 */
-                last_cfg = ((struct minst *)MSTACK_TOP(blk->trace))->cfg;
-                prev_cfg = minst_trace_find_prev_cfg(blk, &prev_cfg_pos, 0);
-
-                /* 
-                1. 假如前cfg节点为已规约节点，则开始进行回溯
-                2. 产生回环时进行回溯
-                 */
-                if (prev_cfg && prev_cfg->flag.reduced) {
-                    struct minst *undefined_bcond;
-
-                    while (!MSTACK_IS_EMPTY(blk->trace)) {
-                        undefined_bcond = MSTACK_TOP(blk->trace);
-
-                        minst_succs_foreach(undefined_bcond, succ_node) {
-                            if (!succ_node->minst) continue;
-                            if (succ_node->f.visited) continue;
-
-                            MSTACK_PUSH(blk->trace, succ_node->minst);
-                            goto loop_label;
-                        }
-
-                        if (!minst_trace_find_prev_undefined_bcond(blk, &blk->trace_top, -1)) {
-                            printf("seems we meet least fix point\n");
-                            goto exit_label;
-                        }
-                    }
-
-                loop_label:
-                    continue;
-                }
-
-                sprintf(bincode, "%d_before", trace_flat_times + 1);
-                arm_emu_dump_trace(emu, bincode);
-
-
-                /* 尝试查找前一个undefined bcond ，假如没有找到，就是第一个undefined bcond，尝试搜索
-                前面有多少个tconst指令 */
-                if (!minst_trace_find_prev_undefined_bcond(blk, &i, -1)) {
-                    for (i = 0; i < blk->trace_top; i++) {
-                        t = blk->trace[i];
-                        if (minst_is_bcond(t) && minst_is_tconst(t)) break;
-                    }
-
-                    /* 假如没有找到tconst bcond指令，则不进行reduce */
-                    if (i == blk->trace_top) {
-                        MSTACK_PUSH(blk->trace, minst_get_false_label(minst));
-                        break;
-                    }
-
-                    minst_trace_find_prev_cfg(blk, &i, i);
-                }
-                else {
-                    for (j = i; j <= blk->trace_top; j++) {
-                        t = blk->trace[j];
-                        if (minst_is_bcond(t) && minst_is_tconst(t))
-                            break;
-                    }
-
-                    /* 2个undefined bcond 之间没有其他节点 */
-                    if (j > blk->trace_top) {
-                        minst_edge_set_visited(minst, minst->succs.minst);
-                        MSTACK_PUSH(blk->trace, minst->succs.minst);
-                        break;
-                    }
-                }
-
-                /* 把trace流上的节点从前驱节点的后继中删除 */
-                minst_del_edge(blk->trace[i], blk->trace[i+1]);
-
-                cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
-                /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
-                for (trace_start = ++i; i <= prev_cfg_pos; i++) {
-                    t = blk->trace[i];
-
-                    if (minst_is_b0(t)) continue;
-
-                    n = minst_new_copy(cfg, blk->trace[i]);
-
-                    if (!cfg->start)    cfg->start = n;
-                }
-                /* cfg末尾需要添加一条实际的jmp指令 */
-                arm_asm2bin(bincode, &binlen, "b");
-                t = minst_new_t(cfg, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-                cfg->end = t;
-
-                /* 
-                1. 连接start节点到trace节点
-                2. 连接新的cfg到最后一个undefined bcond cfg中
-                */
-                t = blk->trace[trace_start - 1];
-                minst_add_edge(t, cfg->start);
-                minst_add_edge(cfg->end, last_cfg->start);
-
-                cfg->flag.reduced = 1;
-                minst_edge_set_visited(t, cfg->start);
-                bitset_set(&cfg_visit, cfg->id, 1);
-                bitset_set(&cfg_visit, t->cfg->id, 1);
-
-                /* 恢复被trace过的指令内容 */
-                for (i = trace_start; i <= blk->trace_top; i++) {
-                    minst_restore(blk->trace[i]);
-                }
-                blk->trace_top = trace_start-1;
-                printf("backtrace to %d-%d\n", blk->trace_top, ((struct minst *)MSTACK_TOP(blk->trace))->id);
-
-                /* 假如
-                1. 当前last cfg的状态为 unkown branch
-                2. 这个last cfg没有被处理过 
-                则压入 reduce cfg 和 last cfg以及他的第一个后继节点
-                */
-                int loop = bitset_get(&cfg_visit, last_cfg->id);
-                if (loop)
-                    printf("found loop cfg[%d]\n", last_cfg->id);
-                if ((ret == MDO_BRANCH_UNKNOWN) && !loop) {
-                    for (t = cfg->start; t; t = t->succs.minst) {
-                        MSTACK_PUSH(blk->trace, t);
-                        arm_minst_do(emu, t);
-
-                        if (t == cfg->end) break;
-                    }
-
-                    for (t = last_cfg->start; t; t = t->succs.minst) {
-                        MSTACK_PUSH(blk->trace, t);
-                        arm_minst_do(emu, t);
-
-                        if (t == last_cfg->end) break;
-                    }
-
-                    MSTACK_PUSH(blk->trace, t->succs.minst);
-                }
-
-                sprintf(bincode, "%d_after", trace_flat_times + 1);
-                arm_emu_dump_trace(emu, bincode);
-
-                minst_cfg_classify(blk);
-                trace_flat_times++;
-                arm_emu_dump_cfg(emu, itoa(trace_flat_times, bincode, 10));
-                arm_emu_dump_mblk(emu, bincode);
-
-                minst_blk_const_propagation(emu, 0);
-#if 1
-                strcat(bincode, "o");
-                arm_emu_dump_cfg(emu, bincode);
-#endif
-
-                printf("start trace[%d]\n", trace_flat_times);
-                break;
-            }
-        }
-    }
-
-exit_label:
-    bitset_uninit(&cfg_visit);
-    minst_blk_const_propagation(emu, 1);
-    arm_emu_dump_cfg(emu, "final");
-    minst_edge_clear_visited(blk);
 
     return 0;
 }
@@ -3579,8 +3223,6 @@ int         arm_emu_run(struct arm_emu *emu)
     arm_emu_dump_mblk(emu, "orig");
 
     arm_emu_reduce_csm(emu);
-    //minst_cfg_classify(&emu->mblk);
-    //arm_emu_trace_flat(emu);
 
 #if 0
     //minst_blk_out_of_order(&emu->mblk);
