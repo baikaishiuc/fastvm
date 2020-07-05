@@ -52,12 +52,6 @@
 #define EMU_SET_CONST_MODE(e)   (e->seq_mod = EMU_CONST_MODE)
 #define EMU_SET_TRACE_MODE(e)   (e->seq_mod = EMU_TRACE_MODE)
 
-#define MDO_SUCCESS             0
-#define MDO_CANT_TRACE          1
-#define MDO_TF_ONLY_ONE         2
-#define MDO_TF_OUT_CSM          3
-#define MDO_BRANCH_UNKNOWN      4
-
 /* 为了简化代码和书上对应增加的宏 */
 #define EC()            (emu)->code.ctx
 #define Rn              EC().ln
@@ -807,6 +801,61 @@ static int t1_inst_and(struct arm_emu *emu, struct minst *minst, uint16_t *code,
     return 0;
 }
 
+static int thumb_inst_const_on_bcond_it(struct arm_emu *emu, struct minst *minst)
+{
+    char bincode[16];
+    int binlen;
+    struct minst *cminst, *tminst, *t;
+
+    if (!EMU_IS_CONST_MODE(emu)) return 0;
+
+    if (minst_is_bcond_it(minst) 
+        && (minst->flag.is_const 
+            || (((cminst = minst_get_last_const_definition(&emu->mblk, minst, ARM_REG_APSR))) && cminst->flag.is_const))) {
+
+        if (minst->flag.is_const)
+            tminst = minst->flag.b_cond_passed ? minst_get_false_label(minst) : minst_get_true_label(minst);
+        else {
+            /* 要删除一个边，所以要取不符合的 */
+            minst->flag.is_const = 1;
+            minst->apsr = cminst->apsr;
+            tminst = (_ConditionPassed(&minst->apsr, EC().cond)) ? minst_get_false_label(minst) : minst_get_true_label(minst);
+        }
+
+        minst_del_edge(minst, tminst);
+
+        /* 删除一条边以后，bcond指令就要改成b指令了 */
+        arm_asm2bin(bincode, &binlen, "b");
+        live_use_clear(&emu->mblk, ARM_REG_APSR);
+        t = minst_change(minst, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+        t->succs.f.true_label = 0;
+    }
+
+    return 0;
+}
+
+static int thumb_inst_trace_on_bcond_it(struct arm_emu *emu, struct minst *minst)
+{
+    struct minst *t;
+
+    if (!EMU_IS_TRACE_MODE(emu)) return 0;
+
+    if (minst_is_b(minst)) return 0;
+
+    t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, NULL, 0);
+
+    if (t && minst_is_tconst(t)) {
+        minst_set_trace(minst);
+        minst->apsr = t->apsr;
+
+        minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
+    }
+    else {
+        minst->flag.is_trace = 0;
+    }
+    return 0;
+}
+
 static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     int firstcond = emu->code.ctx.cond;
@@ -833,20 +882,13 @@ static int thumb_inst_it(struct arm_emu *emu, struct minst *minst, uint16_t *cod
 
     live_use_set(&emu->mblk, ARM_REG_APSR);
 
-    if (EMU_IS_TRACE_MODE(emu)) {
-        struct minst *t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, 0, 0);
-
-        if (!t || !minst_is_tconst(t)) {
-            minst->flag.is_trace = 0;
-            return 0;
-        }
-
-        minst_set_trace(minst);
-        minst->apsr = t->apsr;
-
-        minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, EC().cond);
-
+    if (EMU_IS_CONST_MODE(emu)) {
+        thumb_inst_const_on_bcond_it(emu, minst);
     }
+    else if (EMU_IS_TRACE_MODE(emu)) {
+        thumb_inst_trace_on_bcond_it(emu, minst);
+    }
+
 
     return 0;
 }
@@ -949,22 +991,31 @@ static unsigned long emu_addr_host2target(struct arm_emu *emu, unsigned long add
 
 static int thumb_inst_ldrb(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
-    if ((code[0] >> 7) & 1) {
-        // P190
-        if (EC().ld == 15) ARM_UNSUPPORT("pld");
-        if (EC().ln == 15) ARM_UNSUPPORT("ldrb");
-        if (EC().ld == 13) ARM_UNPREDICT();
-
-        arm_prepare_dump(emu, "ldrb%s.w %s, [%s, #0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
+    if (len == 1) {
+        /* @AAR.P416 */
+        if (EC().imm)
+            arm_prepare_dump(emu, "ldrb%s %s, [%s, 0x#%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
+        else
+            arm_prepare_dump(emu, "ldrb%s %s, [%s]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln]);
     }
     else {
-        if (EC().ln == 15)  ARM_UNSUPPORT("ldrb");
-        if (EC().ld == 15 && EC().p && !EC().u && !EC().w) ARM_UNSUPPORT("pld");
-        if (EC().p && EC().u && !EC().w) ARM_UNSUPPORT("ldrbt");
-        if (!EC().p && !EC().w) ARM_UNDEFINED();
-        if (BadReg(EC().ld) || (EC().w && (EC().ld == EC().ln))) ARM_UNPREDICT();
+        if ((code[0] >> 7) & 1) {
+            // P190
+            if (EC().ld == 15) ARM_UNSUPPORT("pld");
+            if (EC().ln == 15) ARM_UNSUPPORT("ldrb");
+            if (EC().ld == 13) ARM_UNPREDICT();
 
-        arm_prepare_dump(emu, "ldrb%s %s, [%s, #%c0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
+            arm_prepare_dump(emu, "ldrb%s.w %s, [%s, #0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().imm);
+        }
+        else {
+            if (EC().ln == 15)  ARM_UNSUPPORT("ldrb");
+            if (EC().ld == 15 && EC().p && !EC().u && !EC().w) ARM_UNSUPPORT("pld");
+            if (EC().p && EC().u && !EC().w) ARM_UNSUPPORT("ldrbt");
+            if (!EC().p && !EC().w) ARM_UNDEFINED();
+            if (BadReg(EC().ld) || (EC().w && (EC().ld == EC().ln))) ARM_UNPREDICT();
+
+            arm_prepare_dump(emu, "ldrb%s %s, [%s, #%c0x%x]", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], EC().u ? '+':'-', EC().imm);
+        }
     }
 
     return 0;
@@ -993,10 +1044,10 @@ static int thumb_inst_ldr(struct arm_emu *emu, struct minst *minst, uint16_t *co
             if (emu->code.ctx.imm)
                 arm_prepare_dump(emu, "ldr %s, [sp,#0x%x]", regstr[emu->code.ctx.ld], emu->code.ctx.imm * 4);
             else
-                arm_prepare_dump(emu, "ldr %s, [sp]");
+                arm_prepare_dump(emu, "ldr %s, [sp]", regstr[EC().ld]);
 
-            addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
             if (!minst->temp) {
+                addr = ARM_SP_VAL(emu) + emu->code.ctx.imm * 4;
                 minst->temp = minst_temp_alloc(&emu->mblk, addr);
                 live_use_set(&emu->mblk, minst->temp->tid);
             }
@@ -1112,63 +1163,73 @@ static int thumb_inst_strb(struct arm_emu *emu, struct minst *minst, uint16_t *c
 static int thumb_inst_str(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     struct minst *s;
-    int imm = 0;
+    int imm = 0, reg = -1, lm;
     unsigned long memaddr;
 
     minst->type = mtype_str;
 
     if (len == 1) {
-        if (emu->code.ctx.imm) 
-            arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[EC().lm], imm = (emu->code.ctx.imm * 4));
-        else
-            arm_prepare_dump(emu, "str %s, [sp]", regstr[EC().lm]);
-
-        /* FIXME:这个地方假设是操作stack的时候，sp的值应该是可以静态分析的，这个假设是没问题的吗？ */
-        memaddr = ARM_SP_VAL(emu) + imm;
-        if (!minst->temp) {
-            minst->temp = minst_temp_alloc(&emu->mblk, memaddr);
-            live_def_set(&emu->mblk, minst->temp->tid);
+        /* @AAR.P672 */
+        if ((code[0] & 0xf000) == 0x60) {
+            if (EC().imm)
+                arm_prepare_dump(emu, "str%s %s, [%s, #%x]", minst_it_cond_str(minst), regstr[EC().ln], regstr[EC().lm], EC().imm);
+            else
+                arm_prepare_dump(emu, "str%s %s, [%s]", minst_it_cond_str(minst), regstr[EC().ln], regstr[EC().lm]);
         }
+        else {
+            if (emu->code.ctx.imm) 
+                arm_prepare_dump(emu, "str %s, [sp,#0x%x]", regstr[EC().lm], imm = (emu->code.ctx.imm * 4));
+            else
+                arm_prepare_dump(emu, "str %s, [sp]", regstr[EC().lm]);
 
-        if (EMU_IS_CONST_MODE(emu)) {
-            s = minst_get_last_const_definition(&emu->mblk, minst, EC().lm);
-            if (s) {
-                minst_set_const(minst, s->ld_imm);
-            }
-        }
-        else if (EMU_IS_TRACE_MODE(emu)) {
-            s = minst_trace_get_def(&emu->mblk, EC().lm, NULL, 0);
-
-            if (s && minst_is_tconst(s)) {
-                minst->flag.is_trace = 1;
-                minst->ld_imm = s->ld_imm;
-            }
+            reg = ARM_REG_SP;
+            lm = EC().lm;
         }
     }
     else {
         /* P423 */
-        if ((code[0] & 0xf840) == 0xf840) {
+        if ((code[0] & 0xfff0) == 0xf840) {
             if (EC().ln == 15) ARM_UNDEFINED();
             if (EC().lp == 15 || BadReg(EC().lm)) ARM_UNPREDICT();
 
-            arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#x]", minst_it_cond_str(minst), regstr[EC().lp], regstr[EC().ln], regstr[EC().lm]);
+            arm_prepare_dump(emu, "str%s.w %s, [%s,%s,LSL#%x]", minst_it_cond_str(minst), regstr[lm = EC().lp], regstr[EC().ln], regstr[EC().lm], EC().imm);
         }
         else {
             /* FIXME:P421, ln == 15 is undefined */
             if (EC().ln == 15) ARM_UNPREDICT();
             if (EC().lm == 15) ARM_UNPREDICT();
 
-            arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[EC().lm], regstr[EC().ln], EC().imm);
+            arm_prepare_dump(emu, "str%s.w %s, [%s,#0x%x]", minst_it_cond_str(minst), regstr[lm = EC().lm], regstr[EC().ln], imm = EC().imm);
+
+            reg = EC().ln;
         }
     }
 
-    if (EMU_IS_CONST_MODE(emu)) {
-        struct minst *const_m = minst_get_last_const_definition(&emu->mblk, minst, minst_get_use(minst));
+    if (EMU_IS_SEQ_MODE(emu)) {
+        if (reg == ARM_REG_SP) {
+            /* FIXME:这个地方假设是操作stack的时候，sp的值应该是可以静态分析的，这个假设是没问题的吗？ */
+            memaddr = ARM_SP_VAL(emu) + imm;
+            if (!minst->temp) {
+                minst->temp = minst_temp_alloc(&emu->mblk, memaddr);
+                live_def_set(&emu->mblk, minst->temp->tid);
+            }
+        }
+    }
+    else if (EMU_IS_CONST_MODE(emu)) {
+        struct minst *const_m = minst_get_last_const_definition(&emu->mblk, minst, lm);
 
-        if (!const_m || !minst->temp) return 0;
+        if (!const_m) return 0;
 
         minst->flag.is_const = 1;
         minst->ld_imm = const_m->ld_imm;
+    }
+    else if (EMU_IS_TRACE_MODE(emu)) {
+        s = minst_trace_get_def(&emu->mblk, lm, NULL, 0);
+
+        if (s && minst_is_tconst(s)) {
+            minst->flag.is_trace = 1;
+            minst->ld_imm = s->ld_imm;
+        }
     }
 
     return 0;
@@ -1257,9 +1318,18 @@ static int thumb_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *co
 
         liveness_set(&emu->mblk, ARM_REG_SP, ARM_REG_SP);
     }
-    else if ((code[0] & 0xf000) == 0xf000) {
+    else if ((code[0] & 0xf100) == 0xf100) {
+        /* @AAR.P306 */
+        if ((EC().ld == 0b1111) && EC().setflags) vm_error("see CMN(immediate)");
+        //if ((EC().ld == 0b1101)) goto sp_plus_immediate;
+        if ((EC().ld == ARM_REG_R13) || (EC().ld == 15 && !EC().setflags) || (EC().ln == 15)) ARM_UNPREDICT();
+
         imm = BITS_GET_SHL(code[0], 10, 1, 11) + BITS_GET_SHL(code[1], 12, 3, 8) + BITS_GET_SHL(code[1], 0, 8, 0);;
         imm = ThumbExpandImm(emu, imm);
+#if 0
+    }
+    else if ((code[0] & 0xf000) == 0xf000) {
+sp_plus_immediate:
 
         if ((Rd == 15)) {
             if (EC().setflags)
@@ -1267,9 +1337,10 @@ static int thumb_inst_add(struct arm_emu *emu, struct minst *minst, uint16_t *co
             else
                 ARM_UNPREDICT();
         }
+#endif
 
-        arm_prepare_dump(emu, "add%s%s.w %s,sp,#0x%x", EC().setflags ? "s" : "", minst_it_cond_str(minst), regstr[Rd], imm);
-        live_use_set(&emu->mblk, ARM_REG_SP);
+        arm_prepare_dump(emu, "add%s%s.w %s,%s,#0x%x", EC().setflags ? "s" : "", minst_it_cond_str(minst), regstr[EC().ld], regstr[EC().ln], imm);
+        //live_use_set(&emu->mblk, ARM_REG_SP);
     }
     else if ((code[0] & 0xf000) == 0xe000) {
         /* P106 */
@@ -1293,9 +1364,7 @@ static int t_swi(struct arm_emu *emu, struct minst *minst, uint16_t *code, int l
 static int thumb_inst_b(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst *t = NULL, *cminst = NULL, *tminst;
-    char bincode[4];
-    int binlen, i1, i2, imm, i;
+    int i1, i2, imm;
 
     if (len == 1) {
         if ((code[0] & 0xff00) == 0x4700) {
@@ -1388,6 +1457,7 @@ bl_label:
         minst->flag.b_need_fixed = 1;
 
     if (EMU_IS_CONST_MODE(emu)) {
+#if 0
         if ((minst->type == mtype_bl) && blk->tvar.len && !minst->flag.def_oper && !minst->flag.funcend) {
             /* FIXME:代码太丑陋了，太累了 */
             /* TODO:Blx调用传入局部变量地址，所有的局部变量都可能被def，以后需要精确分析哪个局部变量被def */
@@ -1416,43 +1486,12 @@ bl_label:
                 minst->cfg->end = head;
             }
         }
+#endif
 
-        if (minst_is_bcond(minst) 
-            && (minst->flag.is_const 
-                || (((cminst = minst_get_last_const_definition(&emu->mblk, minst, ARM_REG_APSR))) && cminst->flag.is_const))) {
-
-            if (minst->flag.is_const)
-                tminst = minst->flag.b_cond_passed ? minst_get_false_label(minst) : minst_get_true_label(minst);
-            else {
-                /* 要删除一个边，所以要取不符合的 */
-                minst->flag.is_const = 1;
-                minst->apsr = cminst->apsr;
-                tminst = (_ConditionPassed(&minst->apsr, emu->code.ctx.cond)) ? minst_get_false_label(minst) : minst_get_true_label(minst);
-            }
-
-            minst_del_edge(minst, tminst);
-
-            /* 删除一条边以后，bcond指令就要改成b指令了 */
-            arm_asm2bin(bincode, &binlen, "b");
-            live_use_clear(&emu->mblk, ARM_REG_APSR);
-            t = minst_change(minst, mtype_b, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
-        }
+        thumb_inst_const_on_bcond_it(emu, minst);
     }
     else if (EMU_IS_TRACE_MODE(emu)) {
-        if (minst_is_b(minst)) return 0;
-
-        t = minst_trace_get_def(&emu->mblk, ARM_REG_APSR, NULL, 0);
-
-        if (t && minst_is_tconst(t)) {
-            minst_set_trace(minst);
-            minst->apsr = t->apsr;
-
-            minst->flag.b_cond_passed = _ConditionPassed(&minst->apsr, emu->code.ctx.cond);
-        }
-        else {
-            minst->flag.is_trace = 0;
-            return MDO_BRANCH_UNKNOWN;
-        }
+        thumb_inst_trace_on_bcond_it(emu, minst);
     }
 
     return 0;
@@ -1505,6 +1544,8 @@ static int thumb_inst_vpush(struct arm_emu *emu, struct minst *minst, uint16_t *
 
 static int thumb_inst_vpop(struct arm_emu *emu, struct minst *minst, uint16_t *code, int len)
 {
+    char buf[32];
+    arm_prepare_dump(emu, "vpop%s %s", minst_it_cond_str(minst), vreglist2str(EC().vd, EC().imm, buf));
     return 0;
 }
 
@@ -1665,8 +1706,10 @@ struct arm_inst_desc desclist[] = {
     {"0100    0101 11 hm3 hn3 ",            {thumb_inst_cmp}, {"cmp"}},
     {"0100    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"0100    0111 o1 lm4 000",             {t1_inst_bx_0100, thumb_inst_b}, {"bx", "blx"}},
-    {"0110    o1 i5 lm3 ld3",               {t1_inst_str_01101, thumb_inst_ldr},      {"str", "ldr"}},
+    {"0110    0i5 ln3 lm3",                 {thumb_inst_str},    {"str"}},
+    {"0110    1i5 lm3 ld3",                 {thumb_inst_ldr},       {"ldr"}},
     {"0111    0 i5 ln3 lm3",                {thumb_inst_strb},      {"strb<c> <lp>,[<ln>,#<imm>]"}},
+    {"0111    1 i5 ln3 ld3",                {thumb_inst_ldrb},      {"ldrb<c> <ld>,[<ln>,#<imm5>]"}},
     {"1001    0 lm3 i8",                    {thumb_inst_str}, {"str"}},
     {"1001    1 ld3 i8",                    {thumb_inst_ldr}, {"ldr"}},
     {"1010    o1 ld3 i8",                   {t1_inst_add1, t1_inst_add}, {"add", "add"}},
@@ -1694,7 +1737,8 @@ struct arm_inst_desc desclist[] = {
     {"111i1 1111 1d1 00 0i3 vd4 i4 0i2 1 i4",   {thumb_inst_vmov},  "vmov"},
 
     {"1110 1011 000s1 ln4 0i3 ld4 i2 t2 lm4 ",  {thumb_inst_add}, "add{s}<c>.W <ld>,<ln>,<lm>{, <shift>}"},
-    {"1111 0i1 01 000s1 1101 0i3 ld4 i8",       {thumb_inst_add}, "add{S}<c>.W <Rd>,SP#<const>"},
+    //{"1111 0i1 01 000s1 1101 0i3 ld4 i8",       {thumb_inst_add}, "add{S}<c>.W <Rd>,SP#<const>"},
+    {"1111 0i1 01 000s1 ln4 0i3 ld4 i8",        {thumb_inst_add}, "add{S}<c>.W <Rd>,<Rn>,#<const>"},
 
     {"1111 0s1 c4 i6 10 u1 0 w1 i11",       {thumb_inst_b}, "b<c>.w <label>"},
     {"1111 0s1 c4 i6 10 u1 1 w1 i11",       {thumb_inst_b}, "b<c>.w <label>"},
@@ -2691,6 +2735,8 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                 }
                 exit1:
                 printf("meet first undefined bcond[%d] cfg[%d], return\n", minst->id, minst->cfg->id);
+                if (minst->cfg == blk->csm.cfg)
+                    vm_error("csm core cfg cant be undefined");
                 return -1;
             }
         }
@@ -2710,7 +2756,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
         for (trace_start = i; i <= blk->trace_top; i++) {
             t = blk->trace[i];
 
-            if (minst_is_b0(t)) continue;
+            if (minst_is_b0(t) || (t->type == mtype_it)) continue;
 
             n = minst_new_copy(cfg, blk->trace[i]);
 
@@ -2749,7 +2795,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
 int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
 {
     struct minst_node *succ_node;
-    struct minst *m, *succ, *t, *succ2;
+    struct minst *m, *succ, *t, *cmp;
     struct minst_cfg *csm_cfg, *cfg, *root_cfg = NULL, *parent_cfg;
     BITSET_INIT(defs);
     char bincode[16];
@@ -2760,7 +2806,7 @@ int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
 
     csm_cfg = blk->csm.cfg;
 
-    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
+    bitset_clone(&defs, &blk->defs[blk->csm.trace_reg]);
     bitset_and(&defs, &blk->csm.cfg->start->rd_in);
 
     printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 
@@ -2789,11 +2835,12 @@ expand_label:
                     succ = succ_node->minst;
                     if (!bitset_get(&succ->in, def)) continue;
 
-                    succ2 = succ;
-                    while (minst_get_def(succ2) == -1) {
-                        succ2 = succ2->succs.minst;
-                    }
-                    last_def = minst_get_def(succ2);
+                    /* FIXME: */
+                    cmp = minst_get_last_def(blk, m, ARM_REG_APSR);
+                    if (!cmp)
+                        vm_error("not found cmp inst[%d]", m->id);
+
+                    last_def = (cmp->cmp.lm == def) ? cmp->cmp.ln : cmp->cmp.lm;
 
                     root_cfg = parent_cfg = NULL;
                     for (j = 0; j < d.len; j++) {

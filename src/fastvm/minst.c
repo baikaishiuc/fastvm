@@ -147,6 +147,7 @@ struct minst*       minst_new_copy(struct minst_cfg *cfg, struct minst *src)
     dst->cfg = cfg;
     dst->copy_from = src;
     dst->type = src->type;
+    dst->temp = src->temp;
     memcpy(dst->addr, src->addr, src->len);
 
     if (!cfg->start) cfg->start = dst;
@@ -546,6 +547,7 @@ void                minst_blk_live_epilogue_add(struct minst_blk *blk)
         minst->flag.epilogue = 1;
 
         live_use_set(blk, ARM_REG_R0);
+        live_use_set(blk, ARM_REG_SP);
 
         len = blk->allinst.len;
 
@@ -627,7 +629,8 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
             2. str指令不参与计算，因为有很强的副作用 */
             if (minst->flag.dead_code || minst->flag.prologue || minst->flag.epilogue 
                 || (minst->type == mtype_bl)
-                || (minst->type == mtype_str))
+                || (minst->type == mtype_str)
+                || (minst->type == mtype_ldr))
                 continue;
 
             /* 四元式一定有def的，没有def的指令一般是 bl, it, cmp等等*/
@@ -637,6 +640,7 @@ int                 minst_blk_dead_code_elim(struct minst_blk *blk)
             bitset_clone(&def, &minst->def);
             if (!changed && bitset_is_empty(bitset_and(&def, &minst->out))) {
                 minst_del_from_cfg(minst);
+                //printf("dead code elim, inst[%d]\n", minst->id);
                 ret = changed = 1;
             }
         }
@@ -994,7 +998,7 @@ struct minst*       minst_trace_get_str(struct minst_blk *blk, long memaddr, int
     i = before > 0 ? before : (blk->trace_top + before);
     for (; i >= 0; i--) {
         m = blk->trace[i];
-        if ((m->type == mtype_str) && (m->temp->addr == memaddr))
+        if ((m->type == mtype_str) && m->temp && (m->temp->addr == memaddr))
             return m;
     }
 
@@ -1158,15 +1162,15 @@ int                 minst_cfg_classify(struct minst_blk *blk)
 
 int                 minst_cfg_inst_count(struct minst_cfg *cfg)
 {
-    struct minst_blk *blk = cfg->blk;
     struct minst *minst;
-    int i, cts = 0;
+    int cts = 0;
 
-    for (i = cfg->start->id; i <= cfg->end->id; i++) {
-        minst = blk->allinst.ptab[i];
+    for (minst = cfg->start; minst != cfg->end; minst = minst->succs.minst) {
         if (minst->flag.dead_code) continue;
         cts++;
     }
+
+    cts++;
 
     return cts;
 }
@@ -1335,6 +1339,8 @@ void    minst_dump_defs(struct minst_blk *blk, int inst_id, int reg_def)
         def_minst = blk->allinst.ptab[pos];
         if (def_minst->flag.is_const)
             printf("%d const=0x%x\n", pos, def_minst->ld_imm);
+        else if (def_minst->type == mtype_def)
+            printf("%d is type_def, skipped\n", pos);
         else
             printf("%d unknown\n", pos);
     }
@@ -1350,7 +1356,7 @@ int minst_dob_analyze(struct minst_blk *blk)
     struct minst *cmp, *m;
 
     blk->csm.st_reg = -1;
-    blk->csm.st_reg = -1;
+    blk->csm.save_reg = -1;
 
     for (i = 0; i < blk->allcfg.len; i++) {
         cfg = blk->allcfg.ptab[i];
@@ -1371,10 +1377,13 @@ int minst_dob_analyze(struct minst_blk *blk)
     blk->csm.st_reg = cmp->cmp.ln;
 
     m = minst_cfg_get_last_def(csm_cfg, cmp, blk->csm.st_reg);
-    if (!m || (m->type != mtype_mov_reg))
-        vm_error("csm[%d] not found save reg\n", cmp->id);
+    if (!m || (m->type != mtype_mov_reg)) {
+        printf("csm[%d] not found save reg\n", cmp->id);
+    }
+    else
+        blk->csm.save_reg = minst_get_use(m);
 
-    blk->csm.save_reg = minst_get_use(m);
+    blk->csm.trace_reg = (blk->csm.save_reg == -1) ? blk->csm.st_reg : blk->csm.save_reg;
 
     return 1;
 }
@@ -1385,7 +1394,7 @@ int minst_dump_csm(struct minst_blk *blk)
     struct minst *m;
     int i;
 
-    bitset_clone(&defs, &blk->defs[blk->csm.save_reg]);
+    bitset_clone(&defs, &blk->defs[blk->csm.trace_reg]);
     bitset_and(&defs, &blk->csm.cfg->start->rd_in);
 
     printf("csm[%d] base_reg[r%d] st_reg[r%d] save_reg[%d]\n", 

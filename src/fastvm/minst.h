@@ -69,7 +69,7 @@ struct minst_blk {
         int                 st_reg;
         int                 save_reg;
         int                 base_reg;
-        int                 reg[2];
+        int                 trace_reg;
     } csm;
 
     /* 分析函数的所有出口集合 */
@@ -110,6 +110,7 @@ struct minst_cfg {
 #define minst_is_bcond(m)   (m->type == mtype_bcond)
 #define minst_is_b0(m)      (minst_is_b(m) || minst_is_bcond(m))
 #define minst_is_dead_code(m)   (m->flag.dead_code || (m->cfg && m->cfg->flag.dead_code))
+#define minst_is_bcond_it(m)    ((m->type == mtype_bcond) || (m->type == mtype_it))
 
 struct minst {
     unsigned char *addr;
