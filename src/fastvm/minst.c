@@ -944,7 +944,8 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
         }
     }
 
-    return NULL;
+    return minst_get_last_const_definition(blk, blk->trace[0], regm);
+    //return NULL;
 }
 
 int                 minst_trace_get_defs(struct minst_blk *blk, int regm, int before, struct bitset *defs)

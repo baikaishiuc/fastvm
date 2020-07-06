@@ -2735,8 +2735,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                 }
                 exit1:
                 printf("meet first undefined bcond[%d] cfg[%d], return\n", minst->id, minst->cfg->id);
-                if (minst->cfg == blk->csm.cfg)
-                    vm_error("csm core cfg cant be undefined");
+                //if (minst->cfg == blk->csm.cfg) vm_error("csm core cfg cant be undefined");
                 return -1;
             }
         }
@@ -2836,11 +2835,12 @@ expand_label:
                     if (!bitset_get(&succ->in, def)) continue;
 
                     /* FIXME: */
-                    cmp = minst_get_last_def(blk, m, ARM_REG_APSR);
+                    cmp = minst_get_last_def(blk, m->cfg->end, ARM_REG_APSR);
                     if (!cmp)
                         vm_error("not found cmp inst[%d]", m->id);
 
-                    last_def = (cmp->cmp.lm == def) ? cmp->cmp.ln : cmp->cmp.lm;
+                    // FIXME: 设置的def出错
+                    last_def = (cmp->cmp.ln == def) ? cmp->cmp.lm : cmp->cmp.ln;
 
                     root_cfg = parent_cfg = NULL;
                     for (j = 0; j < d.len; j++) {
