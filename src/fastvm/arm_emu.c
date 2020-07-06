@@ -2492,7 +2492,7 @@ static int arm_emu_dump_mblk(struct arm_emu *emu, char *postfix)
 {
     struct minst *minst;
     int i;
-    char buf[4096];
+    char buf[16 * 1024];
 
     sprintf(buf, "%s/%s/inst_%s.txt", emu->filename, emu->mblk.funcname, postfix);
     FILE *fp = fopen(buf, "w");
@@ -2758,6 +2758,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
             if (minst_is_b0(t) || (t->type == mtype_it)) continue;
 
             n = minst_new_copy(cfg, blk->trace[i]);
+            arm_minst_do(emu, n);
 
             if (!cfg->start)    cfg->start = n;
         }
@@ -2987,6 +2988,8 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
             if (changed) break;
         }
     }
+
+    minst_dump_defs(&emu->mblk, 582, 3);
 
     return 0;
 }
@@ -3282,7 +3285,6 @@ int         arm_emu_run(struct arm_emu *emu)
 #endif
     arm_emu_dump_mblk(emu, "finial");
 
-    // arm_emu_dump_defs1(emu, 161, 37);
 
     return 0;
 }
