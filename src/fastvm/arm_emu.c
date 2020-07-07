@@ -2683,7 +2683,7 @@ void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
 @def_m  定值指令
 @pred   csm的前节点
 */
-int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trace_time)
+int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trace_time, int flag)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst *minst, *jmp = NULL, *t, *n;
@@ -2696,14 +2696,14 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     MSTACK_INIT(blk->trace);
     EMU_SET_TRACE_MODE(emu);
     MSTACK_PUSH(blk->trace, def_m);
-    if (def_m->cfg->csm != CSM) {
-        printf("minst_id = %d\n", def_m->id);
+    if ((def_m->cfg->csm != CSM) || flag) {
+        printf("extra minst_id = %d\n", def_m->id);
         MSTACK_PUSH(blk->trace, blk->csm.cfg->start);
     }
 
     while (!MSTACK_IS_EMPTY(blk->trace)) {
         minst = MSTACK_TOP(blk->trace);
-        printf("minst_id = %d\n", minst->id);
+        printf("minst_id = %d [%04x]\n", minst->id, CFG_NODE_ID(minst->addr));
 
         ret = arm_minst_do(emu, minst);
 
@@ -2739,8 +2739,10 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                 return -1;
             }
         }
-        else
+        else {
+            printf("out of csm, finish\n");
             jmp = minst;
+        }
 
         while (((struct minst *)MSTACK_TOP(blk->trace))->cfg == minst->cfg) MSTACK_POP(blk->trace);
 
@@ -2924,6 +2926,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst_cfg *csm_cfg = NULL, *cfg;
+    struct minst *pred;
     int i, j, k, trace_times, changed;
     BITSET_INIT(defs);
     BITSET_INIT(defs1);
@@ -2938,6 +2941,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 
     trace_times = 1;
     changed = 1;
+#if 0
     while (changed) {
         changed = 0;
 
@@ -2963,7 +2967,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
                 struct minst *t = blk->allinst.ptab[j];
 
                 if (t->flag.is_const) {
-                    if (arm_emu_trace_csm(emu, t, trace_times))
+                    if (arm_emu_trace_csm(emu, t, trace_times, 0))
                         continue;
 
                     trace_times++;
@@ -2976,7 +2980,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
                     bitset_and(&defs1, &t->rd_in);
 
                     bitset_foreach(&defs1, k) {
-                        if (arm_emu_trace_csm(emu, blk->allinst.ptab[k], trace_times))
+                        if (arm_emu_trace_csm(emu, blk->allinst.ptab[k], trace_times, 0))
                             continue;
 
                         trace_times++;
@@ -2987,9 +2991,49 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 
             if (changed) break;
         }
-    }
 
-    minst_dump_defs(&emu->mblk, 582, 3);
+        if (!changed && !blk->csm.cfg->flag.dead_code) {
+            printf("csm not changed, but core csm[%d] not be deleted\n", blk->csm.cfg->id);
+
+            struct minst_node *pred_node;
+            int changed2 = 1;
+            while (changed2) {
+                changed2 = 0;
+                minst_preds_foreach(csm_cfg->start, pred_node) {
+                    if (arm_emu_trace_csm(emu, pred_node->minst, trace_times, 1)) 
+                        continue;
+
+                    trace_times++;
+                    changed = changed2 = 1;
+                    break;
+                }
+            }
+        }
+    }
+#else
+    //arm_emu_trace_csm(emu, blk->allinst.ptab[42], 1, 0);
+    //arm_emu_trace_csm(emu, blk->allinst.ptab[845], 2, 0);
+    struct minst_node *pred_node;
+    changed = 1;
+    while (changed) {
+        changed = 0;
+        minst_preds_foreach(csm_cfg->start, pred_node) {
+            if (arm_emu_trace_csm(emu, pred_node->minst, trace_times, 1)) 
+                continue;
+
+            trace_times++;
+            changed = 1;
+            break;
+        }
+    }
+    arm_emu_trace_csm(emu, blk->allinst.ptab[516], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[510], trace_times++, 0);
+#endif
+
+    //minst_dump_defs(&emu->mblk, 444, 0);
+    //minst_dump_defs(&emu->mblk, 444, 1);
+    //minst_dump_defs(&emu->mblk, 438, 0);
+    //minst_dump_defs(&emu->mblk, 438, 4);
 
     return 0;
 }
