@@ -2686,7 +2686,7 @@ void        arm_emu_dump_trace(struct arm_emu *emu, char *postfix)
 int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trace_time, int flag)
 {
     struct minst_blk *blk = &emu->mblk;
-    struct minst *minst, *jmp = NULL, *t, *n;
+    struct minst *minst, *jmp = NULL, *t, *n, *false_m, *true_m;
     struct minst_cfg *cfg, *cfg1;
     int ret, i, binlen, trace_start, tconst_times = 0;
     char bincode[32];
@@ -2721,14 +2721,24 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
             }
             else if (0 == tconst_times){
                 if ((def_m->cfg == minst->cfg)) {
-                    if (minst_get_def(minst_get_false_label(minst->cfg->end)) == minst_get_def(def_m)) {
-                        jmp = minst_get_true_label(minst->cfg->end);
+                    false_m = minst_get_false_label(minst->cfg->end);
+                    true_m = minst_get_true_label(minst->cfg->end);
+
+                    if (def_m->cfg->end->type == mtype_it) {
+                        jmp = false_m;
                     }
-                    else if (minst_get_def(minst_get_true_label(minst->cfg->end)) == minst_get_def(def_m)) {
-                        jmp = minst_get_false_label(minst->cfg->end);
+                    else if (def_m->cfg->end->type == mtype_bcond) {
+                        jmp = true_m;
                     }
-                    else
+
+                    if (jmp->cfg->flag.reduced)
                         goto exit1;
+#if 0
+                    if (!false_m->cfg->flag.reduced && (minst_get_def(false_m) == minst_get_def(def_m)))     jmp = true_m;
+                    else if (!true_m->cfg->flag.reduced && minst_get_def(true_m) == minst_get_def(def_m)) jmp = false_m;
+                    else if (false_m->cfg->flag.reduced)    jmp = true_m;
+                    else if (true_m->cfg->flag.reduced)     jmp = false_m;
+#endif
 
                     MSTACK_PUSH(blk->trace, jmp);
                     continue;
@@ -2753,6 +2763,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
         }
         
         cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+        cfg->flag.reduced = 1;
         /* 然后复制从开始trace的地方，到当前的所有指令，所有的jmp指令都要抛弃 */
         for (trace_start = i; i <= blk->trace_top; i++) {
             t = blk->trace[i];
@@ -2926,7 +2937,6 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
     struct minst_cfg *csm_cfg = NULL, *cfg;
-    struct minst *pred;
     int i, j, k, trace_times, changed;
     BITSET_INIT(defs);
     BITSET_INIT(defs1);
@@ -3023,11 +3033,17 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 
             trace_times++;
             changed = 1;
+
             break;
         }
     }
+
     arm_emu_trace_csm(emu, blk->allinst.ptab[516], trace_times++, 0);
     arm_emu_trace_csm(emu, blk->allinst.ptab[510], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[589], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[587], trace_times++, 0);
+
+    minst_dump_defs(&emu->mblk, 438, 4);
 #endif
 
     //minst_dump_defs(&emu->mblk, 444, 0);

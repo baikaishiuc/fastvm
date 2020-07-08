@@ -803,9 +803,10 @@ int                 minst_conditional_const_propagation(struct minst_blk *blk)
 
 struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struct minst *minst, int regm)
 {
-    int pos, count, imm;
+    int pos, count, imm, i, j;
     BITSET_INIT(bs);
-    struct minst *const_minst = NULL;
+    BITSET_INIT(bs2);
+    struct minst *const_minst = NULL, *t, *n, *cm = NULL;
 
     bitset_clone(&bs, &minst->rd_in);
     bitset_and(&bs, &blk->defs[regm]);
@@ -815,24 +816,61 @@ struct minst*       minst_get_last_const_definition(struct minst_blk *blk, struc
 
     if (count == 1) {
         pos = bitset_next_bit_pos(&bs, 0);
-        const_minst = blk->allinst.ptab[pos];
+        cm  = blk->allinst.ptab[pos];
     } else {
         pos = bitset_next_bit_pos(&bs, 0);
-        const_minst = blk->allinst.ptab[pos];
-        if (!const_minst->flag.is_const) goto exit;
 
-        imm = const_minst->ld_imm;
-        for (; pos >= 0; pos = bitset_next_bit_pos(&bs, pos + 1)) {
+        bitset_foreach(&bs, pos) {
             const_minst = blk->allinst.ptab[pos];
-            if (!const_minst->flag.is_const || (const_minst->ld_imm != imm)) {
-                bitset_uninit(&bs);
-                return NULL;
+            if (const_minst->flag.is_const)
+                break;
+        }
+
+        if (!const_minst->flag.is_const) goto fail_label;
+
+        cm = const_minst;
+        imm = const_minst->ld_imm;
+
+        bitset_foreach(&bs, pos) {
+            const_minst = blk->allinst.ptab[pos];
+            if (!const_minst->flag.is_const) {
+                if (const_minst->type != mtype_mov_reg) {
+                    bitset_uninit(&bs);
+                    return NULL;
+                }
+
+                int use = minst_get_use(const_minst);
+                bitset_clear(&bs2);
+                bitset_clone(&bs2, &blk->defs[use]);
+                bitset_and(&bs2, &const_minst->rd_in);
+                bitset_foreach(&bs2, i) {
+                    t = blk->allinst.ptab[i];
+
+                    if ((t->type != mtype_mov_reg) || (minst_get_use(t) != regm))  goto fail_label;
+
+                    bitset_foreach(&bs, j) {
+                        n = blk->allinst.ptab[j];
+                        if (!n->flag.is_const && minst_get_use(n) == use) continue;
+                        if (n->flag.is_const && (n->ld_imm == imm)) continue;
+
+                        goto fail_label;
+                    }
+                }
+            }
+            else if (const_minst->ld_imm != imm) {
+                goto fail_label;
             }
         }
     }
 exit:
     bitset_uninit(&bs);
-    return (const_minst && const_minst->flag.is_const) ? const_minst : NULL;
+    bitset_uninit(&bs2);
+    return (cm && cm->flag.is_const) ? cm : NULL;
+
+fail_label:
+    bitset_uninit(&bs);
+    bitset_uninit(&bs2);
+    return NULL;
 }
 
 struct minst*       minst_get_last_def(struct minst_blk *blk, struct minst *minst, int regm)
