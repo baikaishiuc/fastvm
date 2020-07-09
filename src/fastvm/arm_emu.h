@@ -48,6 +48,7 @@ extern "C" {
 #define ARM_COND_GT     12
 #define ARM_COND_LE     13
 #define ARM_COND_AL     14
+#define ARM_COND_AL2    15
 
 #define KB          (1024)
 #define MB          (1024 * 1024)

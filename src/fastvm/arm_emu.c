@@ -1446,7 +1446,7 @@ bl_label:
     }
 
     if (!minst->type) {
-        minst->type = (emu->code.ctx.cond == ARM_COND_AL) ? mtype_b : mtype_bcond;
+        minst->type = (emu->code.ctx.cond >= ARM_COND_AL) ? mtype_b : mtype_bcond;
         minst->flag.b_cond = emu->code.ctx.cond;
     }
 
@@ -2728,7 +2728,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
                         jmp = false_m;
                     }
                     else if (def_m->cfg->end->type == mtype_bcond) {
-                        jmp = true_m;
+                        jmp = !true_m->cfg->flag.reduced ? true_m:false_m;
                     }
 
                     if (jmp->cfg->flag.reduced)
@@ -2753,6 +2753,17 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
             printf("out of csm, finish\n");
             jmp = minst;
         }
+
+#if 1
+        jmp = MSTACK_TOP(blk->trace);
+        for (i = blk->trace_top - 1; i >= 0; i--) {
+            t = blk->trace[i];
+            if (t->cfg != jmp->cfg)
+                break;
+
+            jmp = t;
+        }
+#endif
 
         while (((struct minst *)MSTACK_TOP(blk->trace))->cfg == minst->cfg) MSTACK_POP(blk->trace);
 
@@ -2803,6 +2814,72 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     //exit(0);
 
     return 0;
+}
+
+int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct minst *m, struct minst_node *succ_node, int def)
+{
+    struct minst_cfg *parent_cfg, *root_cfg, *cfg;
+    struct minst *cmp, *t, *succ = succ_node->minst;
+    int last_def, j, is_end, binlen, changed = 0;
+    struct dynarray d = {0};
+    char bincode[8];
+
+    cmp = minst_get_last_def(blk, m->cfg->end, ARM_REG_APSR);
+    if (!cmp)
+        vm_error("not found cmp inst[%d]", m->id);
+
+    // FIXME: 设置的def出错
+    last_def = (cmp->cmp.ln == def) ? cmp->cmp.lm : cmp->cmp.ln;
+
+    root_cfg = parent_cfg = NULL;
+    for (j = 0; j < d.len; j++) {
+        t = d.ptab[j];
+
+        is_end = ((j + 1) == d.len);
+
+        // root 
+        {
+            cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
+            if (j == 0) {
+                arm_asm2bin(bincode, &binlen, "mov r%d, r%d", last_def, def);
+                minst_new_t(cfg, mtype_ldr, arm_insteng_parse(bincode, binlen, NULL), bincode, binlen);
+            }
+
+            arm_asm2bin(bincode, &binlen, "movw r%d, 0x%x", def, t->ld_imm & 0xffff);
+            minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+            arm_asm2bin(bincode, &binlen, "movt r%d, 0x%x", def, (t->ld_imm >> 16) & 0xffff);
+            minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+            if (!is_end) {
+                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", last_def , def);
+                minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+
+                arm_asm2bin(bincode, &binlen, "beq");
+                minst_new_t(cfg, 0, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
+            }
+        }
+
+        if (!root_cfg) {
+            parent_cfg = cfg;
+            root_cfg = cfg;
+
+            /* FIXME: 这个地方没有调用minst_del_edge，是因为假如在链表循环的内部删除链表，非常的危险，所以采取了替换规则 */
+            minst_replace_edge(m->cfg->end, succ, cfg->start);
+        }
+        else {
+            minst_add_false_edge(parent_cfg->end, cfg->start);
+        }
+
+        if (is_end)
+            minst_add_false_edge(cfg->end, succ);
+        else
+            minst_add_true_edge(cfg->end, succ);
+
+        changed = 1;
+    }
+
+    return changed;
 }
 
 int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
@@ -2933,6 +3010,40 @@ expand_label:
     return changed;
 }
 
+int minst_csm_expand2(struct arm_emu *emu, struct minst_blk *blk)
+{
+    struct minst_node *pred_node, *pred_node2;
+    struct minst *pred;
+    struct minst_cfg *csm = blk->csm.cfg;
+    BITSET_INIT(defs);
+    BITSET_INIT(defs2);
+
+    minst_preds_foreach(csm->start, pred_node) {
+        pred = pred_node->minst;
+
+        bitset_clone(&defs, &blk->defs[blk->csm.trace_reg]);
+        bitset_and(&defs, &pred->rd_in);
+        if (bitset_count(&defs) > 1) {
+            while (minst_preds_count(pred) == 1) pred = pred->preds.minst;
+
+            minst_preds_foreach(pred, pred_node2) {
+                bitset_clear(&defs2);
+                bitset_clone(&defs2, &blk->defs[blk->csm.trace_reg]);
+                bitset_and(&defs2, &pred_node2->minst->rd_in);
+
+                if (bitset_count(&defs2) > 1) break;
+            }
+
+            if (pred_node2) {
+                printf("minst[%d] [%x] have many definition\n", pred->id, CFG_NODE_ID(pred->addr));
+                minst_dump_defs(blk, pred->id, blk->csm.trace_reg);
+            }
+        }
+    }
+
+    return 0;
+}
+
 int         arm_emu_reduce_csm(struct arm_emu *emu)
 {
     struct minst_blk *blk = &emu->mblk;
@@ -2947,7 +3058,8 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
     minst_cfg_classify(blk);
 
     minst_csm_expand(emu, blk);
-    //return 0;
+    minst_csm_expand2(emu, blk);
+    return 0;
 
     trace_times = 1;
     changed = 1;
@@ -3042,8 +3154,18 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
     arm_emu_trace_csm(emu, blk->allinst.ptab[510], trace_times++, 0);
     arm_emu_trace_csm(emu, blk->allinst.ptab[589], trace_times++, 0);
     arm_emu_trace_csm(emu, blk->allinst.ptab[587], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[488], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[486], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[634], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[633], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[599], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[597], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[548], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[546], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[317], trace_times++, 0);
+    arm_emu_trace_csm(emu, blk->allinst.ptab[319], trace_times++, 0);
 
-    minst_dump_defs(&emu->mblk, 438, 4);
+    minst_dump_defs(&emu->mblk, 634, 11);
 #endif
 
     //minst_dump_defs(&emu->mblk, 444, 0);
