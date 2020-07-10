@@ -982,7 +982,7 @@ struct minst*       minst_trace_get_def(struct minst_blk *blk, int regm, int *in
         }
     }
 
-    return minst_get_last_const_definition(blk, blk->trace[0], regm);
+    return minst_get_last_const_definition(blk, ((struct minst *)blk->trace[0])->cfg->end, regm);
     //return NULL;
 }
 
@@ -1390,18 +1390,19 @@ void    minst_dump_defs(struct minst_blk *blk, int inst_id, int reg_def)
 
 int minst_dob_analyze(struct minst_blk *blk)
 {
-    int i;
+    int i, count, max = -1;
     struct minst_cfg *cfg, *csm_cfg;
     struct minst *cmp, *m;
 
     blk->csm.st_reg = -1;
     blk->csm.save_reg = -1;
 
+    /* FIXME: 现在选择有最大前驱节的cfg做为csm.cfg */
     for (i = 0; i < blk->allcfg.len; i++) {
         cfg = blk->allcfg.ptab[i];
-        if (minst_cfg_is_csm(cfg)) {
+        if (((count = minst_preds_count(cfg->start)) >= 7) && (count > max)) {
             csm_cfg = cfg;
-            break;
+            max = count;
         }
     }
 

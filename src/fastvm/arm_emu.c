@@ -2691,15 +2691,19 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     int ret, i, binlen, trace_start, tconst_times = 0;
     char bincode[32];
 
+    if (def_m->flag.dead_code) return -1;
+
     printf("*********start trace[%d,  %d]\n", trace_time, def_m->id);
 
     MSTACK_INIT(blk->trace);
     EMU_SET_TRACE_MODE(emu);
     MSTACK_PUSH(blk->trace, def_m);
+#if 0
     if ((def_m->cfg->csm != CSM) || flag) {
         printf("extra minst_id = %d\n", def_m->id);
         MSTACK_PUSH(blk->trace, blk->csm.cfg->start);
     }
+#endif
 
     while (!MSTACK_IS_EMPTY(blk->trace)) {
         minst = MSTACK_TOP(blk->trace);
@@ -2917,7 +2921,12 @@ int minst_csm_expand2(struct arm_emu *emu, struct minst_blk *blk)
                     if (pred->type == mtype_bcond) break;
                 }
 
-                if (pred->type == mtype_bcond)
+                /* FIXME:第2次扩展，需要保证对trace_reg是在一个 强cfg 中
+                
+                弱cfg:就是普通的cfg节点
+                强cfg:合并所有的it节点产生的cfg节点，参考ida中graph view产生的节点
+                */
+                if ((pred->type == mtype_bcond) || (pred->preds.minst->type == mtype_bcond))
                     continue;
 
                 minst_preds_foreach(pred, pred_node2) {
@@ -2932,7 +2941,7 @@ int minst_csm_expand2(struct arm_emu *emu, struct minst_blk *blk)
                     printf("minst[%d] [%x] have many definition, so expand\n", pred->id, CFG_NODE_ID(pred->addr));
                     minst_dump_defs(blk, pred->id, blk->csm.trace_reg);
                     minst_csm_expand_add(emu, blk, pred, csm->start, blk->csm.trace_reg, 1);
-                    //changed = 1;
+                    changed = 1;
                 }
             }
         }
@@ -3041,9 +3050,6 @@ expand_label:
                     }
                 }
             }
-            else {
-                //printf("save reg minst[%d]\n", m->id);
-            }
         }
         else if (m->type == mtype_ldr){
             goto expand_label;
@@ -3097,7 +3103,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
         for (i = 0; i < blk->allcfg.len; i++) {
             cfg = blk->allcfg.ptab[i];
             /* 遍历所有的csm内节点 */
-            if (cfg->flag.dead_code || (cfg->csm != CSM)) continue;
+            if (cfg->flag.dead_code || (cfg->csm == CSM_OUT)) continue;
             /* 查找所有的bcond节点 */
             if (minst_succs_count(cfg->end) <= 1) continue;
 
