@@ -1512,3 +1512,49 @@ int minst_get_all_const_definition(struct minst_blk *blk, struct minst *m, struc
 
     return 0;
 }
+
+int minst_get_all_const_definition2(struct minst_blk *blk, struct minst *m, int regm, struct dynarray *d)
+{
+    struct minst *t;
+    BITSET_INIT(defs);
+    int i, j;
+
+    dynarray_reset(d);
+
+    bitset_clone(&defs, &blk->defs[regm]);
+    bitset_and(&defs, &m->rd_in);
+
+    bitset_foreach(&defs, i) {
+        t = blk->allinst.ptab[i];
+
+        if (!t->flag.is_const)
+            vm_error("get const definition failure");
+
+        for (j = 0; j < d->len; j++) {
+            if (((struct minst *)d->ptab[j])->ld_imm == t->ld_imm)
+                break;
+        }
+
+        if (j == d->len)
+            dynarray_add(d, t);
+    }
+
+    return 0;
+}
+
+int minst_get_free_reg(struct minst *m)
+{
+    int i;
+    BITSET_INIT(def);
+
+    bitset_clone(&def, &m->out);
+    bitset_not(&def);
+    bitset_foreach(&def, i) {
+        if (i < 16)
+            break;
+    }
+
+    bitset_uninit(&def);
+
+    return (i < 16) ? i : -1;
+}

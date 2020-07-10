@@ -2733,12 +2733,6 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
 
                     if (jmp->cfg->flag.reduced)
                         goto exit1;
-#if 0
-                    if (!false_m->cfg->flag.reduced && (minst_get_def(false_m) == minst_get_def(def_m)))     jmp = true_m;
-                    else if (!true_m->cfg->flag.reduced && minst_get_def(true_m) == minst_get_def(def_m)) jmp = false_m;
-                    else if (false_m->cfg->flag.reduced)    jmp = true_m;
-                    else if (true_m->cfg->flag.reduced)     jmp = false_m;
-#endif
 
                     MSTACK_PUSH(blk->trace, jmp);
                     continue;
@@ -2751,6 +2745,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
         }
         else {
             printf("out of csm, finish\n");
+            if (0 == tconst_times) goto exit1;
             jmp = minst;
         }
 
@@ -2816,20 +2811,32 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
     return 0;
 }
 
-int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct minst *m, struct minst_node *succ_node, int def)
+int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct minst *m, struct minst *succ , int def, int flag)
 {
     struct minst_cfg *parent_cfg, *root_cfg, *cfg;
-    struct minst *cmp, *t, *succ = succ_node->minst;
-    int last_def, j, is_end, binlen, changed = 0;
+    struct minst *cmp, *t;
+    int free_reg, i, j, is_end, binlen, changed = 0, inst_start = blk->allinst.len;
     struct dynarray d = {0};
     char bincode[8];
 
-    cmp = minst_get_last_def(blk, m->cfg->end, ARM_REG_APSR);
-    if (!cmp)
-        vm_error("not found cmp inst[%d]", m->id);
+    if (minst_get_all_const_definition2(blk, m, def, &d)) {
+        vm_error("%d inst definition not is const\n", m->id);
+    }
 
     // FIXME: 设置的def出错
-    last_def = (cmp->cmp.ln == def) ? cmp->cmp.lm : cmp->cmp.ln;
+    if (flag) {
+        free_reg = minst_get_free_reg(m);
+    }
+    else {
+        cmp = minst_get_last_def(blk, m->cfg->end, ARM_REG_APSR);
+        if (!cmp)
+            vm_error("not found cmp inst[%d]", m->id);
+
+        free_reg = (cmp->cmp.ln == def) ? cmp->cmp.lm : cmp->cmp.ln;
+    }
+
+    if (free_reg < 0 || free_reg >= 16) 
+        vm_error("csm_expand_add not found empty reg\n");
 
     root_cfg = parent_cfg = NULL;
     for (j = 0; j < d.len; j++) {
@@ -2837,11 +2844,10 @@ int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct mins
 
         is_end = ((j + 1) == d.len);
 
-        // root 
         {
             cfg = minst_cfg_new(&emu->mblk, NULL, NULL);
             if (j == 0) {
-                arm_asm2bin(bincode, &binlen, "mov r%d, r%d", last_def, def);
+                arm_asm2bin(bincode, &binlen, "mov r%d, r%d", free_reg, def);
                 minst_new_t(cfg, mtype_ldr, arm_insteng_parse(bincode, binlen, NULL), bincode, binlen);
             }
 
@@ -2852,7 +2858,7 @@ int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct mins
             minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
             if (!is_end) {
-                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", last_def , def);
+                arm_asm2bin(bincode, &binlen, "cmp r%d, r%d", free_reg , def);
                 minst_new_t(cfg, mtype_cmp, arm_insteng_parse(bincode, binlen, NULL),  bincode, binlen);
 
                 arm_asm2bin(bincode, &binlen, "beq");
@@ -2879,7 +2885,60 @@ int minst_csm_expand_add(struct arm_emu *emu, struct minst_blk *blk, struct mins
         changed = 1;
     }
 
+    EMU_SET_CONST_MODE(emu);
+    for (i = inst_start; i < blk->allinst.len; i++) {
+        arm_minst_do(emu, blk->allinst.ptab[i]);
+    }
+
     return changed;
+}
+
+
+int minst_csm_expand2(struct arm_emu *emu, struct minst_blk *blk)
+{
+    struct minst_node *pred_node, *pred_node2;
+    struct minst *pred;
+    struct minst_cfg *csm = blk->csm.cfg;
+    int changed;
+    BITSET_INIT(defs);
+    BITSET_INIT(defs2);
+
+    changed = 1;
+    while (changed) {
+        changed = 0;
+        minst_preds_foreach(csm->start, pred_node) {
+            pred = pred_node->minst;
+
+            bitset_clone(&defs, &blk->defs[blk->csm.trace_reg]);
+            bitset_and(&defs, &pred->rd_in);
+            if (bitset_count(&defs) > 1) {
+                while (minst_preds_count(pred) == 1) {
+                    pred = pred->preds.minst;
+                    if (pred->type == mtype_bcond) break;
+                }
+
+                if (pred->type == mtype_bcond)
+                    continue;
+
+                minst_preds_foreach(pred, pred_node2) {
+                    bitset_clear(&defs2);
+                    bitset_clone(&defs2, &blk->defs[blk->csm.trace_reg]);
+                    bitset_and(&defs2, &pred_node2->minst->rd_in);
+
+                    if (bitset_count(&defs2) > 1) break;
+                }
+
+                if (pred_node2) {
+                    printf("minst[%d] [%x] have many definition, so expand\n", pred->id, CFG_NODE_ID(pred->addr));
+                    minst_dump_defs(blk, pred->id, blk->csm.trace_reg);
+                    minst_csm_expand_add(emu, blk, pred, csm->start, blk->csm.trace_reg, 1);
+                    //changed = 1;
+                }
+            }
+        }
+    }
+
+    return 0;
 }
 
 int minst_csm_expand(struct arm_emu *emu, struct minst_blk *blk)
@@ -3002,46 +3061,16 @@ expand_label:
 
     minst_blk_const_propagation(emu, 0);
 
+    minst_csm_expand2(emu, blk);
+
+    minst_blk_const_propagation(emu, 0);
+
     dynarray_reset(&d);
     arm_emu_dump_cfg(emu, "expand");
 
     minst_dump_csm(blk);
 
     return changed;
-}
-
-int minst_csm_expand2(struct arm_emu *emu, struct minst_blk *blk)
-{
-    struct minst_node *pred_node, *pred_node2;
-    struct minst *pred;
-    struct minst_cfg *csm = blk->csm.cfg;
-    BITSET_INIT(defs);
-    BITSET_INIT(defs2);
-
-    minst_preds_foreach(csm->start, pred_node) {
-        pred = pred_node->minst;
-
-        bitset_clone(&defs, &blk->defs[blk->csm.trace_reg]);
-        bitset_and(&defs, &pred->rd_in);
-        if (bitset_count(&defs) > 1) {
-            while (minst_preds_count(pred) == 1) pred = pred->preds.minst;
-
-            minst_preds_foreach(pred, pred_node2) {
-                bitset_clear(&defs2);
-                bitset_clone(&defs2, &blk->defs[blk->csm.trace_reg]);
-                bitset_and(&defs2, &pred_node2->minst->rd_in);
-
-                if (bitset_count(&defs2) > 1) break;
-            }
-
-            if (pred_node2) {
-                printf("minst[%d] [%x] have many definition\n", pred->id, CFG_NODE_ID(pred->addr));
-                minst_dump_defs(blk, pred->id, blk->csm.trace_reg);
-            }
-        }
-    }
-
-    return 0;
 }
 
 int         arm_emu_reduce_csm(struct arm_emu *emu)
@@ -3058,12 +3087,10 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
     minst_cfg_classify(blk);
 
     minst_csm_expand(emu, blk);
-    minst_csm_expand2(emu, blk);
-    return 0;
 
     trace_times = 1;
     changed = 1;
-#if 0
+#if 1
     while (changed) {
         changed = 0;
 
@@ -3114,7 +3141,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
             if (changed) break;
         }
 
-        if (!changed && !blk->csm.cfg->flag.dead_code) {
+        if (0) {
             printf("csm not changed, but core csm[%d] not be deleted\n", blk->csm.cfg->id);
 
             struct minst_node *pred_node;

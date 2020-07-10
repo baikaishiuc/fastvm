@@ -462,6 +462,8 @@ int minst_dump_csm(struct minst_blk *blk);
             <0      返回值不是都为常数
 */
 int minst_get_all_const_definition(struct minst_blk *blk, struct minst *m, struct dynarray *d);
+int minst_get_all_const_definition2(struct minst_blk *blk, struct minst *m, int regm, struct dynarray *d);
+int minst_get_free_reg(struct minst *m);
 
 #ifdef __cplusplus
 }
