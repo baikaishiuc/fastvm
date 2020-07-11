@@ -54,11 +54,11 @@ struct minst_blk {
         unsigned need_liveness : 1;
     } flag;
 
-    struct minst    *trace[4096];
+    struct minst    *trace[2048];
     int trace_top;
 
     struct {
-        unsigned char   data[16 * KB];
+        unsigned char   data[8 * KB];
         int             len;
     } text_sec;
 
@@ -74,6 +74,9 @@ struct minst_blk {
 
     /* 分析函数的所有出口集合 */
     struct bitset   funcends;
+
+    unsigned char           *code;
+    int                     code_len;
 };
 
 struct minst_node {
@@ -229,7 +232,7 @@ struct minst {
     } while (0)
 
 
-struct minst_blk*   minst_blk_new(char *funcname);
+struct minst_blk*   minst_blk_new(char *funcname, unsigned char *code, int code_len);
 void                minst_blk_delete(struct minst_blk *mblk);
 
 void                minst_blk_init(struct minst_blk *blk, char *funcname, minst_parse_callback callback, void *emu);

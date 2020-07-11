@@ -217,6 +217,7 @@ struct arm_inst_desc {
 
 static struct reg_node*     arm_insteng_parse(uint8_t *code, int len, int *olen);
 static int arm_minst_do(struct arm_emu *emu, struct minst *minst);
+int         arm_emu_reduce_csm(struct arm_emu *emu);
 
 const char* arm_reg2str(int reg)
 {
@@ -2585,14 +2586,13 @@ static void arm_emu_dump_cfg(struct arm_emu *emu, char *postfix)
     fclose(fp);
 }
 
-static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
+static int arm_emu_mblk_fix_pos(struct arm_emu *emu, struct minst_blk *blk)
 {
-    struct minst_blk *blk = &emu->mblk;
     int i, same = 0;
     struct minst *minst, *b_minst, *succ;
     struct minst_node *succ_node;
 
-    for (i = 0; i < emu->mblk.allinst.len; i++) {
+    for (i = 0; i < blk->allinst.len; i++) {
         minst = blk->allinst.ptab[i];
 
         if (minst_is_b0(minst) && minst->flag.b_need_fixed) {
@@ -2651,8 +2651,43 @@ static int arm_emu_mblk_fix_pos(struct arm_emu *emu)
 
 int         minst_blk_const_propagation(struct arm_emu *emu, int delcode);
 
-int         arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len)
+int         arm_emu_run_once(struct arm_emu *emu, struct minst_blk *blk)
 {
+    int ret, pos;
+
+    arm_gen_sh(emu);
+
+    /* first pass */
+    arm_emu_cpu_reset(emu);
+    EMU_SET_SEQ_MODE(emu);
+    minst_blk_live_prologue_add(&emu->mblk, PROCESS_STACK_BASE);
+    for (pos = 0; pos < blk->code_len; ) {
+        ret = arm_insteng_decode(emu, blk->code + pos, blk->code_len  - pos);
+        if (ret < 0) {
+            return -1;
+        }
+        pos += ret;
+    }
+    /* second pass */
+    arm_emu_mblk_fix_pos(emu, &emu->mblk);
+    minst_blk_live_epilogue_add(&emu->mblk);
+
+    arm_emu_dump_cfg(emu, "orig");
+
+    /* third pass */
+    minst_blk_liveness_calc(&emu->mblk);
+
+    minst_blk_gen_reaching_definitions(&emu->mblk);
+
+    minst_blk_const_propagation(emu, 1);
+
+    arm_emu_dump_cfg(emu, "new");
+    arm_emu_dump_mblk(emu, "orig");
+
+    arm_emu_reduce_csm(emu);
+
+    arm_emu_dump_mblk(emu, "finial");
+
     return 0;
 }
 
@@ -3096,7 +3131,7 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
 
     trace_times = 1;
     changed = 1;
-#if 1
+
     while (changed) {
         changed = 0;
 
@@ -3165,46 +3200,6 @@ int         arm_emu_reduce_csm(struct arm_emu *emu)
             }
         }
     }
-#else
-    //arm_emu_trace_csm(emu, blk->allinst.ptab[42], 1, 0);
-    //arm_emu_trace_csm(emu, blk->allinst.ptab[845], 2, 0);
-    struct minst_node *pred_node;
-    changed = 1;
-    while (changed) {
-        changed = 0;
-        minst_preds_foreach(csm_cfg->start, pred_node) {
-            if (arm_emu_trace_csm(emu, pred_node->minst, trace_times, 1)) 
-                continue;
-
-            trace_times++;
-            changed = 1;
-
-            break;
-        }
-    }
-
-    arm_emu_trace_csm(emu, blk->allinst.ptab[516], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[510], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[589], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[587], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[488], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[486], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[634], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[633], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[599], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[597], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[548], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[546], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[317], trace_times++, 0);
-    arm_emu_trace_csm(emu, blk->allinst.ptab[319], trace_times++, 0);
-
-    minst_dump_defs(&emu->mblk, 634, 11);
-#endif
-
-    //minst_dump_defs(&emu->mblk, 444, 0);
-    //minst_dump_defs(&emu->mblk, 444, 1);
-    //minst_dump_defs(&emu->mblk, 438, 0);
-    //minst_dump_defs(&emu->mblk, 438, 4);
 
     return 0;
 }
@@ -3472,7 +3467,7 @@ int         arm_emu_run(struct arm_emu *emu)
         emu->code.pos += ret;
     }
     /* second pass */
-    arm_emu_mblk_fix_pos(emu);
+    arm_emu_mblk_fix_pos(emu, &emu->mblk);
     minst_blk_live_epilogue_add(&emu->mblk);
 
     arm_emu_dump_cfg(emu, "orig");
@@ -3489,17 +3484,7 @@ int         arm_emu_run(struct arm_emu *emu)
 
     arm_emu_reduce_csm(emu);
 
-#if 0
-    //minst_blk_out_of_order(&emu->mblk);
-
-    minst_blk_copy_propagation(&emu->mblk);
-
-    minst_blk_dead_code_elim(&emu->mblk);
-
-    minst_blk_const_propagation(emu);
-#endif
     arm_emu_dump_mblk(emu, "finial");
-
 
     return 0;
 }

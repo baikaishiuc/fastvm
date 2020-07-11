@@ -3321,10 +3321,14 @@ const char *elf_sectype2str(int sectype);
 const char *elf_secflag2str(int flags);
 
 Elf32_Shdr *elf32_shdr_get(Elf32_Ehdr *hdr, int type);
-Elf32_Sym *elf32_sym_get(Elf32_Ehdr *hdr, unsigned long sym_val);
+Elf32_Sym *elf32_sym_find(Elf32_Ehdr *hdr, unsigned long sym_val);
+int         elf32_sym_count(Elf32_Ehdr *hdr);
+Elf32_Sym *elf32_sym_geti(Elf32_Ehdr *hdr, int index);
 
 const char *elf_symtype(int type);
 const char *elf_symbindtype(int bindtype);
 const char *elf_symvis(int visibility);
+
+void elf_dump(char *elf, int elf_len, int opt);
 
 #endif	/* elf.h */

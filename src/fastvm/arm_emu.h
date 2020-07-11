@@ -111,8 +111,8 @@ struct arm_emu_create_param
     int             thumb;
 };
 
-struct arm_emu*        arm_emu_create(struct arm_emu_create_param *param);
-void                arm_emu_destroy(struct arm_emu *);
+struct arm_emu*         arm_emu_create(struct arm_emu_create_param *param);
+void                    arm_emu_destroy(struct arm_emu *);
 
 /*
 
@@ -121,7 +121,6 @@ void                arm_emu_destroy(struct arm_emu *);
             <0        error
 */
 int arm_emu_run(struct arm_emu *vm);
-int arm_emu_run_once(struct arm_emu *vm, unsigned char *code, int code_len);
 
 /* 从指令中获取关键性上下文 */
 int arm_inst_extract_ctx(struct arm_inst_ctx *ctx, const char *exp, uint8_t *code, int code_len);

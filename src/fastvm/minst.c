@@ -14,7 +14,7 @@ static inline int minst_cmp(void *a, void *b, void *ref)
     return (int)(l - r);
 }
 
-struct minst_blk*   minst_blk_new(char *funcname)
+struct minst_blk*   minst_blk_new(char *funcname, unsigned char *code, int code_len)
 {
     struct minst_blk *blk;
 

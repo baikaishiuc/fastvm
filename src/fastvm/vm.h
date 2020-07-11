@@ -61,19 +61,14 @@ typedef struct Section {
 
 typedef struct VMState {
 
-	int dump_elf_header;
-	int dump_elf_prog_header;
-	int dump_elf_section;
-	int dump_elf_dynsym;
-	int dump_elf_code;
-	unsigned long code_addr;
+	unsigned long funcaddr;
 
     void *error_opaque;
     void (*error_func)(void *opaque, const char *msg);
 
-    unsigned char*  data;
-    int data_len;
+    unsigned char* filedata;
     char *filename;
+    int filelen;
 
     Section  **sections;
     int nb_sections;
@@ -96,7 +91,7 @@ typedef struct VMState {
 
 int vmelf_load(VMState *s);
 void vmelf_unload(struct VMState *s);
-void vmelf_dump(struct VMState*s);
+void vmelf_dump(struct VMState*s, int opt);
 
 #define VM_SET_STATE(fn)    fn        
 
@@ -116,6 +111,17 @@ void vm_delete(VMState *s);
 #define MSTACK_POP(s)           s[s##_top--]
 #define MSTACK_PUSH(s, e)       s[++s##_top] = e
 #define MSTACK_INIT(s)          s##_top = -1
+
+/* fastvm parse args return code */
+#define OPT_HELP                    1
+#define OPT_HELP2                   2
+#define OPT_V                       3
+#define OPT_DUMP_ELF_HEADER         4
+#define OPT_DUMP_ELF_PROG_HEADER    5
+#define OPT_DUMP_ELF_SECTION        6
+#define OPT_DUMP_ELF_DYNSYM         7
+#define OPT_DECODE_ELF              8
+#define OPT_DECODE_FUNC             9
 
 
 #endif

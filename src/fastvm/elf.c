@@ -1,6 +1,7 @@
 ﻿
 #include <stdio.h>
 #include "elf.h"
+#include "vm.h"
 
 #define count_of_array(_a)  (sizeof (_a) / sizeof (_a[0]))
 
@@ -357,7 +358,7 @@ const char *elf_symvis(int visibility)
 	return "Unknown";
 }
 
-Elf32_Sym *elf32_sym_get(Elf32_Ehdr *hdr, unsigned long sym_val)
+Elf32_Sym *elf32_sym_find(Elf32_Ehdr *hdr, unsigned long sym_val)
 {
 	Elf32_Shdr *dynsymsh;
 	Elf32_Sym *sym;
@@ -375,4 +376,146 @@ Elf32_Sym *elf32_sym_get(Elf32_Ehdr *hdr, unsigned long sym_val)
 	}
 
 	return NULL;
+}
+
+int         elf32_sym_count(Elf32_Ehdr *hdr)
+{
+	Elf32_Shdr *dynsymsh;
+
+	dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM);
+	if (!dynsymsh)
+		return 0;
+
+	return dynsymsh->sh_size / dynsymsh->sh_entsize;
+}
+
+Elf32_Sym *elf32_sym_geti(Elf32_Ehdr *hdr, int index)
+{
+	Elf32_Shdr *dynsymsh;
+
+	dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM);
+	if (!dynsymsh)
+		return NULL;
+
+    return (Elf32_Sym *)((char *)hdr + dynsymsh->sh_offset) + index;
+}
+
+void elf32_dump(char *elf, int opt)
+{
+    Elf_Indent *indent = (Elf_Indent *)elf;
+    Elf32_Ehdr *hdr = (Elf32_Ehdr *)elf;
+    Elf32_Phdr *phdr;
+	Elf32_Shdr *shdr, *shstrdr, *dynsymsh, *link_scn;
+	Elf32_Sym *sym;
+    int i, num;
+	const char *name;
+
+	if (opt == OPT_DUMP_ELF_HEADER) {
+		printf("  Class:                                Elf32\n");
+		printf("  Data:                                 2's complement, %s\n", 
+			(indent->class == ELFDATA2LSB)?"little endian":((indent->class == ELFDATA2MSB)?"big endian":"unknown"));
+		printf("  Version:                              %d (%s)\n", indent->version, elf_version2str(indent->version));
+		printf("  OS/ABI:                               %s\n", elf_osabi2str(indent->osabi));
+		printf("  ABI Version:                          %d\n", indent->abiversion);
+		printf("  Type:                                 %s\n", elf_objtype2str(hdr->e_type));
+		printf("  Machine:                              %s\n", elf_machine2str(hdr->e_machine));
+		printf("  Version:                              %d\n", hdr->e_version);
+		printf("  Entry point address:                  %d\n", hdr->e_entry);
+		printf("  Start of program header:              %d (bytes into file)\n", hdr->e_phoff);
+		printf("  Start of section header:              %d (bytes into file)\n", hdr->e_shoff);
+		printf("  Flags:                                %08x\n", hdr->e_flags);
+		printf("  Size of this header:                  %d (bytes) \n", hdr->e_ehsize);
+		printf("  Size of program header:               %d (bytes) \n", hdr->e_phentsize);
+		printf("  Number of program header:             %d\n", hdr->e_phnum);
+		printf("  Size of section header:               %d\n", hdr->e_shentsize);
+		printf("  Number of section header:             %d\n", hdr->e_shnum);
+		printf("  Section header string table index:    %d\n", hdr->e_shstrndx);
+	}
+
+	if (opt == OPT_DUMP_ELF_PROG_HEADER) {
+		printf("\n\n");
+		printf("Program Headers:\n");
+			printf("  Type            Offset     VirtAddr     PhysAddr   FileSiz MemSiz  Flg Align\n");
+		for (i = 0; i < hdr->e_phnum; i++) {
+			phdr = (Elf32_Phdr *)(elf + hdr->e_phoff + i * hdr->e_phentsize);
+
+			printf("  %-16s0x%06x   0x%08x   %08x   0x%05x 0x%05x %c%c%c  %x\n", 
+				elf_progtype2str(phdr->p_type), phdr->p_offset, phdr->p_vaddr, phdr->p_paddr, phdr->p_filesz, phdr->p_memsz, 
+				(phdr->p_flags & PF_R) ? 'R':' ',
+				(phdr->p_flags & PF_W) ? 'W':' ',
+				(phdr->p_flags & PF_X) ? 'X':' ',
+				phdr->p_align);
+		}
+	}
+
+	if (opt == OPT_DUMP_ELF_SECTION) {
+		shstrdr = (Elf32_Shdr *)(elf + hdr->e_shoff) + hdr->e_shstrndx;
+		printf("\n\n");
+		printf("Section Headers:\n");
+		printf("  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al\n");
+		printf("  [ 0]                   NULL            00000000 000000 000000 00      0   0  0\n");
+		for (i = 1; i < hdr->e_shnum; i++) {
+			shdr = (Elf32_Shdr *)(elf + hdr->e_shoff) + i;
+
+			name = (char *)elf + (shstrdr->sh_offset + shdr->sh_name);
+			printf("  [%2d] %-16.16s  %-14s  %08x %06x %06x %02x %-3s %2d %2d %2d\n", 
+				i, name, elf_sectype2str(shdr->sh_type),
+				shdr->sh_addr, shdr->sh_offset, shdr->sh_size, shdr->sh_entsize,
+				elf_secflag2str(shdr->sh_flags), 
+				shdr->sh_link, shdr->sh_info, shdr->sh_addralign);
+		}
+	}
+
+	if ((opt == OPT_DUMP_ELF_DYNSYM) && (dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM))) {
+		num = dynsymsh->sh_size / dynsymsh->sh_entsize;
+		link_scn = (Elf32_Shdr *)(elf + hdr->e_shoff) + dynsymsh->sh_link;
+		printf("\n\n");
+		printf("Symbol table '.dynsym' contains %d entries\n", num);
+		printf(" Num:    Value  Size Type    Bind   Vis      Ndx Name\n");
+		for (i = 0; i < num; i++) {
+			sym = (Elf32_Sym *)(elf + dynsymsh->sh_offset) + i;
+			name = (char *)elf + (link_scn->sh_offset + sym->st_name);
+			printf("  %02d: %08x %0-5d %-6s  %s %s  %d %s\n", i, sym->st_value, sym->st_size,
+				elf_symtype(ELF32_ST_TYPE(sym->st_info)),
+				elf_symbindtype(ELF32_ST_BIND(sym->st_info)),
+				elf_symvis(ELF32_ST_VISIBILITY(sym->st_other)),
+				sym->st_shndx,
+				name);
+		}
+	}
+
+}
+
+void elf64_dump(char *elf, int opt)
+{
+    printf("Elf64 not support\n");
+}
+
+void elf_dump(char *elf, int elf_len, int opt)
+{
+    int i;
+    Elf_Indent *indent = (Elf_Indent *)elf;
+
+    if (memcmp(indent->magic, "\x7f""ELF", 4)) {
+        printf("magic is wrong [%02x %02x %02x %02x]\n", indent->magic[0], indent->magic[1], indent->magic[2], indent->magic[3]);
+        return;
+    }
+
+	if (opt == OPT_DUMP_ELF_HEADER) {
+		printf("ELF Header:\n");
+		printf("  Magic:    ");
+		for (i = 0; i < 16; i++) {
+			printf("%02x ", elf[i]);
+		}
+		printf("\n");
+	}
+
+    if (indent->class == ELFCLASS32) {
+        elf32_dump(elf, opt);
+    } else if (indent->class == ELFCLASS64) {
+        elf64_dump(elf, opt);
+    }
+    else  {
+        printf("not support class type[%d]", indent->class);
+    }
 }
