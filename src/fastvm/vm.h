@@ -88,11 +88,6 @@ typedef struct VMState {
     Section *stab_section;
 } VMState;
 
-
-int vmelf_load(VMState *s);
-void vmelf_unload(struct VMState *s);
-void vmelf_dump(struct VMState*s, int opt);
-
 #define VM_SET_STATE(fn)    fn        
 
 #define vm_error_noabort    VM_SET_STATE(_vm_error_noabort)
@@ -102,9 +97,6 @@ void vmelf_dump(struct VMState*s, int opt);
 void _vm_error_noabort(const char *fmt, ...);
 void _vm_error(const char *fmt, ...);
 void _vm_warning(const char *fmt, ...);
-
-VMState *vm_new(void);
-void vm_delete(VMState *s);
 
 #define MSTACK_IS_EMPTY(s)      (s##_top == -1)
 #define MSTACK_TOP(s)           s[s##_top]

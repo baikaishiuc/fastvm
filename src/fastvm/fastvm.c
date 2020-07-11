@@ -33,6 +33,10 @@ int main(int argc, char **argv)
     VMState *s = dobc_new();
     opt = dobc_parse_args(s, argc, argv);
 
+    if (s->filename) {
+        s->filedata = file_load(s->filename, &s->filelen);
+    }
+
     if (opt == OPT_HELP)
         return fputs(help, stdout), 0;
     else if (opt == OPT_V)

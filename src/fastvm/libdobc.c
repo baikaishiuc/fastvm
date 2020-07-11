@@ -80,6 +80,10 @@ void _vm_error(const char *fmt, ...)
     va_end(ap);
 }
 
+void _vm_warning(const char *fmt, ...)
+{
+}
+
 void *vm_malloc(unsigned long size)
 {
 	void *ptr;
@@ -143,6 +147,7 @@ static const DOBCOption dobc_options[] = {
     { "dS", DOBC_OPTION_dS, 0 },
     { "d",  DOBC_OPTION_dS, 0 },
     { "df",  DOBC_OPTION_df, DOBC_OPTION_HAS_ARGS },
+    { NULL, 0, 0},
 };
 
 int dobc_parse_args(VMState *s, int argc, char **argv)
@@ -155,7 +160,15 @@ int dobc_parse_args(VMState *s, int argc, char **argv)
         r = argv[i];
         for (popt = dobc_options; ; ++popt) {
             const char *opname = popt->name;
-            const char *r1 = r1 + 1;
+            const char *r1 = r + 1;
+
+            if (!strcmp(opname, r1)) break;
+        }
+
+        if (popt->args & DOBC_OPTION_HAS_ARGS) {
+            if (popt->index != DOBC_OPTION_df) {
+                s->filename = strdup(argv[i+1]);
+            }
         }
 
         switch (popt->index) {
@@ -172,12 +185,14 @@ int dobc_parse_args(VMState *s, int argc, char **argv)
             return OPT_DECODE_FUNC;
 
         case DOBC_OPTION_d:
-            s->filename = strdup(argv[++i]);
             return OPT_DECODE_ELF;
+
+        default:
+            break;
         }
     }
 
-    return 0;
+    return OPT_HELP;
 }
 
 VMState *dobc_new(void)
