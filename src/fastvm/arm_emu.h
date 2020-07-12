@@ -75,21 +75,21 @@ struct arm_cpsr {
 };
 
 struct arm_inst_ctx {
-    reg_t   ld;
-    reg_t   ld2;
-    reg_t   lm;
-    reg_t   ln;
-    reg_t   lp;
-    int     register_list;
-    int     imm;
-    int     m;
-    int     setflags;
-    int     cond;
-    int     vd;
+    reg_t   ld;     // 目的寄存器
+    reg_t   ld2;    // 目的寄存器2
+    reg_t   lm;     // 参数寄存器1
+    reg_t   ln;     // 参数寄存器2
+    reg_t   lp;     // 参数寄存器3
+    int     register_list;  // 寄存器列表，一般给push和pop用
+    int     imm;    // 立即数
+    int     m; 
+    int     setflags;   // 是否需要跟新flag
+    int     cond;       // 条件
+    int     vd;         // simd中需要
 
     struct {
         unsigned p : 1;
-        unsigned u : 1;
+        unsigned u : 1;     // 在一些立即数中，指出是加还是减
         unsigned w : 1;
         unsigned t : 2;
     };
