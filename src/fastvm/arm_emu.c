@@ -2830,7 +2830,7 @@ int         arm_emu_trace_csm(struct arm_emu *emu, struct minst *def_m, int trac
         //minst_del_edge(t->cfg->end, blk->trace[trace_start]);
         //minst_add_edge(t->cfg->end, cfg->start);
         minst_add_edge(cfg->end, jmp);
-        minst_blk_const_propagation(emu, 0);
+        minst_blk_const_propagation(emu, 1);
         break;
     }
 
