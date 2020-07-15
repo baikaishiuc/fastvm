@@ -1,6 +1,5 @@
 ﻿
 
-#include "mcore/mcore.h"
 #include "vm.h"
 #include "libdobc.h"
 
@@ -99,6 +98,11 @@ void *vm_mallocz(unsigned long size)
 	ptr = vm_malloc(size);
 	memset(ptr, 0, size);
 	return ptr;
+}
+
+void vm_free(char *ptr)
+{
+    free(ptr);
 }
 
 VMState *vm_new(void)

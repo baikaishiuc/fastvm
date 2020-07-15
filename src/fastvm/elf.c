@@ -3,8 +3,6 @@
 #include "elf.h"
 #include "vm.h"
 
-#define count_of_array(_a)  (sizeof (_a) / sizeof (_a[0]))
-
 const char *osabistr[] = {
     "UNIX System V ABI",    /* 0 */
     "HP-UX",                /* 1 */
