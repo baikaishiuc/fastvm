@@ -1,7 +1,6 @@
 ﻿
 #include "mcore/mcore.h"
 #include "vm.h"
-#include "libdobc.h"
 
 static const char help[] = {
     "fastvm "FASTVM_VERSION" - Copyright (C) 2020-2025 Zhengxianwei\n"

@@ -1,7 +1,6 @@
 ﻿
 
 #include "vm.h"
-#include "libdobc.h"
 
 #define ERROR_WARN      0
 #define ERROR_NOABORT   1
@@ -100,7 +99,7 @@ void *vm_mallocz(unsigned long size)
 	return ptr;
 }
 
-void vm_free(char *ptr)
+void vm_free(void *ptr)
 {
     free(ptr);
 }

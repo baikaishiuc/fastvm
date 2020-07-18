@@ -65,14 +65,34 @@
 
 #include "elf.h"
 
+
+#define DOBC_TARGET_ARM         /* ARMv4 code generator */
+
+#if !defined(DOBC_TARGET_I386) && !defined(DOBC_TARGET_ARM) && \
+    !defined(DOBC_TARGET_ARM64) && !defined(DOBC_TARGET_C67) && \
+    !defined(DOBC_TARGET_X86_64) && !defined(DOBC_TARGET_RISCV64)
+
+#endif
+
+#ifdef DOBC_TARGET_ARM
+//#define DOBC_ARM_EABI
+//#define DOBC_ARM_VFP
+//define DOBC_ARM_HARDFLOAT
+#endif
+
+#include "libdobc.h"
+#include "elf.h"
+
 /* Section definition */
 typedef struct Section {
     unsigned long data_offset;
     unsigned char *data;
     unsigned long data_allocated;
+    VMState *s1;
     int sh_name;        /* elf section name (only used during output) */
     int sh_num;         /* elf section number */
     int sh_type;        /* elf section type */
+    int sh_flags;       /* elf section flags */
     int sh_info;        /* elf section flags */
     int sh_addralign;   /* elf section alignment */
     int sh_entsize;     /* elf entry size */
@@ -87,7 +107,7 @@ typedef struct Section {
     char name[1];           /* section name */
 } Section;
 
-typedef struct VMState {
+struct VMState {
 
 	unsigned long funcaddr;
 
@@ -111,7 +131,8 @@ typedef struct VMState {
 
     Section *symtab_section;
     Section *stab_section;
-} VMState;
+
+};
 
 #define VM_SET_STATE(fn)    fn        
 
@@ -140,31 +161,6 @@ void _vm_warning(const char *fmt, ...);
 #define OPT_DECODE_ELF              8
 #define OPT_DECODE_FUNC             9
 
-
-struct section {
-    unsigned long data_offset;
-    unsigned char *data;
-    unsigned long data_allocated;
-
-    VMState *s1;
-    int sh_name;            /* elf section name (only used during output) */
-    int sh_num;             /* elf section number */
-    int sh_type;            /* elf section type */
-    int sh_flags;           /* elf section flags */
-    int sh_info;            /* elf section info */
-    int sh_addralign;       /* elf section alignment */
-    int sh_entsize;         /* elf entry size */
-    unsigned long sh_size;  /* section size (only used during output) */
-    addr_t sh_addr;         /* address at which the section is reached */
-    unsigned long sh_offset;    /* file offset */
-    int nb_hashed_syms;     /* used to resize the hash table */
-    struct section *link;   /* link to another section */
-    struct section *reloc;  /* corresponding section for relocation, if any */
-    struct section *hash;   /* hash table for symbols */
-    struct section *prev;   /* previous section on section stack */
-    char name[1];           /* section name */
-};
-
 #define AFF_BINTYPE_REL         1
 #define AFF_BINTYPE_DYN         2
 #define AFF_BINTYPE_AR          3
@@ -174,7 +170,13 @@ int dobc_object_type(int fd, ElfW(Ehdr) *h);
 int dobc_load_object_file(VMState *s1, int fd, unsigned long file_offset);
 int dobc_load_archive(VMState *s1, int fd, int alacarte);
 
+void *vm_malloc(unsigned long size);
 void *vm_mallocz(unsigned long size);
-void vm_free(char *ptr);
+void vm_free(void *ptr);
+
+
+#define text_section(s)             s->text_section            
+#define data_section(s)             s->data_section
+#define bss_section(s)              s->bss_section
 
 #endif
