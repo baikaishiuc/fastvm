@@ -82,6 +82,16 @@ void _vm_warning(const char *fmt, ...)
 {
 }
 
+void *vm_realloc(void *ptr, unsigned long size)
+{
+    void *ptr1;
+
+    ptr1 = realloc(ptr, size);
+    if (!ptr1 && size)
+        _vm_error("memory full (realloc)");
+    return ptr1;
+}
+
 void *vm_malloc(unsigned long size)
 {
 	void *ptr;
@@ -206,13 +216,34 @@ VMState *dobc_new(void)
     if (!s)
         vm_error("dobc_new() failed when calloc()");
 
+    dobcelf_new(s);
+
     return s;
 }
 
 void dobc_delete(VMState *s)
 {
+    dobcelf_delete(s);
+
     if (s->filename)
         free(s->filename);
 
     free(s);
+}
+
+int dobc_load_file(VMState *s1)
+{
+    int obj_type;
+    s1->filedata = file_load(s1->filename, &s1->filelen);
+
+    obj_type = dobc_object_type((ElfW(Ehdr) *)s1->filedata);
+    if (obj_type != AFF_BINTYPE_DYN)
+        vm_error("Sorry, this version only support dll file, %s\n", s1->filename);
+
+    return 0;
+
+    dobc_load_dll(s1);
+    dobc_output_file(s1, "test.so");
+
+    return 0;
 }

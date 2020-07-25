@@ -4,12 +4,17 @@
 
 #include "config.h"
 #include "mcore/mcore.h"
+#include <fcntl.h>
+#include <io.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #define inline      __inline
 #define strdup      _strdup
 #define itoa        _itoa
+#define read        _read
+#define write       _write
+#define lseek       _lseek
 
 #ifndef __GNUC__
 #define strtold     (long double)strtod
@@ -63,10 +68,17 @@
 # define LONG_SIZE  4
 #endif
 
+#include "libdobc.h"
 #include "elf.h"
 
-
 #define DOBC_TARGET_ARM         /* ARMv4 code generator */
+
+#define TARGET_DEFS_ONLY
+#ifdef DOBC_TARGET_ARM
+#include "arm-link.c"
+#endif
+#undef TARGET_DEFS_ONLY
+
 
 #if !defined(DOBC_TARGET_I386) && !defined(DOBC_TARGET_ARM) && \
     !defined(DOBC_TARGET_ARM64) && !defined(DOBC_TARGET_C67) && \
@@ -75,13 +87,17 @@
 #endif
 
 #ifdef DOBC_TARGET_ARM
-//#define DOBC_ARM_EABI
-//#define DOBC_ARM_VFP
-//define DOBC_ARM_HARDFLOAT
-#endif
+#ifdef DOBC_TARGET_I386
+#elif defined DOBC_TARGET_X86_64
+#elif defined DOBC_TARGET_ARM
+#define EM_TCC_TARGET   EM_ARM
+#elif defined DOBC_TARGET_ARM64
+#elif defined DOBC_TARGET_C67
+#else
+#error "unkown target"
+#endif 
+#endif // DOBC_TARGET_ARM
 
-#include "libdobc.h"
-#include "elf.h"
 
 /* Section definition */
 typedef struct Section {
@@ -97,7 +113,7 @@ typedef struct Section {
     int sh_addralign;   /* elf section alignment */
     int sh_entsize;     /* elf entry size */
     unsigned long sh_size;  /* section size (only used during output ) */
-    void *sh_addr;
+    addr_t sh_addr;
     unsigned long sh_offset;
     int nb_hashed_syms;
     struct Section *link;   /* link to another section */
@@ -107,8 +123,24 @@ typedef struct Section {
     char name[1];           /* section name */
 } Section;
 
-struct VMState {
+typedef struct DLLReference {
+    int level;
+    void *handle;
+    char name[1];
+} DLLReference;
 
+/* extend symbol attribute (not in symbol table) */
+struct sym_attr {
+    unsigned got_offset;
+    unsigned plt_offset;
+    int plt_sym;
+    int dyn_index;
+#ifdef DOBC_TARGET_ARM
+    unsigned char plt_thumb_stub : 1;
+#endif
+};
+
+struct VMState {
 	unsigned long funcaddr;
 
     void *error_opaque;
@@ -118,8 +150,26 @@ struct VMState {
     char *filename;
     int filelen;
 
+    int verbose;
+    int do_debug;
+
+    /* output type, see DOBC_OUTPUT_XXX */
+    int output_type;
+    /* output format, see DOBC_OUTPUT_FORMAT_XXX */
+    int output_format;
+
+    addr_t  text_addr;  /* address of text section */
+    unsigned long has_text_addr;
+
+    int static_link;
+
+    unsigned section_align;
+
     struct dynarray sections;
     struct dynarray priv_sections;
+
+    char *init_symbol; /* symbols to call at load-time */
+    char *fini_symbol; /* symbols to call at unload-time  */
 
     Section *got;
     Section *plt;
@@ -127,11 +177,16 @@ struct VMState {
     Section *text_section;
     Section *data_section;
     Section *bss_section;
+    Section *common_section;
     Section *cur_text_section;
-
     Section *symtab_section;
     Section *stab_section;
 
+    Section *dynsymtab_section;
+    Section *symtab;
+    Section *stab;
+
+    struct dynarray sym_attrs;
 };
 
 #define VM_SET_STATE(fn)    fn        
@@ -166,17 +221,50 @@ void _vm_warning(const char *fmt, ...);
 #define AFF_BINTYPE_AR          3
 #define AFF_BINTYPE_C67         4
 
-int dobc_object_type(int fd, ElfW(Ehdr) *h);
+int dobc_object_type(ElfW(Ehdr) *h);
 int dobc_load_object_file(VMState *s1, int fd, unsigned long file_offset);
 int dobc_load_archive(VMState *s1, int fd, int alacarte);
+int dobc_load_dll(VMState *s1);
 
+void *vm_realloc(void *ptr, unsigned long size);
 void *vm_malloc(unsigned long size);
 void *vm_mallocz(unsigned long size);
 void vm_free(void *ptr);
+
+int dobc_load_file(VMState *s1);
+
+/* dobcelf.c */
+
+#define DOBC_OUTPUT_FORMAT_ELF    0 /* default output format: ELF */
+#define DOBC_OUTPUT_FORMAT_BINARY 1 /* binary image output */
+#define DOBC_OUTPUT_FORMAT_COFF   2 /* COFF */
+
+#define ARMAG  "!<arch>\012"    /* For COFF and a.out archives */
+
+void dobcelf_new(VMState *s);
+void dobcelf_delete(VMState *s);
+int dobc_output_file(VMState *s1, const char *filename);
+
+Section *new_section(VMState *s1, const char *name, int sh_type, int sh_flags);
+void free_section(Section *sec);
+void section_realloc(Section *sec, unsigned long new_size);
+size_t section_add(Section *sec, addr_t size, int align);
+void *section_ptr_add(Section *sec, addr_t size);
+void section_reserve(Section *sec, unsigned long size);
+Section *find_section(VMState *s1, const char *name);
+Section *new_symtab(VMState *s1, const char *symtab_name, int sh_type, int sh_flags, const char *strtab_name, const char *hash_name, int hash_sh_flags);
+
+struct sym_attr *get_sym_attr(VMState *s1, int index, int alloc);
 
 
 #define text_section(s)             s->text_section            
 #define data_section(s)             s->data_section
 #define bss_section(s)              s->bss_section
+#define common_section(s)           s->common_section
+#define cur_text_section(s)         s->cur_text_section
+#define symtab_section(s)           s->symtab_section
+#define stab_section(s)             s->stab_section
+#define stabstr_section(s)          stab_section(s)->link
+#define gnu_ext(s)                  s->gnu_ext
 
 #endif
