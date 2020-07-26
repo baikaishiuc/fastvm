@@ -146,6 +146,7 @@ enum {
 
     DOBC_OPTION_d,
     DOBC_OPTION_df,
+    DOBC_OPTION_t,
 };
 
 #define DOBC_OPTION_HAS_ARGS            0x01
@@ -159,7 +160,8 @@ static const DOBCOption dobc_options[] = {
     { "dl", DOBC_OPTION_dl, 0 },
     { "dS", DOBC_OPTION_dS, 0 },
     { "d",  DOBC_OPTION_dS, 0 },
-    { "df",  DOBC_OPTION_df, DOBC_OPTION_HAS_ARGS },
+    { "df", DOBC_OPTION_df, DOBC_OPTION_HAS_ARGS },
+    { "t",  DOBC_OPTION_df, DOBC_OPTION_HAS_ARGS },
     { NULL, 0, 0},
 };
 
@@ -240,10 +242,10 @@ int dobc_load_file(VMState *s1)
     if (obj_type != AFF_BINTYPE_DYN)
         vm_error("Sorry, this version only support dll file, %s\n", s1->filename);
 
-    return 0;
-
+#if 0
     dobc_load_dll(s1);
     dobc_output_file(s1, "test.so");
+#endif
 
     return 0;
 }

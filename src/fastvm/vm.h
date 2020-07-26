@@ -76,6 +76,8 @@
 #define TARGET_DEFS_ONLY
 #ifdef DOBC_TARGET_ARM
 #include "arm-link.c"
+#else
+#error "unknwon target"
 #endif
 #undef TARGET_DEFS_ONLY
 
@@ -85,18 +87,6 @@
     !defined(DOBC_TARGET_X86_64) && !defined(DOBC_TARGET_RISCV64)
 
 #endif
-
-#ifdef DOBC_TARGET_ARM
-#ifdef DOBC_TARGET_I386
-#elif defined DOBC_TARGET_X86_64
-#elif defined DOBC_TARGET_ARM
-#define EM_TCC_TARGET   EM_ARM
-#elif defined DOBC_TARGET_ARM64
-#elif defined DOBC_TARGET_C67
-#else
-#error "unkown target"
-#endif 
-#endif // DOBC_TARGET_ARM
 
 
 /* Section definition */
@@ -215,6 +205,7 @@ void _vm_warning(const char *fmt, ...);
 #define OPT_DUMP_ELF_DYNSYM         7
 #define OPT_DECODE_ELF              8
 #define OPT_DECODE_FUNC             9
+#define OPT_TEST                    10
 
 #define AFF_BINTYPE_REL         1
 #define AFF_BINTYPE_DYN         2

@@ -21,6 +21,7 @@ void dobcelf_new(VMState *s)
 {
     dynarray_add(&s->sections, NULL);
 
+#if 0
     text_section(s) = new_section(s, ".text", SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR);
     data_section(s) = new_section(s, ".data", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE);
     bss_section(s) = new_section(s, ".bss", SHT_NOBITS, SHF_ALLOC | SHF_WRITE);
@@ -33,6 +34,7 @@ void dobcelf_new(VMState *s)
     s->dynsymtab_section = new_symtab(s, ".dynsymtab", SHT_SYMTAB, SHF_PRIVATE | SHF_DYNSYM,
                                       ".dynstrtab",
                                       ".dynhashtab", SHF_PRIVATE);
+#endif
 
     get_sym_attr(s, 0, 1);
 }
@@ -210,32 +212,8 @@ static void dobc_output_elf(VMState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr, i
 
     file_offset = (file_offset + 3) & -4;
 
-    ehdr.e_ident[0] = ELFMAG0;
-    ehdr.e_ident[1] = ELFMAG1;
-    ehdr.e_ident[2] = ELFMAG2;
-    ehdr.e_ident[3] = ELFMAG3;
-    ehdr.e_ident[4] = ELFCLASSW;
-    ehdr.e_ident[5] = ELFDATA2LSB;
-    ehdr.e_ident[6] = EV_CURRENT;
+    memcpy(&ehdr, s1->filedata, sizeof (ehdr));
 
-#if !defined(DOBC_TARGET_) && (defined(__FreeBSD__) || defined(__FreeBSD_kernel))
-    ehdr.e_indent[EI_OSABI] = ELFOSABI_FREEBSD;
-#endif // (defined(__FreeBSD__) || defined(__FreeBSD_kernel))
-
-#ifdef DOBC_TARGET_ARM
-
-#ifdef DOBC_ARM_EABI
-    ehdr.e_ident[EI_OSABI] = 0;
-    ehdr.e_flags = EF_ARM_EABI_VER4;
-#else // DOBC_ARM_EABI
-    ehdr.e_ident[EI_OSABI] = ELFOSABI_ARM;
-#endif // DOBC_ARM_EABI
-
-#endif // DOBC_TARGET_ARM
-
-    ehdr.e_type = ET_DYN;
-    ehdr.e_machine = EM_ARM;
-    ehdr.e_version = EV_CURRENT;
     ehdr.e_shoff = file_offset;
     ehdr.e_ehsize = sizeof(ElfW(Ehdr));
     ehdr.e_shentsize = sizeof(ElfW(Shdr));
@@ -246,7 +224,9 @@ static void dobc_output_elf(VMState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr, i
     fwrite(phdr, 1, phnum * sizeof (ElfW(Phdr)), f);
     offset = sizeof(ElfW(Ehdr)) + phnum * sizeof (ElfW(Phdr));
 
-    sort_syms(s1, symtab_section(s1));
+    /* 共享库里面的symtab为空，可以不用处理 */
+    if (symtab_section(s1))
+        sort_syms(s1, symtab_section(s1));
     for (i = 1; i < s1->sections.len; i++) {
         s = s1->sections.ptab[sec_order[i]];
         if (s->sh_type != SHT_NOBITS) {
@@ -876,7 +856,7 @@ int dobc_load_dll(VMState *s1)
     int i, nb_syms, nb_dts, sym_bind, j, size;
     ElfW(Sym) *sym, *dynsym;
     ElfW(Dyn) *dynamic;
-    Section *s;
+    Section *s, *hash_sec, *strtab_sec;
 
     char *dynstr;
     int sym_index;
@@ -938,6 +918,10 @@ found:
             vm_error("invalid section type %d", sh->sh_type);
         }
 
+        if (sh->sh_type == SHT_DYNSYM)          s1->dynsymtab_section = s;
+        else if (sh->sh_type == SHT_HASH)       hash_sec = s;
+        else if (sh->sh_type == SHT_STRTAB)     strtab_sec = s;
+
         /* align start of section */
         s->data_offset += s->data_offset & (sh->sh_addralign - 1);
         if ((int)sh->sh_addralign > s->sh_addralign)
@@ -952,6 +936,11 @@ found:
         else {
             s->data_offset += size;
         }
+    }
+
+    if (s1->dynsymtab_section) {
+        s1->dynsymtab_section->hash = hash_sec;
+        s1->dynsymtab_section->link = strtab_sec;
     }
 
     for (i = 1, sym = dynsym + 1; i < nb_syms; i++, sym++) {
