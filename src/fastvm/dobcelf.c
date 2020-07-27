@@ -548,11 +548,41 @@ static int layout_sections(VMState *s1, ElfW(Phdr) *phdr, int phnum,
     return file_offset;
 }
 
+/*
+老的tcc中的layout_sections看不懂···,它针对dll只分配了3个segment，然后按照一个它默认的顺序去分配它
+我重新实现了以后，改成读取原生的so中的映射顺序，不在改动
+
+*/
+static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_order)
+{
+    ElfW(Ehdr) *ehdr;
+    ElfW(Phdr) *ph, *ph_new;
+    ElfW(Shdr) *sh;
+    int i, j;
+
+    ehdr = (ElfW(Ehdr) *)s1->filedata;
+
+    for (i = 0; i < phnum; i++) {
+        ph = (ElfW(Phdr) *)(s1->filedata + ehdr->e_phoff) + i;
+        ph_new = &phdr[i];
+        for (j = 0; j < ehdr->e_shnum; j++) {
+            sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
+            if (ELF_SECTION_IN_SEGMENT(sh, ph)) {
+                ph_new->p_align = ph->p_align;
+                ph_new->p_flags = ph->p_flags;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static int elf_output_file(VMState *s1, const char *filename)
 {
     int ret, phnum, shnum, file_type, file_offset, *sec_order;
     struct dyn_inf dyninf = { 0 };
     ElfW(Phdr) *phdr;
+    ElfW(Ehdr) ehdr;
     Section *strsec, *interp, *dynamic, *dynstr;
 
     file_type = s1->output_type;
@@ -561,20 +591,16 @@ static int elf_output_file(VMState *s1, const char *filename)
     interp = dynamic = dynstr = NULL;
 
     /* we add a section for symbols */
-    strsec = new_section(s1, ".shstrtab", SHT_STRTAB, 0);
-    put_elf_str(strsec, "");
+    if (!(strsec = find_section_create(s1, ".shstrtab", 0))) {
+        strsec = new_section(s1, ".shstrtab", SHT_STRTAB, 0);
+        put_elf_str(strsec, "");
+    }
 
     /* Allocate strings for sections names */
     ret = alloc_sec_names(s1, file_type, strsec);
 
-    if (file_type == DOBC_OUTPUT_OBJ)
-        phnum = 0;
-    else if (file_type == DOBC_OUTPUT_DLL)
-        phnum = 3;
-    else if (s1->static_link)
-        phnum = 2;
-    else
-        phnum = 5;
+    memcpy(&ehdr, s1->filedata, sizeof (ehdr));
+    phnum = ehdr.e_phnum;
 
     /* allocate program segment headers */
     phdr = vm_mallocz(phnum * sizeof (ElfW(Phdr)));
@@ -852,7 +878,7 @@ int set_elf_sym(Section *s, addr_t value, unsigned long size,
 int dobc_load_dll(VMState *s1)
 {
     ElfW(Ehdr) ehdr;
-    ElfW(Shdr) *shdr, *sh, *sh1;
+    ElfW(Shdr) *shdr, *sh, *sh1, *shstrtab;
     int i, nb_syms, nb_dts, sym_bind, j, size;
     ElfW(Sym) *sym, *dynsym;
     ElfW(Dyn) *dynamic;
@@ -870,7 +896,7 @@ int dobc_load_dll(VMState *s1)
 
     /* read section */
     shdr = (ElfW(Shdr) *)(s1->filedata + ehdr.e_shoff);
-    //shdr = load_data(fd, ehdr.e_shoff, sizeof (ElfW(Shdr)) * ehdr.e_shnum);
+    shstrtab = &shdr[ehdr.e_shstrndx];
 
     /* load dynamic section and dynamic symbols */
     nb_syms = 0;
@@ -898,7 +924,7 @@ int dobc_load_dll(VMState *s1)
 
     for (i = 1; i < ehdr.e_shnum; i++) {
         sh = &shdr[i];
-        sh_name = dynstr + sh->sh_name;
+        sh_name = s1->filedata + shstrtab->sh_offset + sh->sh_name;
         for (j = 1; j < s1->sections.len; j++) {
             s = s1->sections.ptab[j];
             if (!strcmp(s->name, sh_name)) {
