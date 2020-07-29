@@ -43,6 +43,9 @@
 
 #define PTR_SIZE    4
 
+#define ALIGN_UP(v, a)          ((v + a - 1) & ~(a - 1))
+#define ALIGN_BOTTOM(v, a)      (v & ~(a - 1))
+
 #if PTR_SIZE == 8
 #define ELFCLASSW   ELFCLASS64
 #define ElfW(type)  Elf##64##_##type

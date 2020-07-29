@@ -558,13 +558,14 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
     ElfW(Ehdr) *ehdr;
     ElfW(Phdr) *ph, *ph_new;
     ElfW(Shdr) *sh;
-    int i, j, file_offset, sh_order_index = 1, s_align;
+    int i, j, file_offset, sh_order_index = 1, s_align, t;
     addr_t addr, tmp;
     Section *s;
 
     ehdr = (ElfW(Ehdr) *)s1->filedata;
 
     //file_offset = sizeof(ElfW(Ehdr)) + phnum * sizeof(ElfW(Phdr));
+    // phdr的segment 4字节对齐
     file_offset = sizeof(ElfW(Ehdr));
     s_align = 4;
     addr = (file_offset & (s_align - 1));
@@ -585,9 +586,8 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
             sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
             s = s1->sections.ptab[j];
             if (ELF_SECTION_IN_SEGMENT(sh, ph)) {
-
                 tmp = addr;
-                addr = (addr + sh->sh_addralign - 1) & ~(sh->sh_addralign - 1);
+                addr = ALIGN_UP(addr, sh->sh_addralign);
 
                 file_offset += (int)(addr - tmp);
                 s->sh_offset = file_offset;
@@ -602,19 +602,27 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
                 if (s->sh_type != SHT_NOBITS)
                     file_offset += s->sh_size;
 
-                printf("section %d = %d, ph = %d\n", sh_order_index, j, i);
+                printf("section %d = %d, ph = %d, addr = 0x%x, size = 0x%x\n", sh_order_index, j, i, addr, s->sh_size);
             }
         }
 
-        /* the first PT_LOAD segment include the program itself */
+        /* PHDR segment */
         if (i == 0) {
+            addr = ALIGN_BOTTOM(file_offset, s_align);
+
             ph_new->p_offset = addr;
             ph_new->p_paddr = addr;
             ph_new->p_vaddr = addr;
 
-            ph_new->p_offset &= ~(ph->p_align - 1);
-            ph_new->p_vaddr &= ~(ph->p_align - 1);
-            ph_new->p_paddr &= ~(ph->p_align - 1);
+            t = phnum * sizeof (ElfW(Phdr));
+            addr += t;
+            file_offset += t;
+        }
+        /* the first PT_LOAD segment include the program itself */
+        else if (i == 1) {
+            ph_new->p_offset &= ~(ph_new->p_align - 1);
+            ph_new->p_vaddr &= ~(ph_new->p_align - 1);
+            ph_new->p_paddr &= ~(ph_new->p_align - 1);
         }
 
         ph_new->p_filesz = file_offset - ph_new->p_offset;

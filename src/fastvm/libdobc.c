@@ -245,6 +245,7 @@ int dobc_load_file(VMState *s1)
 #if 0
     dobc_load_dll(s1);
     dobc_output_file(s1, "test.so");
+    exit(1);
 #endif
 
     return 0;
