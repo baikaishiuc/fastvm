@@ -558,23 +558,70 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
     ElfW(Ehdr) *ehdr;
     ElfW(Phdr) *ph, *ph_new;
     ElfW(Shdr) *sh;
-    int i, j;
+    int i, j, file_offset, sh_order_index = 1, s_align;
+    addr_t addr, tmp;
+    Section *s;
 
     ehdr = (ElfW(Ehdr) *)s1->filedata;
+
+    //file_offset = sizeof(ElfW(Ehdr)) + phnum * sizeof(ElfW(Phdr));
+    file_offset = sizeof(ElfW(Ehdr));
+    s_align = 4;
+    addr = (file_offset & (s_align - 1));
+
+    for (i = 1; i < s1->sections.len; i++) {
+        sec_order[sh_order_index++] = i;
+    }
 
     for (i = 0; i < phnum; i++) {
         ph = (ElfW(Phdr) *)(s1->filedata + ehdr->e_phoff) + i;
         ph_new = &phdr[i];
-        for (j = 0; j < ehdr->e_shnum; j++) {
+
+        ph_new->p_align = ph->p_align;
+        ph_new->p_flags = ph->p_flags;
+        ph_new->p_type = ph->p_type;
+
+        for (j = 1; j < ehdr->e_shnum; j++) {
             sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
+            s = s1->sections.ptab[j];
             if (ELF_SECTION_IN_SEGMENT(sh, ph)) {
-                ph_new->p_align = ph->p_align;
-                ph_new->p_flags = ph->p_flags;
+
+                tmp = addr;
+                addr = (addr + sh->sh_addralign - 1) & ~(sh->sh_addralign - 1);
+
+                file_offset += (int)(addr - tmp);
+                s->sh_offset = file_offset;
+                s->sh_addr = addr;
+
+                if (0 == ph_new->p_offset) {
+                    ph_new->p_offset = file_offset;
+                    ph_new->p_vaddr = addr;
+                    ph_new->p_paddr = ph->p_vaddr;
+                }
+                addr += s->sh_size;
+                if (s->sh_type != SHT_NOBITS)
+                    file_offset += s->sh_size;
+
+                printf("section %d = %d, ph = %d\n", sh_order_index, j, i);
             }
         }
+
+        /* the first PT_LOAD segment include the program itself */
+        if (i == 0) {
+            ph_new->p_offset = addr;
+            ph_new->p_paddr = addr;
+            ph_new->p_vaddr = addr;
+
+            ph_new->p_offset &= ~(ph->p_align - 1);
+            ph_new->p_vaddr &= ~(ph->p_align - 1);
+            ph_new->p_paddr &= ~(ph->p_align - 1);
+        }
+
+        ph_new->p_filesz = file_offset - ph_new->p_offset;
+        ph_new->p_memsz = addr - ph_new->p_vaddr;
     }
 
-    return 0;
+    return file_offset;
 }
 
 static int elf_output_file(VMState *s1, const char *filename)
@@ -612,7 +659,8 @@ static int elf_output_file(VMState *s1, const char *filename)
     sec_order = vm_malloc(sizeof (int) * shnum);
 
     /* compute section to program header mapping */
-    file_offset = layout_sections(s1, phdr, phnum, interp, strsec, &dyninf, sec_order);
+    //file_offset = layout_sections(s1, phdr, phnum, interp, strsec, &dyninf, sec_order);
+    file_offset = layout_sections2(s1, phdr, phnum, sec_order);
 
     ret = dobc_write_elf_file(s1, filename, phnum, phdr, file_offset, sec_order);
 
