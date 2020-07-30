@@ -367,10 +367,9 @@ static int alloc_sec_names(VMState *s1, int file_type, Section *strsec)
     for (i = 1; i < s1->sections.len; i++) {
         s = s1->sections.ptab[i];
         /* when generating a DLL, we include relocations but we may patch them */
-#if 0
-#endif
         if (s1->do_debug && (s->sh_type != SHT_RELX) 
-            || (file_type == DOBC_OUTPUT_OBJ) || (s->sh_flags & SHF_ALLOC) || (i == (s1->sections.len - 1))) {
+            || (file_type == DOBC_OUTPUT_OBJ) 
+            || (s->sh_flags & SHF_ALLOC) || (i == (s1->sections.len - 1))) {
             s->sh_size = s->data_offset;
         }
 
@@ -595,7 +594,7 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
         tmp = addr;
         addr = ALIGN_UP(addr, sh->sh_addralign);
 
-        file_offset += (int)(addr - tmp);
+        file_offset = ALIGN_UP(file_offset, sh->sh_addralign);
         
         /* 有些特殊的section，他的addr为空，看起来是不需要载入到内存中 */
         if (strcmp(s->name, ".comment")
@@ -609,6 +608,9 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
 
             s->sh_addr = addr;
         }
+        else {
+
+        }
 
         s->sh_offset = file_offset;
 
@@ -616,6 +618,8 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
 
         if (s->sh_type != SHT_NOBITS)
             file_offset += s->sh_size;
+
+        printf("name = %s, section = %d, sh_size = %d\n", s->name, j, s->sh_size);
     }
 
     for (i = 0; i < phnum; i++) {
@@ -641,8 +645,6 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
                 addr += s->sh_size;
                 if (s->sh_type != SHT_NOBITS)
                     file_offset += s->sh_size;
-
-                printf("section %d = %d, ph = %d, addr = 0x%x, size = 0x%x\n", sh_order_index, j, i, addr, s->sh_size);
             }
         }
 
@@ -670,16 +672,18 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
         ph_new->p_memsz = addr - ph_new->p_vaddr;
     }
 
-    return file_offset;
+    s = (s1->sections.ptab[s1->sections.len - 1]);
+
+    return ALIGN_UP(s->sh_offset + s->sh_size, 4);
 }
 
 static int elf_output_file(VMState *s1, const char *filename)
 {
-    int ret, phnum, shnum, file_type, file_offset, *sec_order;
+    int ret, phnum, shnum, file_type, file_offset, *sec_order, i;
     struct dyn_inf dyninf = { 0 };
     ElfW(Phdr) *phdr;
     ElfW(Ehdr) ehdr;
-    Section *strsec, *interp, *dynamic, *dynstr;
+    Section *strsec, *interp, *dynamic, *dynstr, *s;
 
     file_type = s1->output_type;
     phdr = NULL;
@@ -693,7 +697,11 @@ static int elf_output_file(VMState *s1, const char *filename)
     }
 
     /* Allocate strings for sections names */
-    ret = alloc_sec_names(s1, file_type, strsec);
+    //ret = alloc_sec_names(s1, file_type, strsec);
+    for (i = 1; i < s1->sections.len; i++) {
+        s = s1->sections.ptab[i];
+        s->sh_size = s->data_offset;
+    }
 
     memcpy(&ehdr, s1->filedata, sizeof (ehdr));
     phnum = ehdr.e_phnum;
@@ -1038,6 +1046,7 @@ int dobc_load_dll(VMState *s1)
         s->sh_entsize = sh->sh_entsize;
         s->sh_info = sh->sh_info;
         s->sh_link = sh->sh_link;
+        s->sh_name = sh->sh_name;
 found:
         if (sh->sh_type != s->sh_type) {
             vm_error("invalid section type %d", sh->sh_type);

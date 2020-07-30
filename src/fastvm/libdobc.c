@@ -243,6 +243,8 @@ int dobc_load_file(VMState *s1)
         vm_error("Sorry, this version only support dll file, %s\n", s1->filename);
 
 #if 0
+    s1->output_type = DOBC_OUTPUT_DLL;
+    s1->output_format = DOBC_OUTPUT_FORMAT_ELF;
     dobc_load_dll(s1);
     dobc_output_file(s1, "test.so");
     exit(1);
