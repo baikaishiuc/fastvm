@@ -558,20 +558,64 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
     ElfW(Ehdr) *ehdr;
     ElfW(Phdr) *ph, *ph_new;
     ElfW(Shdr) *sh;
-    int i, j, file_offset, sh_order_index = 1, s_align, t;
+    int i, j, file_offset, sh_order_index = 1, s_align, t, *sec_to_seg, data_start_section = 0;
     addr_t addr, tmp;
     Section *s;
 
     ehdr = (ElfW(Ehdr) *)s1->filedata;
 
+    sec_to_seg = vm_malloc(s1->sections.len * sizeof (sec_to_seg[0]));
+    memset(sec_to_seg, -1, s1->sections.len * sizeof (sec_to_seg[0]));
     //file_offset = sizeof(ElfW(Ehdr)) + phnum * sizeof(ElfW(Phdr));
     // phdr的segment 4字节对齐
-    file_offset = sizeof(ElfW(Ehdr));
-    s_align = 4;
-    addr = (file_offset & (s_align - 1));
 
     for (i = 1; i < s1->sections.len; i++) {
         sec_order[sh_order_index++] = i;
+    }
+
+    for (i = 0; i < phnum; i++) {
+        ph = (ElfW(Phdr) *)(s1->filedata + ehdr->e_phoff) + i;
+        for (j = 1; j < ehdr->e_shnum; j++) {
+            sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
+            if (ELF_SECTION_IN_SEGMENT(sh, ph)) {
+                sec_to_seg[j] = i;
+
+                if ((ph->p_type == PT_LOAD) && (ph->p_flags & PF_W) && !data_start_section) {
+                    data_start_section = j;
+                    s_align = ph->p_align;
+                }
+            }
+        }
+    }
+
+    file_offset = sizeof(ElfW(Ehdr)) + phnum * sizeof (phdr[0]);
+    addr = (file_offset & 3);
+    for (j = 1; j < ehdr->e_shnum; j++) {
+        s = s1->sections.ptab[j];
+        tmp = addr;
+        addr = ALIGN_UP(addr, sh->sh_addralign);
+
+        file_offset += (int)(addr - tmp);
+        
+        /* 有些特殊的section，他的addr为空，看起来是不需要载入到内存中 */
+        if (strcmp(s->name, ".comment")
+            && strcmp(s->name, ".note.gnu.gold-version")
+            && strcmp(s->name, ".ARM.attributes")
+            && strcmp(s->name, ".shstrtab")) {
+
+            if ((data_start_section == j) && !(addr & (s_align - 1))) {
+                addr += s_align;
+            }
+
+            s->sh_addr = addr;
+        }
+
+        s->sh_offset = file_offset;
+
+        addr += s->sh_size;
+
+        if (s->sh_type != SHT_NOBITS)
+            file_offset += s->sh_size;
     }
 
     for (i = 0; i < phnum; i++) {
@@ -586,14 +630,10 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
             sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
             s = s1->sections.ptab[j];
             if (ELF_SECTION_IN_SEGMENT(sh, ph)) {
-                tmp = addr;
-                addr = ALIGN_UP(addr, sh->sh_addralign);
-
-                file_offset += (int)(addr - tmp);
-                s->sh_offset = file_offset;
-                s->sh_addr = addr;
-
                 if (0 == ph_new->p_offset) {
+                    addr = s->sh_addr;
+                    file_offset = s->sh_offset;
+
                     ph_new->p_offset = file_offset;
                     ph_new->p_vaddr = addr;
                     ph_new->p_paddr = ph->p_vaddr;
@@ -608,7 +648,8 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
 
         /* PHDR segment */
         if (i == 0) {
-            addr = ALIGN_BOTTOM(file_offset, s_align);
+            file_offset = sizeof(ElfW(Ehdr));
+            addr = ALIGN_BOTTOM(file_offset, 4);
 
             ph_new->p_offset = addr;
             ph_new->p_paddr = addr;
@@ -938,7 +979,7 @@ int dobc_load_dll(VMState *s1)
     int i, nb_syms, nb_dts, sym_bind, j, size;
     ElfW(Sym) *sym, *dynsym;
     ElfW(Dyn) *dynamic;
-    Section *s, *hash_sec, *strtab_sec;
+    Section *s, *hash_sec;
 
     char *dynstr;
     int sym_index;
@@ -995,6 +1036,8 @@ int dobc_load_dll(VMState *s1)
            sh_info will be updated later */
         s->sh_addralign = sh->sh_addralign;
         s->sh_entsize = sh->sh_entsize;
+        s->sh_info = sh->sh_info;
+        s->sh_link = sh->sh_link;
 found:
         if (sh->sh_type != s->sh_type) {
             vm_error("invalid section type %d", sh->sh_type);
@@ -1002,7 +1045,6 @@ found:
 
         if (sh->sh_type == SHT_DYNSYM)          s1->dynsymtab_section = s;
         else if (sh->sh_type == SHT_HASH)       hash_sec = s;
-        else if (sh->sh_type == SHT_STRTAB)     strtab_sec = s;
 
         /* align start of section */
         s->data_offset += s->data_offset & (sh->sh_addralign - 1);
@@ -1020,9 +1062,17 @@ found:
         }
     }
 
+    /* second short pass to update sh_link */
+    for (i = 1; i < ehdr.e_shnum; i++) {
+        sh = &shdr[i];
+        s = s1->sections.ptab[i];
+        if (sh->sh_link) {
+            s->link = s1->sections.ptab[sh->sh_link];
+        }
+    }
+
     if (s1->dynsymtab_section) {
         s1->dynsymtab_section->hash = hash_sec;
-        s1->dynsymtab_section->link = strtab_sec;
     }
 
     for (i = 1, sym = dynsym + 1; i < nb_syms; i++, sym++) {

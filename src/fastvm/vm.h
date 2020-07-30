@@ -102,9 +102,10 @@ typedef struct Section {
     int sh_num;         /* elf section number */
     int sh_type;        /* elf section type */
     int sh_flags;       /* elf section flags */
-    int sh_info;        /* elf section flags */
+    int sh_info;        /* elf section info */
     int sh_addralign;   /* elf section alignment */
     int sh_entsize;     /* elf entry size */
+    int sh_link;
     unsigned long sh_size;  /* section size (only used during output ) */
     addr_t sh_addr;
     unsigned long sh_offset;
