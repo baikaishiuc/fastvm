@@ -383,6 +383,16 @@ static int alloc_sec_names(VMState *s1, int file_type, Section *strsec)
     return textrel;
 }
 
+static int rebuild_got(VMState *s1)
+{
+    Section *s;
+    int i;
+
+    for (i = 1; i < s1->sections.len; i++) {
+        s = s1->sections.ptab[i];
+    }
+}
+
 /* Assign sections to segments and decide how are section laid out when loaded in memory*/
 static int layout_sections(VMState *s1, ElfW(Phdr) *phdr, int phnum,
                            Section *interp, Section *strsec, 
@@ -558,7 +568,7 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
     ElfW(Phdr) *ph, *ph_new;
     ElfW(Shdr) *sh;
     int i, j, file_offset, sh_order_index = 1, s_align, t, *sec_to_seg, data_start_section = 0;
-    addr_t addr, tmp;
+    addr_t addr;
     Section *s;
 
     ehdr = (ElfW(Ehdr) *)s1->filedata;
@@ -588,13 +598,12 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
     }
 
     file_offset = sizeof(ElfW(Ehdr)) + phnum * sizeof (phdr[0]);
-    addr = (file_offset & 3);
+    addr = (file_offset & ~3);
     for (j = 1; j < ehdr->e_shnum; j++) {
         s = s1->sections.ptab[j];
-        tmp = addr;
-        addr = ALIGN_UP(addr, sh->sh_addralign);
 
-        file_offset = ALIGN_UP(file_offset, sh->sh_addralign);
+        addr = ALIGN_UP(addr, s->sh_addralign);
+        file_offset = ALIGN_UP(file_offset, s->sh_addralign);
         
         /* 有些特殊的section，他的addr为空，看起来是不需要载入到内存中 */
         if (strcmp(s->name, ".comment")
@@ -602,14 +611,11 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
             && strcmp(s->name, ".ARM.attributes")
             && strcmp(s->name, ".shstrtab")) {
 
-            if ((data_start_section == j) && !(addr & (s_align - 1))) {
+            if ((data_start_section == j) && (addr & (s_align - 1))) {
                 addr += s_align;
             }
 
             s->sh_addr = addr;
-        }
-        else {
-
         }
 
         s->sh_offset = file_offset;
@@ -619,7 +625,7 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
         if (s->sh_type != SHT_NOBITS)
             file_offset += s->sh_size;
 
-        printf("name = %s, section = %d, sh_size = %d\n", s->name, j, s->sh_size);
+        printf("name = %s, section = %d, sh_size = %d, phdr = %d\n", s->name, j, s->sh_size, sec_to_seg[j]);
     }
 
     for (i = 0; i < phnum; i++) {
@@ -629,6 +635,9 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
         ph_new->p_align = ph->p_align;
         ph_new->p_flags = ph->p_flags;
         ph_new->p_type = ph->p_type;
+
+        file_offset = 0;
+        addr = 0;
 
         for (j = 1; j < ehdr->e_shnum; j++) {
             sh = (ElfW(Shdr) *)(s1->filedata + ehdr->e_shoff) + j;
@@ -640,11 +649,11 @@ static int layout_sections2(VMState *s1, ElfW(Phdr) *phdr, int phnum, int *sec_o
 
                     ph_new->p_offset = file_offset;
                     ph_new->p_vaddr = addr;
-                    ph_new->p_paddr = ph->p_vaddr;
+                    ph_new->p_paddr = ph_new->p_vaddr;
                 }
-                addr += s->sh_size;
+                addr = ALIGN_UP(s->sh_addr, s->sh_addralign) + s->sh_size;
                 if (s->sh_type != SHT_NOBITS)
-                    file_offset += s->sh_size;
+                    file_offset = ALIGN_UP(file_offset, s->sh_addralign) + s->sh_size;
             }
         }
 
