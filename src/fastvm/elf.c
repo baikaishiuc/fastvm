@@ -403,9 +403,10 @@ void elf32_dump(char *elf, int opt)
     Elf_Indent *indent = (Elf_Indent *)elf;
     Elf32_Ehdr *hdr = (Elf32_Ehdr *)elf;
     Elf32_Phdr *phdr;
-	Elf32_Shdr *shdr, *shstrdr, *dynsymsh, *link_scn;
+	Elf32_Shdr *shdr, *sh, *shstrdr, *dynsymsh, *link_sh;
 	Elf32_Sym *sym;
-    int i, num;
+    ElfW(Rel) *rel;
+    int i, j, num, rel_count, type, symind;
 	const char *name;
 
 	if (opt == OPT_DUMP_ELF_HEADER) {
@@ -464,15 +465,42 @@ void elf32_dump(char *elf, int opt)
 		}
 	}
 
+    if (opt == OPT_DUMP_ELF_REL) {
+		shstrdr = (Elf32_Shdr *)(elf + hdr->e_shoff) + hdr->e_shstrndx;
+        dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM);
+		link_sh = (Elf32_Shdr *)(elf + hdr->e_shoff) + dynsymsh->sh_link;
+
+        for (i = 1; i < hdr->e_shnum; i++) {
+			sh = (Elf32_Shdr *)(elf + hdr->e_shoff) + i;
+            if (sh->sh_type != SHT_REL)
+                continue;
+
+            rel_count = sh->sh_size / sh->sh_entsize;
+			name = (char *)elf + (shstrdr->sh_offset + shdr->sh_name);
+
+            printf("\n\n");
+            printf("Relocation section '%s' at offset %x conatins %d entries:\n", name, sh->sh_addr, rel_count);
+            printf(" Offset     Info    Type            Sym.Value  Sym. Name\n");
+            for (j = 0; j < rel_count; j++) {
+                rel = ((ElfW(Rel) *)(elf + sh->sh_offset)) + j;
+                type = ELFW(R_TYPE)(rel->r_info);
+                symind = ELFW(R_SYM)(rel->r_info);
+                sym = ((ElfW(Sym *))(elf + dynsymsh->sh_offset)) + symind;
+
+                printf("%08x %08x %16x %08x %s\n", rel->r_offset, rel->r_info, type, sym->st_value, (char *)elf + link_sh->sh_offset + sym->st_name);
+            }
+        }
+    }
+
 	if ((opt == OPT_DUMP_ELF_DYNSYM) && (dynsymsh = elf32_shdr_get(hdr, SHT_DYNSYM))) {
 		num = dynsymsh->sh_size / dynsymsh->sh_entsize;
-		link_scn = (Elf32_Shdr *)(elf + hdr->e_shoff) + dynsymsh->sh_link;
+		link_sh = (Elf32_Shdr *)(elf + hdr->e_shoff) + dynsymsh->sh_link;
 		printf("\n\n");
 		printf("Symbol table '.dynsym' contains %d entries\n", num);
 		printf(" Num:    Value  Size Type    Bind   Vis      Ndx Name\n");
 		for (i = 0; i < num; i++) {
 			sym = (Elf32_Sym *)(elf + dynsymsh->sh_offset) + i;
-			name = (char *)elf + (link_scn->sh_offset + sym->st_name);
+			name = (char *)elf + (link_sh->sh_offset + sym->st_name);
 			printf("  %02d: %08x %0-5d %-6s  %s %s  %d %s\n", i, sym->st_value, sym->st_size,
 				elf_symtype(ELF32_ST_TYPE(sym->st_info)),
 				elf_symbindtype(ELF32_ST_BIND(sym->st_info)),
@@ -516,4 +544,9 @@ void elf_dump(char *elf, int elf_len, int opt)
     else  {
         printf("not support class type[%d]", indent->class);
     }
+}
+
+char *elf_arm_rel_type(int type)
+{
+    return NULL;
 }

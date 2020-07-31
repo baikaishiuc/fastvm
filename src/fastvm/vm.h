@@ -177,6 +177,11 @@ struct VMState {
     Section *stab_section;
 
     Section *dynsymtab_section;
+    /* 加载.a文件时，符号表是symtab_section，加载.so文件时，符号表是 dynsymtab_section
+    symtab_secton1指向当前加载文件的符号表，以匹配不同的加载文件类型，他是 symtab_section和dynsymtab_section
+    的软连接
+    */
+    Section *symtab_section1;
     Section *symtab;
     Section *stab;
 
@@ -203,13 +208,16 @@ void _vm_warning(const char *fmt, ...);
 #define OPT_HELP                    1
 #define OPT_HELP2                   2
 #define OPT_V                       3
-#define OPT_DUMP_ELF_HEADER         4
-#define OPT_DUMP_ELF_PROG_HEADER    5
-#define OPT_DUMP_ELF_SECTION        6
-#define OPT_DUMP_ELF_DYNSYM         7
-#define OPT_DECODE_ELF              8
-#define OPT_DECODE_FUNC             9
-#define OPT_TEST                    10
+
+#define OPT_DUMP_ELF_HEADER         10
+#define OPT_DUMP_ELF_PROG_HEADER    11
+#define OPT_DUMP_ELF_SECTION        12
+#define OPT_DUMP_ELF_REL            13
+#define OPT_DUMP_ELF_DYNSYM         14
+
+#define OPT_DECODE_ELF              20
+#define OPT_DECODE_FUNC             21
+#define OPT_TEST                    22
 
 #define AFF_BINTYPE_REL         1
 #define AFF_BINTYPE_DYN         2

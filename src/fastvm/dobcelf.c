@@ -385,12 +385,42 @@ static int alloc_sec_names(VMState *s1, int file_type, Section *strsec)
 
 static int rebuild_got(VMState *s1)
 {
-    Section *s;
-    int i;
+    ElfW(Ehdr) *eh = (ElfW(Ehdr) *)s1->filedata;
+    ElfW(Shdr) *sh, *link_sch, *got_sh, *shstr;
+    ElfW(Rel) *rel, *rel_new;
+    Section *s, *got_section;
+    int i, rel_count, j;
+    const char *name;
+
+    link_sch = (ElfW(Shdr) *)(s1->filedata + eh->e_shoff) + s1->symtab_section1->sh_link;
+
+    shstr = (ElfW(Shdr) *)(s1->filedata + eh->e_shoff) + eh->e_shstrndx;
+    for (i = 1; i < eh->e_shnum; i++) {
+        sh = (ElfW(Shdr) *)(s1->filedata + eh->e_shoff) + i;
+        name = (char *)s1->filedata + shstr->sh_offset + sh->sh_name;
+        if (!strcmp(name, ".got")) {
+            got_sh = sh;
+            got_section = s1->sections.ptab[i];
+            break;
+        }
+    }
 
     for (i = 1; i < s1->sections.len; i++) {
         s = s1->sections.ptab[i];
+        sh = (ElfW(Shdr) *)(s1->filedata + eh->e_shoff) + i;
+        if (s->sh_type != SHT_REL)
+            continue;
+
+        rel_count = sh->sh_size / sh->sh_entsize;
+        for (j = 0; j < rel_count; j++) {
+            rel = ((ElfW(Rel) *)(s1->filedata + sh->sh_offset)) + j;
+            rel_new = ((ElfW(Rel) *)s->data) + j;
+
+            rel_new->r_offset = (int)(rel->r_offset - got_sh->sh_offset) + got_section->sh_offset;
+        }
     }
+
+    return 0;
 }
 
 /* Assign sections to segments and decide how are section laid out when loaded in memory*/
@@ -728,6 +758,8 @@ static int elf_output_file(VMState *s1, const char *filename)
     //file_offset = layout_sections(s1, phdr, phnum, interp, strsec, &dyninf, sec_order);
     file_offset = layout_sections2(s1, phdr, phnum, sec_order);
 
+    rebuild_got(s1);
+
     ret = dobc_write_elf_file(s1, filename, phnum, phdr, file_offset, sec_order);
 
     vm_free(sec_order);
@@ -1061,7 +1093,10 @@ found:
             vm_error("invalid section type %d", sh->sh_type);
         }
 
-        if (sh->sh_type == SHT_DYNSYM)          s1->dynsymtab_section = s;
+        if (sh->sh_type == SHT_DYNSYM) {
+            s1->dynsymtab_section = s;
+            s1->symtab_section1 = s;
+        }
         else if (sh->sh_type == SHT_HASH)       hash_sec = s;
 
         /* align start of section */
