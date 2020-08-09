@@ -7,10 +7,11 @@ extern "C" {
 #endif
 
 #include "mcore/mcore.h"
+#include "types.h"
 
 /* copy from Ghidra space.hh */
 
-enum spacetype {
+typedef enum spacetype {
     IPTR_CONSTANT = 0,
     IPTR_PROCESSOR = 1,
     IPTR_SPACEBASE = 2,
@@ -18,7 +19,11 @@ enum spacetype {
     IPTR_FSPEC = 4,
     IPTR_IOP = 5,
     IPTR_JOIN = 6,
-};
+} spacetype;
+
+typedef struct AddrSpaceManager AddrSpaceManager;
+typedef struct AddrSpaceManager Translate;
+
 
 typedef struct AddrSpace {
     struct {
@@ -36,9 +41,9 @@ typedef struct AddrSpace {
     /* privated */
     spacetype type;
     AddrSpaceManager *manage;
-    const Translte *trans;
+    Translate *trans;
     int refcount;
-    unsigned highest;
+    uintb highest;
     unsigned pointerLowerBound;
     int shortcut;
 
@@ -70,16 +75,16 @@ typedef struct AddrSpace {
 #define AddrSpace_isReverseJustified(a)     (a)->flags.reverse_justification
 #define AddrSpace_isOverlay(a)              (a)->flags.overlay
 
-inline int AddrSpace_wrapOffset(AddrSpace *s, int off)
+inline uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off)
 {
     if (off <= s->highest)
         return off;
 
-    int mod = s->highest + 1;
-    int res = off % mod;
+    intb mod = (intb)(s->highest + 1);
+    intb res = (intb)(off % mod);
     if (res < 0)
         res += mod;
-    return res;
+    return (uintb)res;
 }
 
 
@@ -92,7 +97,7 @@ typedef struct AddrSpaceManager {
     AddrSpace *fspecspace;
     AddrSpace *joinspace;
     AddrSpace *stackspace;
-} AddrSpaceManager;
+} AddrSpaceManager, Translate;
 
 AddrSpace*          AddrSpace_new(AddrSpaceManager *m);
 
@@ -102,6 +107,16 @@ void                AddrSpaceManager_delete(AddrSpaceManager *mgr);
 int                 AddrSpaceManager_getDefaultSize(AddrSpaceManager *mgr);
 AddrSpace*          AddrSpaceManager_getSpaceByName(AddrSpaceManager *mgr, const char *name);
 AddrSpace*          AddrSpaceManager_getSpaceByShortcunt(AddrSpaceManager *m, char sc);
+
+typedef struct VarnodeData {
+    AddrSpace *space;
+    uint8_t offset;
+    uint32_t size;
+} VarnodeData;
+
+static inline bool VarnodeData_less(const VarnodeData *op1, const VarnodeData *op2) {
+    return false;
+}
 
 #ifdef __cplusplus
 }

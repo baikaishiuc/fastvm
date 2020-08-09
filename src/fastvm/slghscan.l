@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 %{
-#include "slgh_compile.hh"
+#include "slgh_compile.h"
 #include "slghparse.tab.hh"
 #define yywrap() 1
 #define YY_SKIP_YYWRAP

@@ -31,9 +31,12 @@
   uintb *i;
   intb *big;
   string *str;
-  vector<string> *strlist;
-  vector<intb> *biglist;
-  vector<ExprTree *> *param;
+  //vector<string> *strlist;
+  struct dynarray   strlist;
+  // vector<intb> *biglist;
+  struct dynarray   biglist;
+  //vector<ExprTree *> *param;
+  struct dynarray   *param;
   SpaceQuality *spacequal;
   FieldQuality *fieldqual;
   StarQuality *starqual;
@@ -46,8 +49,10 @@
   PatternEquation *pateq;
   PatternExpression *patexp;
 
-  vector<SleighSymbol *> *symlist;
-  vector<ContextChange *> *contop;
+  //vector<SleighSymbol *> *symlist;
+  struct dynarray   symlist;
+  //vector<ContextChange *> *contop;
+  struct dynarray  *contop;
   SleighSymbol *anysym;
   SpaceSymbol *spacesym;
   SectionSymbol *sectionsym;
@@ -172,50 +177,50 @@ definition: tokendef
 constructorlike: constructor
   | macrodef
   | withblock
-  | error '}'                          { slgh->resetConstructors(); }
+  | error '}'                          { SleighCompile_resetConstructor(slgh); }
   ;
-endiandef: DEFINE_KEY ENDIAN_KEY '=' BIG_KEY ';' { slgh->setEndian(1); }
-  | DEFINE_KEY ENDIAN_KEY '=' LITTLE_KEY ';' { slgh->setEndian(0); }
+endiandef: DEFINE_KEY ENDIAN_KEY '=' BIG_KEY ';' { SleighCompile_setEndian(slgh, 1); }
+  | DEFINE_KEY ENDIAN_KEY '=' LITTLE_KEY ';' { SleighCompile_setEndian(0); }
   ;
-aligndef: DEFINE_KEY ALIGN_KEY '=' INTEGER ';' { slgh->setAlignment(*$4); delete $4; }
+aligndef: DEFINE_KEY ALIGN_KEY '=' INTEGER ';' { SleighCompile_setAlignment(slgh, *$4); free ($4); }
   ;
 tokendef: tokenprop ';'                {}
   ;
-tokenprop: DEFINE_KEY TOKEN_KEY STRING '(' INTEGER ')' { $$ = slgh->defineToken($3,$5); }
-  | tokenprop fielddef		       { $$ = $1; slgh->addTokenField($1,$2); }
-  | DEFINE_KEY TOKEN_KEY anysymbol     { string errmsg=$3->getName()+": redefined as a token"; yyerror(errmsg.c_str()); YYERROR; }
+tokenprop: DEFINE_KEY TOKEN_KEY STRING '(' INTEGER ')' { $$ = SleighCompile_defineToken(slgh, $3, $5); }
+  | tokenprop fielddef		       { $$ = $1; SleighCompile_addTokenField(slgh, $1, $2); }
+  | DEFINE_KEY TOKEN_KEY anysymbol     { char buf[128]; sprintf(buf, "%s\: redefined as a token", SleighSymbol_getName($3)); yyerror(errmsg.c_str()); YYERROR; }
   ;
 contextdef: contextprop ';'            {}
   ;
 contextprop: DEFINE_KEY CONTEXT_KEY VARSYM { $$ = $3; }
-  | contextprop contextfielddef		 { $$ = $1; if (!slgh->addContextField( $1, $2 ))
+  | contextprop contextfielddef		 { $$ = $1; if (!SleighCompile_addContextField(slgh, $1, $2))
                                             { yyerror("All context definitions must come before constructors"); YYERROR; } }
   ;
-fielddef: STRING '=' '(' INTEGER ',' INTEGER ')' { $$ = new FieldQuality($1,$4,$6); }
+fielddef: STRING '=' '(' INTEGER ',' INTEGER ')' { $$ = FieldQuality_new($1,$4,$6); }
   | anysymbol '=' '(' INTEGER ',' INTEGER ')' { delete $4; delete $6; string errmsg = $1->getName()+": redefined as field"; yyerror(errmsg.c_str()); YYERROR; }
   | fielddef SIGNED_KEY			{ $$ = $1; $$->signext = true; }
   | fielddef HEX_KEY			{ $$ = $1; $$->hex = true; }
   | fielddef DEC_KEY			{ $$ = $1; $$->hex = false; }
   ;
-contextfielddef: STRING '=' '(' INTEGER ',' INTEGER ')' { $$ = new FieldQuality($1,$4,$6); }
+contextfielddef: STRING '=' '(' INTEGER ',' INTEGER ')' { $$ = FieldQuality_new($1,$4,$6); }
   | anysymbol '=' '(' INTEGER ',' INTEGER ')' { delete $4; delete $6; string errmsg = $1->getName()+": redefined as field"; yyerror(errmsg.c_str()); YYERROR; }
   | contextfielddef SIGNED_KEY			{ $$ = $1; $$->signext = true; }
   | contextfielddef NOFLOW_KEY			{ $$ = $1; $$->flow = false; }
   | contextfielddef HEX_KEY			{ $$ = $1; $$->hex = true; }
   | contextfielddef DEC_KEY			{ $$ = $1; $$->hex = false; }
   ;
-spacedef: spaceprop ';'			{ slgh->newSpace($1); }
+spacedef: spaceprop ';'			{ SleighCompile_newSpace(slgh, $1); }
   ;
-spaceprop: DEFINE_KEY SPACE_KEY STRING	{ $$ = new SpaceQuality(*$3); delete $3; }
+spaceprop: DEFINE_KEY SPACE_KEY STRING	{ $$ = SpaceQuality_new(*$3); vm_free($3); }
   | DEFINE_KEY SPACE_KEY anysymbol	{ string errmsg = $3->getName()+": redefined as space"; yyerror(errmsg.c_str()); YYERROR; }
   | spaceprop TYPE_KEY '=' RAM_KEY	{ $$ = $1; $$->type = SpaceQuality::ramtype; }
   | spaceprop TYPE_KEY '=' REGISTER_KEY { $$ = $1; $$->type = SpaceQuality::registertype; }
-  | spaceprop SIZE_KEY '=' INTEGER	{ $$ = $1; $$->size = *$4; delete $4; }
-  | spaceprop WORDSIZE_KEY '=' INTEGER	{ $$ = $1; $$->wordsize = *$4; delete $4; }
+  | spaceprop SIZE_KEY '=' INTEGER	{ $$ = $1; $$->size = *$4; vm_free($4); }
+  | spaceprop WORDSIZE_KEY '=' INTEGER	{ $$ = $1; $$->wordsize = *$4; vm_free($4); }
   | spaceprop DEFAULT_KEY               { $$ = $1; $$->isdefault = true; }
   ;
 varnodedef: DEFINE_KEY SPACESYM OFFSET_KEY '=' INTEGER SIZE_KEY '=' INTEGER stringlist ';' {
-               slgh->defineVarnodes($2,$5,$8,$9); }
+               SleighCompile_defineVarnoes(slgh, $2, $5, $8, $9); }
   | DEFINE_KEY SPACESYM OFFSET_KEY '=' BADINTEGER { yyerror("Parsed integer is too big (overflow)"); YYERROR; }
   ;
 bitrangedef: DEFINE_KEY BITRANGE_KEY bitrangelist ';'
@@ -224,66 +229,72 @@ bitrangelist: bitrangesingle
   | bitrangelist bitrangesingle
   ;
 bitrangesingle: STRING '=' VARSYM '[' INTEGER ',' INTEGER ']' {
-               slgh->defineBitrange($1,$3,(uint4)*$5,(uint4)*$7); delete $5; delete $7; }
+               SleighCompile_defineBitRange(slgh, $1,$3,(uint4)*$5,(uint4)*$7); 
+               vm_free ($5); 
+               vm_free ($7);
+               }
   ;
-pcodeopdef: DEFINE_KEY PCODEOP_KEY stringlist ';' { slgh->addUserOp($3); }
+pcodeopdef: DEFINE_KEY PCODEOP_KEY stringlist ';' { SleighCompile_addUserOp(slgh, $3); }
   ;
-valueattach: ATTACH_KEY VALUES_KEY valuelist intblist ';' { slgh->attachValues($3,$4); }
+valueattach: ATTACH_KEY VALUES_KEY valuelist intblist ';' { SleighCompile_attachValues(slgh, $3, $4); }
   ;
-nameattach: ATTACH_KEY NAMES_KEY valuelist anystringlist ';' { slgh->attachNames($3,$4); }
+nameattach: ATTACH_KEY NAMES_KEY valuelist anystringlist ';' { SleighCompile_attachNames(slgh, $3, $4); }
   ;
-varattach: ATTACH_KEY VARIABLES_KEY valuelist varlist ';' { slgh->attachVarnodes($3,$4); }
+varattach: ATTACH_KEY VARIABLES_KEY valuelist varlist ';' { SleighCompile_attachVarnodes(slgh, $3, $4); }
   ;
-macrodef: macrostart '{' rtl '}'	{ slgh->buildMacro($1,$3); }
+macrodef: macrostart '{' rtl '}'	{  SleighCompile_buildMacro(slgh, $1, $3); }
   ;
 
-withblockstart: WITH_KEY id_or_nil ':' bitpat_or_nil contextblock '{'  {  slgh->pushWith($2,$4,$5); }
+withblockstart: WITH_KEY id_or_nil ':' bitpat_or_nil contextblock '{'  {  SleighCompile_pushWith(slgh, $2, $4, $5); }
   ;
 withblockmid: withblockstart
   | withblockmid definition
   | withblockmid constructorlike
   ;
-withblock: withblockmid '}'  { slgh->popWith(); }
+withblock: withblockmid '}'  { SleighCompile_popWith(slgh); }
   
 id_or_nil: /* empty */  { $$ = (SubtableSymbol *)0; }
   | SUBTABLESYM         { $$ = $1; }
-  | STRING              { $$ = slgh->newTable($1); }
+  | STRING              { $$ = SleighCompile_newTable(slgh, $1); }
   ;
 
 bitpat_or_nil: /* empty */ { $$ = (PatternEquation *)0; }
   | pequation              { $$ = $1; }
   ;
 
-macrostart: MACRO_KEY STRING '(' oplist ')' { $$ = slgh->createMacro($2,$4); }
+macrostart: MACRO_KEY STRING '(' oplist ')' { $$ = SleighCompile_createMacro(slgh, $2, $4); }
   ;
-rtlbody: '{' rtl '}' { $$ = slgh->standaloneSection($2); }
-  | '{' rtlcontinue rtlmid '}' { $$ = slgh->finalNamedSection($2,$3); }
+rtlbody: '{' rtl '}' { $$ = SleighCompile_standaloneSection(slgh, $2); }
+  | '{' rtlcontinue rtlmid '}' { $$ = SleighCompile_finalNameSection(slgh, $2, $3); }
   | OP_UNIMPL        { $$ = (SectionVector *)0; }
   ;
-constructor: constructprint IS_KEY pequation contextblock rtlbody { slgh->buildConstructor($1,$3,$4,$5); }
-  | subtablestart IS_KEY pequation contextblock rtlbody           { slgh->buildConstructor($1,$3,$4,$5); }
+constructor: constructprint IS_KEY pequation contextblock rtlbody { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); }
+  | subtablestart IS_KEY pequation contextblock rtlbody           { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); }
   ;
-constructprint: subtablestart STRING	{ $$ = $1; $$->addSyntax(*$2); delete $2; }
-  | subtablestart charstring		{ $$ = $1; $$->addSyntax(*$2); delete $2; }
-  | subtablestart SYMBOLSTRING		{ $$ = $1; if (slgh->isInRoot($1)) { $$->addSyntax(*$2); delete $2; } else slgh->newOperand($1,$2); }
-  | subtablestart '^'				{ $$ = $1; if (!slgh->isInRoot($1)) { yyerror("Unexpected '^' at start of print pieces");  YYERROR; } }
+constructprint: subtablestart STRING	{ $$ = $1; Constructor_addSyntax($$, $2); vm_free($2); }
+  | subtablestart charstring		{ $$ = $1; Constructor_addSyntax($$, $2); vm_free($2); }
+  | subtablestart SYMBOLSTRING		{ $$ = $1; if (SleighCompile_isInRoot(slgh, $1)) { 
+                                       Constructor_addSyntax($$, $2); vm_free($2); } 
+                                      else slgh->newOperand($1,$2); }
+  | subtablestart '^'				{ $$ = $1; if (!SleighCompile_isInRoot($1)) { yyerror("Unexpected '^' at start of print pieces");  YYERROR; } }
   | constructprint '^'				{ $$ = $1; }
-  | constructprint STRING			{ $$ = $1; $$->addSyntax(*$2); delete $2; }
-  | constructprint charstring		{ $$ = $1; $$->addSyntax(*$2); delete $2; }
-  | constructprint ' '				{ $$ = $1; $$->addSyntax(string(" ")); }
-  | constructprint SYMBOLSTRING		{ $$ = $1; slgh->newOperand($1,$2); }
+  | constructprint STRING			{ $$ = $1; Constructor_addSyntax($$, $2); vm_free($2); }
+  | constructprint charstring		{ $$ = $1; Constructor_addSyntax($$, $2); vm_free($2); }
+  | constructprint ' '				{ $$ = $1; Constructor_addSyntax($$, " "); }
+  | constructprint SYMBOLSTRING		{ $$ = $1; SleighCompile_newOperand(slgh, $1, $2); }
   ;
-subtablestart: SUBTABLESYM ':'	{ $$ = slgh->createConstructor($1); }
-  | STRING ':'					{ SubtableSymbol *sym=slgh->newTable($1); $$ = slgh->createConstructor(sym); }
-  | ':'							{ $$ = slgh->createConstructor((SubtableSymbol *)0); }
+subtablestart: SUBTABLESYM ':'	{ $$ = SleighCompile_createConstructor(slgh, $1); }
+  | STRING ':'					{ SubtableSymbol *sym= SleighCompile_newTable(slgh, $1); $$ = SleighCompile_createConstructor(slgh, sym);}
+  | ':'							{ $$ = SleighCompile_createConstructor(slgh, (SubtableSymbol *)0); }
   | subtablestart ' '			{ $$ = $1; }
   ;
-pexpression: INTB			{ $$ = new ConstantValue(*$1); delete $1; }
+pexpression: INTB			{ $$ = ConstantValue_new(*$1); vm_free($1); }
 // familysymbol is not acceptable in an action expression because it isn't attached to an offset
-  | familysymbol			{ if ((actionon==1)&&($1->getType() != SleighSymbol::context_symbol))
-                                             { string errmsg="Global symbol "+$1->getName(); errmsg += " is not allowed in action expression"; yyerror(errmsg.c_str()); } $$ = $1->getPatternValue(); }
-//  | CONTEXTSYM                          { $$ = $1->getPatternValue(); }
-  | specificsymbol			{ $$ = $1->getPatternExpression(); }
+  | familysymbol			{ if ((actionon==1)&&($1->type != context_symbol))
+                                             { char errmsg[128]; sprintf(errmsg, "Global symbol %s is not allowed in action expression", $1->name); yyerror(errmsg); } 
+                                             $$ = $1->patval; }
+//  | CONTEXTSYM                          { $$ = $1->patval; }
+  | specificsymbol			{ $$ = SleighSymbol_getPatternExpression($1); }
   | '(' pexpression ')'			{ $$ = $2; }
   | pexpression '+' pexpression		{ $$ = new PlusExpression($1,$3); }
   | pexpression '-' pexpression		{ $$ = new SubExpression($1,$3); }

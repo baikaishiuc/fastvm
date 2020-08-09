@@ -97,11 +97,6 @@ valuetype   partmap_getValue(partmap *p, linetype key)
     return _container_of(rb_node);
 }
 
-valuetype   partmap_bounds(partmap *p, linetype pnt, linetype before, linetype after, linetype invalid)
-{
-    return NULL;
-}
-
 int         partmap_insert(partmap *p, linetype key, valuetype v)
 {
     partnode *data = NULL;
@@ -143,6 +138,7 @@ valuetype   partmap_split(partmap *p, linetype pnt)
     }
 
     partmap_insert(p, pnt, v);
+    p->count++;
     return v;
 }
 
@@ -156,6 +152,7 @@ void partmap_erase(partmap *p, struct rb_node *beg, struct rb_node *end)
         data = _container_of(beg);
 
         rb_erase(beg, &p->tree);
+        p->count--;
         vm_free(data);
 
         if (beg == end)
@@ -180,4 +177,35 @@ valuetype   partmap_clearRange(partmap *p, linetype pnt1, linetype pnt2)
     partmap_erase(p, rb_next(beg), end);
 
     return data->value;
+}
+
+valuetype   partmap_bounds(partmap *p, linetype pnt, linetype *before, linetype *after, int *valid)
+{
+    partnode *pnode;
+    struct rb_node *iter, *enditer;
+
+    if (!p->count) {
+        *valid = 3;
+        return p->defaultvalue;
+    }
+
+    pnode = partmap_uppperbound(p, pnt);
+    enditer = pnode ? &pnode->node:NULL;
+    if (enditer != rb_first(&p->tree)) {
+        iter = enditer;
+        iter = rb_prev(iter);
+        *before = (_container_of(iter))->key;
+        if (enditer == rb_last(&p->tree))
+            *valid = 2;
+        else {
+            *after = (_container_of(enditer))->key;
+            *valid = 0;
+        }
+
+        return (_container_of(iter))->value;
+    }
+
+    *valid = 1;
+    *after = (_container_of(enditer))->key;
+    return p->defaultvalue;
 }

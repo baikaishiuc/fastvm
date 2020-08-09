@@ -6,10 +6,23 @@
 extern "C" {
 #endif
 
-#include "space.h"
-#include "context.h"
+#include "semantics.h"
+#include "slghpatexpress.h"
 
-typedef struct SleighSymbol {
+#define CODE_ADDRESS            0x01
+#define OFFSET_IRREL            0x02
+#define VARIABLE_LEN            0x04
+#define MARKED                  0x08
+
+typedef struct SleighSymbol SleighSymbol, SpaceSymbol, TokenSymbol, SectionSymbol, UserOpSymbol, TripleSymbol, FamilySymbol,
+PatternlessSymbol, EpsilnSymbol, ValueSymbol, ValueMapSymbol, NameSymbol, VarnodeSymbol, BitRangeSymbol,
+ContextSymbol, VarnodeListSymbol, OperandSymbol, StartSymbol, EndSymbol, MacroSymbol, SubtableSymbol;
+
+typedef struct SymbolTable  SymbolTable;
+typedef struct SymbolScope  SymbolScope;
+typedef struct Constructor  Constructor;
+
+struct SleighSymbol {
     enum {
         empty,
         space_symbol,
@@ -31,55 +44,88 @@ typedef struct SleighSymbol {
         epsilon_symbol,
         label_symbol,
         dummy_symbol,
+        flow_dest_symbol,
+        flow_ref_symbol,
     } type;
 
     union {
-        struct {
-            AddrSpace *space;
-        } spaceSym;
-
-        struct {
-            Token *tok;
-        } tokenSym;
+        AddrSpace *space;
+        Token *tok;
 
         struct {
             int templateid;     // Index into the constructTpl array
             int define_count;   // Number of definitions of this named section
             int ref_count;      // Number of references to this named section
-        } sectionSym;
+        } section;
+
+        int index;          // A user-defined symbol
 
         struct {
-            int index;          // A user-defined symbol
-        } userOpSym;
+            PatternValue *patval;
+        } value;
+
+        struct {
+            uint32_t    reloffset;
+            int32_t     offsetbase;     
+            int32_t     minimumlength;
+            int32_t     hand;
+            OperandValue *localexp;
+            TripleSymbol *triple;
+            PatternExpression *defexp;
+            uint32_t    flags;
+        } operand;
+
+        struct {
+            ConstantValue *patexp;
+        } epsilon;
+
+        struct {
+            ConstantValue *patexp;
+            VarnodeData fix;
+            bool context_bits;
+        } varnode;
+
+        struct {
+            AddrSpace *const_space;
+            PatternExpression *patexp;
+        } start, end;
+
+        struct {
+            AddrSpace *const_space;
+        } flow_dest, flow_ref;
     };
 
     int id;
     int scopeid;
     char name[1];
-} SleighSymbol, SpaceSymbol, SectionSymbol;
+};
 
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
 void            SpaceSymbol_delete(SleighSymbol *s);
 
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
 void            SectionSymbol_delete(SleighSymbol *s);
+PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
 
-typedef int(*SymbolCompare)(const SleighSymbol *a, const SleighSymbol *b);
+#define SleighSymbol_getName(sym)       sym->name 
+
+typedef int (*SymbolCompare)(const SleighSymbol *a, const SleighSymbol *b);
 
 typedef struct SymbolTree {
     SymbolCompare cmp;
 } SymbolTree;
 
-typedef struct SymbolScope {
-    SymbolTable *tab;
-} SymbolScope;
 
-typedef struct SymbolTable {
+struct SymbolScope {
+    SymbolTable *tab;
+};
+
+struct SymbolTable {
     struct dynarray symbolist;
     struct dynarray table;
     SymbolScope *curscope;
     SymbolScope *skipScope;
-} SymbolTable;
+};
 
 SymbolTable*    SymbolTable_new();
 void            SymbolTable_delete(SymbolTable *s);
@@ -99,6 +145,27 @@ SleighSymbol*   SymbolTable_findGlobalSymbol(SymbolTable *s, const char *name);
 SleighSymbol*   SymbolTable_findSymbolById(SymbolTable *s, int id);
 void            SymbolTable_replaceSymbol(SleighSymbol *a, SleighSymbol *b);
 
+struct Constructor {
+    TokenPattern *pattern;
+    SubtableSymbol *parent;
+    PatternEquation *pateq;
+    struct dynarray operands;
+    struct dynarray printpiece;
+    struct dynarray context;
+    ConstructTpl *templ;
+    struct dynarray namedtempl;
+    int minimumlength;
+    uintm id;
+    int firstwhitespace;
+    int flowthruindex;
+    int fileno;
+    bool inerror;
+};
+
+Constructor*    Constructor_new();
+void            Constructor_delete(Constructor *c);
+void            Constructor_addSyntx(Constructor *c, const char *syn);
+#define Constructor_getParent(ct)       (ct)->parent
 
 
 

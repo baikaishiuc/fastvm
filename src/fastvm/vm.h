@@ -140,6 +140,8 @@ struct preproc_define {
     char *value;
 };
 
+#include "slghsymbol.h"
+
 struct VMState {
 	unsigned long funcaddr;
 
@@ -196,9 +198,10 @@ struct VMState {
     struct pcode_ctx   pctx;
 
     /* SleighCompiler start ----- */
+
     /* 这里之所以不把SleighCompile整个进行模块化是为了写代码方便，后期假如需要提取，可以把
     start和end之间的部分提取出来放到新的文件里。
-    
+
     PS. 过于模块化的代码导致上层往下层传递数据时，要携带大量信息，解耦本身带来的开销在这里我感觉超过它带来好处 */
     struct {
         int counts;

@@ -17,6 +17,7 @@ typedef struct partmap{
     valuetype       defaultvalue;
     partmap_cmp     cmp;
     struct rb_root  tree;
+    int count;
 } partmap;
 
 
@@ -24,7 +25,7 @@ partmap*    partmap_new(partmap_cmp cmp, valuetype defaultvalue);
 void        partmap_delete(partmap *);
 
 valuetype   partmap_getValue(partmap *, linetype key);
-valuetype   partmap_bounds(partmap *, linetype pnt, linetype before, linetype after, linetype invalid);
+valuetype   partmap_bounds(partmap *p, linetype pnt, linetype *before, linetype *after, int *valid);
 valuetype   partmap_split(partmap *, linetype pnt);
 int         partmap_insert(partmap *p, linetype pnt, valuetype v);
 #define partmap_defaultValue(p)         p->defaultvalue
