@@ -288,7 +288,7 @@ subtablestart: SUBTABLESYM ':'	{ $$ = SleighCompile_createConstructor(slgh, $1);
   | ':'							{ $$ = SleighCompile_createConstructor(slgh, (SubtableSymbol *)0); }
   | subtablestart ' '			{ $$ = $1; }
   ;
-pexpression: INTB			{ $$ = ConstantValue_new(*$1); vm_free($1); }
+pexpression: INTB			{ $$ = PatternExpression_new(a_constantValue, *$1); vm_free($1); }
 // familysymbol is not acceptable in an action expression because it isn't attached to an offset
   | familysymbol			{ if ((actionon==1)&&($1->type != context_symbol))
                                              { char errmsg[128]; sprintf(errmsg, "Global symbol %s is not allowed in action expression", $1->name); yyerror(errmsg); } 
@@ -296,33 +296,33 @@ pexpression: INTB			{ $$ = ConstantValue_new(*$1); vm_free($1); }
 //  | CONTEXTSYM                          { $$ = $1->patval; }
   | specificsymbol			{ $$ = SleighSymbol_getPatternExpression($1); }
   | '(' pexpression ')'			{ $$ = $2; }
-  | pexpression '+' pexpression		{ $$ = new PlusExpression($1,$3); }
-  | pexpression '-' pexpression		{ $$ = new SubExpression($1,$3); }
-  | pexpression '*' pexpression		{ $$ = new MultExpression($1,$3); }
-  | pexpression OP_LEFT pexpression	{ $$ = new LeftShiftExpression($1,$3); }
-  | pexpression OP_RIGHT pexpression	{ $$ = new RightShiftExpression($1,$3); }
-  | pexpression OP_AND pexpression	{ $$ = new AndExpression($1,$3); }
-  | pexpression OP_OR pexpression	{ $$ = new OrExpression($1,$3); }
-  | pexpression OP_XOR pexpression	{ $$ = new XorExpression($1,$3); }
-  | pexpression '/' pexpression		{ $$ = new DivExpression($1,$3); }
-  | '-' pexpression %prec '!'		{ $$ = new MinusExpression($2); }
-  | '~' pexpression			{ $$ = new NotExpression($2); }
+  | pexpression '+' pexpression		{ $$ = PatternExpression_new(a_plusExp, $1,$3); }
+  | pexpression '-' pexpression		{ $$ = PatternExpression_new(a_subExp, $1,$3); }
+  | pexpression '*' pexpression		{ $$ = PatternExpression_new(a_multExp, $1,$3); }
+  | pexpression OP_LEFT pexpression	{ $$ = PatternExpression_new(a_leftShiftExp, $1,$3); }
+  | pexpression OP_RIGHT pexpression	{ $$ = PatternExpression_new(a_rightShiftExp, $1,$3); }
+  | pexpression OP_AND pexpression	{ $$ = PatternExpression_new(a_andExp, $1,$3); }
+  | pexpression OP_OR pexpression	{ $$ = PatternExpression_new(a_orExp, $1,$3); }
+  | pexpression OP_XOR pexpression	{ $$ = PatternExpression_new(a_xorExp, $1,$3); }
+  | pexpression '/' pexpression		{ $$ = PatternExpression_new(a_divExp, $1,$3); }
+  | '-' pexpression %prec '!'		{ $$ = PatternExpression_new(a_minusExp, $2); }
+  | '~' pexpression			{ $$ = PatternExpression_new(a_notExp, $2); }
   ;
 pequation: elleq
-  | pequation '&' pequation		{ $$ = new EquationAnd($1,$3); }
-  | pequation '|' pequation		{ $$ = new EquationOr($1,$3); }
-  | pequation ';' pequation		{ $$ = new EquationCat($1,$3); }
+  | pequation '&' pequation		{ $$ = PatternEquation_new(a_andEq, $1,$3); }
+  | pequation '|' pequation		{ $$ = PatternEquation_new(a_orEq, $1,$3); }
+  | pequation ';' pequation		{ $$ = PatternEquation_new(a_catEq, $1,$3); }
   ;
-elleq: ELLIPSIS_KEY ellrt		{ $$ = new EquationLeftEllipsis($2); }
+elleq: ELLIPSIS_KEY ellrt		{ $$ = PatternEquation_new(a_leftEllipsisEq, $2); }
   | ellrt
   ;
-ellrt: atomic ELLIPSIS_KEY		{ $$ = new EquationRightEllipsis($1); }
+ellrt: atomic ELLIPSIS_KEY		{ $$ = PatternEquation_new(a_rightEllipsisEq, $1); }
   | atomic
   ;
 atomic: constraint
   | '(' pequation ')'			{ $$ = $2; }
   ;
-constraint: familysymbol '=' pexpression { $$ = new EqualEquation($1->getPatternValue(),$3); }
+constraint: familysymbol '=' pexpression { $$ = PatternEquation_new(a_equalEq, SleighSymbol_getPatternValue($1), $3); }
   | familysymbol OP_NOTEQUAL pexpression { $$ = new NotEqualEquation($1->getPatternValue(),$3); }
   | familysymbol '<' pexpression	{ $$ = new LessEquation($1->getPatternValue(),$3); }
   | familysymbol OP_LESSEQUAL pexpression { $$ = new LessEqualEquation($1->getPatternValue(),$3); }

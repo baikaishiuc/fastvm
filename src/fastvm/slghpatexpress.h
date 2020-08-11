@@ -60,6 +60,7 @@ typedef struct PatternExpression {
         } plus, sub, mult, leftShift, rightShfit, and, or, xor, div;
 
         PatternExpression *minus, *not;
+
         PatternValue *value;
 
         struct {
@@ -92,11 +93,8 @@ typedef struct PatternExpression {
     };
 } PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue;;
 
-PatternExpression*  PatternExpression_new(int type, ...);
+PatternExpression*  PatternExpression_new(int type, PatternExpression *left, PatternExpression *right);
 void                PatternExpression_delete(PatternExpression *p);
-
-ConstantValue*      ConstantValue_new(intb);
-void                ConstantValue_delete(ConstantValue *c);
 
 typedef struct OperandResolve {
     struct dynarray     *operands;
@@ -114,19 +112,19 @@ typedef struct PatternEquation {
     int index;
 
     enum {
-        a_operand,
-        a_unconstrained,
-        a_equal,
-        a_notEqual,
-        a_less,
-        a_lessEqual,
-        a_greater,
-        a_greaterEqual,
-        a_and,
-        a_or,
-        a_cat,
-        a_leftEllipsis,
-        a_rightEllipsis,
+        a_operandEq,
+        a_unconstrainedEq,
+        a_equalEq,
+        a_notEqualEq,
+        a_lessEq,
+        a_lessEqualEq,
+        a_greaterEq,
+        a_greaterEqualEq,
+        a_andEq,
+        a_orEq,
+        a_catEq,
+        a_leftEllipsisEq,
+        a_rightEllipsisEq,
     } type;
 
     union {

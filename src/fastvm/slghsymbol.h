@@ -105,6 +105,8 @@ void            SpaceSymbol_delete(SleighSymbol *s);
 
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
 void            SectionSymbol_delete(SleighSymbol *s);
+
+PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
 
 #define SleighSymbol_getName(sym)       sym->name 
