@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <assert.h>
 
 typedef enum OpCode OpCode;
 

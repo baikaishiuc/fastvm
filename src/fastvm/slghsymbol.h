@@ -16,7 +16,8 @@ extern "C" {
 
 typedef struct SleighSymbol SleighSymbol, SpaceSymbol, TokenSymbol, SectionSymbol, UserOpSymbol, TripleSymbol, FamilySymbol,
 PatternlessSymbol, EpsilnSymbol, ValueSymbol, ValueMapSymbol, NameSymbol, VarnodeSymbol, BitRangeSymbol,
-ContextSymbol, VarnodeListSymbol, OperandSymbol, StartSymbol, EndSymbol, MacroSymbol, SubtableSymbol;
+ContextSymbol, VarnodeListSymbol, OperandSymbol, StartSymbol, EndSymbol, MacroSymbol, SubtableSymbol, LabelSymbol,
+BitrangeSymbol, SpecificSymbol;
 
 typedef struct SymbolTable  SymbolTable;
 typedef struct SymbolScope  SymbolScope;
@@ -100,14 +101,25 @@ struct SleighSymbol {
     char name[1];
 };
 
+void            SleighSymbol_delete(SleighSymbol *sym);
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
-void            SpaceSymbol_delete(SleighSymbol *s);
-
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
-void            SectionSymbol_delete(SleighSymbol *s);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
+
+VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym);
+VarnodeSymbol*  SleighSymbol_getParentSymbol(SleighSymbol *sym);
+uint32_t        SleighSymbol_getBitOffset(SleighSymbol *sym);
+uint32_t        SleighSymbol_numBits(SleighSymbol *sym);
+#define SleighSymbol_getIndex(sym)          sym->index
+
+static AddrSpace*   SleighSymbol_getSpace(SleighSymbol *sym) {
+    assert(sym->type == space_symbol);
+
+    return sym->space;
+}
+
 
 #define SleighSymbol_getName(sym)       sym->name 
 

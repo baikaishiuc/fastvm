@@ -50,7 +50,14 @@ typedef struct ConstTpl {
   v_field select;		// Which part of handle to use as constant
 } ConstTpl;
 
-ConstTpl*   ConstTpl_new(void);
+ConstTpl*   ConstTpl_clone(ConstTpl *);
+ConstTpl*   ConstTpl_newA(AddrSpace *space);
+ConstTpl*   ConstTpl_new0(void);
+ConstTpl*   ConstTpl_new1(const_type tp);
+ConstTpl*   ConstTpl_new2(const_type tp, uintb val);
+ConstTpl*   ConstTpl_new3(const_type tp, int4 ht, v_field vf);
+ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus);
+
 void        ConstTpl_delete(ConstTpl *);
 void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
 v_field     ConstTpl_readHandleSelector(const char *name);
@@ -59,6 +66,8 @@ typedef struct VarnodeTpl {
   ConstTpl space,offset,size;
   bool unnamed_flag;
 } VarnodeTpl;
+
+ConstTpl *VarnodeTpl_getOffset(VarnodeTpl *v);
 
 typedef struct HandleTpl {
   ConstTpl space;
@@ -85,6 +94,13 @@ typedef struct ConstructTpl {
 
 #define ConstructTpl_setOpvec(c, v)     (c)->vec = v
 #define ConstructTpl_setNumLabels(c, v) (c)->numlabels = val
+#define ConstructTpl_getOpvec(c)        ((c)->vec)
+#define ConstructTpl_getResult(c)       (c)->result
+
+ConstructTpl*   ConstructTpl_new();
+void            ConstructTpl_delete(ConstructTpl *c);
+
+bool            ConstructTpl_addOpList(ConstructTpl *c, struct dynarray *oplist);
 
 typedef struct PcodeBuilder { // SLEIGH specific pcode generator
   uint4 labelbase;

@@ -42,7 +42,7 @@ void                minst_blk_init(struct minst_blk *blk, char *funcname, minst_
 
     blk->funcname = strdup(funcname);
 
-    blk->allinst.compare_func = minst_cmp;
+    blk->allinst.cmp = minst_cmp;
 
     blk->trace_top = -1;
 

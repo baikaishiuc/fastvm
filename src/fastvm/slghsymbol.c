@@ -42,3 +42,16 @@ PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
             return NULL;
     }
 }
+
+Constructor*    Constructor_new()
+{
+    return NULL;
+}
+
+void            Constructor_delete(Constructor *c)
+{
+}
+
+void            Constructor_addSyntx(Constructor *c, const char *syn)
+{
+}

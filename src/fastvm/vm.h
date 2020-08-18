@@ -92,6 +92,11 @@
 
 #endif
 
+typedef struct CString {
+    int size;
+    void *data;     /* either char * or nwchar_t */
+    int size_allocated;
+} CString;
 
 /* Section definition */
 typedef struct Section {
@@ -296,5 +301,14 @@ struct sym_attr *get_sym_attr(VMState *s1, int index, int alloc);
 #define stab_section(s)             s->stab_section
 #define stabstr_section(s)          stab_section(s)->link
 #define gnu_ext(s)                  s->gnu_ext
+
+#define CSTR_INIT(c)               CString c = {0}
+CString *cstr_cat(CString *cstr, const char *str, int len);
+void cstr_init(CString *cstr);
+CString *cstr_new();
+void cstr_free(CString *cstr);
+void cstr_free(CString *cstr);
+char* str_new(char *src, int len);
+void str_free(char *);
 
 #endif
