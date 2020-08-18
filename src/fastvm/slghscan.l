@@ -16,7 +16,7 @@
  */
 %{
 #include "slgh_compile.h"
-#include "slghparse.tab.hh"
+#include "slghparse.tab.h"
 #define yywrap() 1
 #define YY_SKIP_YYWRAP
 
@@ -36,415 +36,440 @@ extern SleighCompile *slgh;
 int4 last_preproc;   // lex state before last preprocessing erasure
 int4 actionon;       // whether '&' '|' and '^' are treated as actionon in pattern section
 int4 withsection = 0; // whether we are between the 'with' keyword and its open brace '{'
-vector<FileStreamState> filebuffers;
-vector<int4> ifstack;
+struct dynarray filebuffers;
+struct dynarray ifstack;
 int4 negative_if = -1;
 
-void preproc_error(const string &err)
+#define fss_back()       ((struct FileSteramState *)dynarray_back(&filebuffers))
+#define skip_space(s)       while (isspace(*(s)++))
+#define ifstack_push(a)     dynarray_add(&ifstack, (void *)a)
+#define ifstack_back()        ((int)dynarray_back(&ifstack))
+#define ifstack_back_set(i)      (dynarray_back(&ifstack)) = (void *)i
+#define ifstack_pop(i)      ifstack.len --
 
-{
-  slgh->reportError((const Location *)0, err);
-  cerr << "Terminating due to error in preprocessing" << endl;
-  exit(1);
-}
+#define fss_new()         calloc(1, sizeof (struct FileStreamState))
 
-void check_to_endofline(istream &s)
+void check_to_endofline(const char *s)
 
 { // Make sure there is nothing to the end of the line
-  s >> ws;
-  if (!s.eof())
-    if (s.peek() != '#')
-      preproc_error("Extra characters in preprocessor directive"); 
+  skip_space(s);
+  if (!s[0])
+    if (s[0] != '#')
+      vm_error("Extra characters in preprocessor directive"); 
 }
 
-string read_identifier(istream &s)
+CString *read_identifier(const char **old, CString *res)
 
 {  // Read a proper identifier from the stream
-  s >> ws;   // Skip any whitespace
-  string res;
-  while(!s.eof()) {
-    char tok = s.peek();
-    if (isalnum(tok) || (tok == '_')) {
-      s >> tok;
-      res += tok;
-    }
-    else
-      break;
-  }
+  char *s = *old;
+  skip_space(s);
+
+  char *from = s;
+  while (*s && (isalnum(*s) || *s == '_')) s++;
+
+  cstr_cat(res, from, s - from);
+
+  *old = s;
   return res;
 }
 
-void preprocess_string(istream &s,string &res)
+void preprocess_string(const char **old, CString *res)
 
 {  // Grab string surrounded by double quotes from stream or call preprocess_error
-  int4 val;
+  char *s = *old;
+  char *t;
   
-  s >> ws;   // Skip any whitespace
-  val = s.get();
-  if (val != '\"')
-    preproc_error("Expecting double quoted string");
-  val = s.get();
-  while((val != '\"')&&(val>=0)) {
-    res += (char)val;
-    val = s.get();
-  }
-  if (val != '\"')
-    preproc_error("Missing terminating double quote");
+  skip_space(s);
+  if (s[0] != '\"')
+    vm_error("Expecting double quoted string");
+  s++;
+  t = strchr(s, '\"');
+  if (!t)
+      vm_error("Missing terminating double quote");
+
+  cstr_cat(res, s, t - s);
+
+  *old = t;
 }
 
-extern int4 preprocess_if(istream &s); // Forward declaration for recursion
+extern int4 preprocess_if(const char **old);
 
-int4 read_defined_operator(istream &s)
+int4 read_defined_operator(const char **old)
 
 {  // We have seen a -defined- keyword in an if or elif
    // Read macro name used as input, return 1 if it is defined
+   char *s = *old;
   char tok = ' ';
-  string macroname;
+  CSTR_INIT(macroname);
   
-  s >> ws >> tok;
-  if (tok != '(')
-    preproc_error("Badly formed \"defined\" operator");
-  macroname = read_identifier(s);
-  int4 res = slgh->getPreprocValue(macroname,macroname) ? 1 : 0;
-  s >> ws >> tok;
-  if (tok != ')')
-    preproc_error("Badly formed \"defined\" operator");
+  skip_space(s);
+  if (s[0] != '(')
+    vm_error("Badly formed \"defined\" operator");
+  ++s;
+  read_identifier(&s, &macroname);
+  int4 res = SleighCompile_getPreprocValue(slgh, &macroname, &macroname) ? 1 : 0;
+  skip_space(s);
+  if (s[0] != ')')
+    vm_error("Badly formed \"defined\" operator");
+  *old = ++s;
   return res;
 }
 
-int4 read_boolean_clause(istream &s)
+int4 read_boolean_clause(const char **old)
 
 {				// We have seen an if or elif
 				// return 1 if condition is true or else 0
-  s >> ws;
-  if (s.peek()=='(') {		// Parenthetical expression spawns recursion
-    int4 val = s.get();
+  char *s = *old;
+  skip_space(s);
+  if (*s =='(') {		// Parenthetical expression spawns recursion
+    int4 val = *++s;
     int4 res = preprocess_if(s);
-    s >> ws;
-    val = s.get();
+    skip_space(s);
+    val = *++s;
     if (val != ')')
-      preproc_error("Unbalanced parentheses");
+      vm_error("Unbalanced parentheses");
+
+    *old = s;
     return res;
   }
 				// Otherwise we must have a normal comparison operator
-  string lhs,rhs,comp;
+  CSTR_INIT(lhs);
+  CSTR_INIT(rhs);
+  char *comp;
 
-  if (s.peek()=='\"')		// Read left-hand side string
-    preprocess_string(s,lhs);
+  if (s[0] =='\"')		// Read left-hand side string
+    preprocess_string(&s,&lhs);
   else {
-    lhs = read_identifier(s);
-    if (lhs == "defined")
+    read_identifier(s, &lhs);
+    if (!strcmp(lhs.data, "defined"))
       return read_defined_operator(s);
-    if (!slgh->getPreprocValue(lhs,lhs))
-      preproc_error("Could not find preprocessor macro "+lhs);
+    if (!SleighCompile_getPreprocValue(slgh, &lhs, &lhs))
+      vm_error("Could not find preprocessor macro %s", lhs.data);
   }
 
-  char tok;
-  s >> tok;       // Read comparison symbol
-  comp += tok;
-  s >> tok;
-  comp += tok;
-    
-  s >> ws;
-  if (s.peek()=='\"')            // Read right-hand side string
-    preprocess_string(s,rhs);
+  comp = s;
+
+  skip_space(s);
+  if (*s =='\"') {// Read right-hand side string
+    ++s;
+    preprocess_string(&s,&rhs);
+  }
   else {
-    rhs = read_identifier(s);
-    if (!slgh->getPreprocValue(rhs,rhs))
-      preproc_error("Could not find preprocessor macro "+rhs);
+    read_identifier(s, &rhs);
+    if (!SleighCompile_getPreprocValue(slgh, &rhs, &rhs))
+      vm_error("Could not find preprocessor macro %s", rhs.data);
   }
 
-  if (comp == "==")
-    return (lhs == rhs) ? 1 : 0;
-  else if (comp=="!=")
-    return (lhs != rhs) ? 1 : 0;
+  if (!strncmp(comp, "==", 2))
+    return !strcmp (lhs.data, rhs.data) ? 1 : 0;
+  else if (!strncmp(comp, "!=", 2))
+    return (strcmp(lhs.data, rhs.data)) ? 1 : 0;
   else
-    preproc_error("Syntax error in condition");
+    vm_error("Syntax error in condition");
+
+  cstr_free(&lhs);
+  cstr_free(&rhs);
+
+  *old = s;
   return 0;
 }
 
-int4 preprocess_if(istream &s)
+int4 preprocess_if(const char **old)
 
 {
-  int4 res = read_boolean_clause(s);
-  s >> ws;
-  while((!s.eof())&&(s.peek()!=')')) {
-    string boolop;
-    char tok;
-    s >> tok;
-    boolop += tok;
-    s >> tok;
-    boolop += tok;
-    int4 res2 = read_boolean_clause(s);
-    if (boolop == "&&")
+  char *s = *old;
+  int4 res = read_boolean_clause(&s);
+  skip_space(s);
+  while(s[0] && (s[0] != ')')) {
+    char *boolop = s;
+
+    s += 2; *s = 0;
+    int4 res2 = read_boolean_clause(&s);
+    if (!strcmp(boolop, "&&"))
       res = res & res2;
-    else if (boolop == "||")
+    else if (!strcmp(boolop, "||"))
       res = res | res2;
-    else if (boolop == "^^")
+    else if (!strcmp(boolop, "^^"))
       res = res ^ res2;
     else
-      preproc_error("Syntax error in expression");
-    s >> ws;
+      vm_error("Syntax error in expression");
+
+    skip_space(s);
   }
+
+  *old = s;
   return res;
 }
 
-void expand_preprocmacros(string &str)
+void expand_preprocmacros(CString *cstr)
 
 {
-  string::size_type pos;
-  string::size_type lastpos = 0;
-  pos = str.find("$(",lastpos);
-  if (pos == string::npos)
-    return;
-  string res;
+  CSTR_INIT(macro);
+  CSTR_INIT(value);
+  CSTR_INIT(res);
+  char *lastpos;
+  char *pos = strstr(cstr->data, "$(");
+  char *end = (char *)cstr->data + cstr->size;
+  if (!pos) return;
+
   for(;;) {
-    if (pos == string::npos) {
-      res += str.substr(lastpos);
-      str = res;
+    if (NULL == pos) {
+      cstr_cat(&res, lastpos, end - lastpos);
+      cstr_free(cstr);
+      cstr_copy(cstr, &res);
+
+      cstr_free(&res);
       return;
     }
-    else {
-      res += str.substr(lastpos,(pos-lastpos));
-      string::size_type endpos = str.find(')',pos+2);
-      if (endpos == string::npos) {
-	preproc_error("Unterminated macro in string");
-	break;
-      }
-      string macro = str.substr(pos+2, endpos - (pos+2));
-      string value;
-      if (!slgh->getPreprocValue(macro,value)) {
-	preproc_error("Unknown preprocessing macro "+macro);
-	break;
-      }
-      res += value;
-      lastpos = endpos + 1;
+
+    cstr_cat(&res, lastpos, (pos - lastpos));
+    lastpos = strchr(pos, ')');
+    if (!lastpos) {
+      vm_error("Unterminated macro in string, %s", cstr->data);
     }
-    pos = str.find("$(",lastpos);
+
+    macro.data = pos + 2;
+    macro.size = lastpos - macro.data;
+    if (!SleighCompile_getPreprocValue(slgh, &macro, &value)) {
+      vm_error("Unknown preprocessing macro %s", macro.data);
+    }
+    cstr_cat(res, value.data, value.size);
+
+    pos = strstr(++lastpos, "$(");
   }
 }
+
 
 int4 preprocess(int4 cur_state,int4 blank_state)
 
 {
-  string str(yytext);
-  string::size_type pos = str.find('#');
-  if (pos != string::npos)
-    str.erase(pos);
-  istringstream s(str);
-  string type;
+    CSTR_INIT(varname);
+    CSTR_INIT(value);
+  char *str = str_new(yytext, 0);
+  char *macro = strchr (str, '#');
+  char *filename;
+  if (macro) {
+    *macro = 0;
+  }
+  char *type, *s = str;
 
   if (cur_state != blank_state)
     last_preproc = cur_state;
 
-  s.get();   // Skip the preprocessor marker
-  s >> type;
-  if (type == "include") {
+  skip_space(s);
+  s = strtok(s, " ");
+  type = strtok(NULL, " ");
+  if (!strcmp(type, "include") {
     if (negative_if == -1) {  // Not in the middle of a false if clause
-      filebuffers.push_back(FileStreamState());   // Save state of current file
-      filebuffers.back().lastbuffer = YY_CURRENT_BUFFER;
-      filebuffers.back().file = (FILE *)0;
-      s >> ws;
-      string fname;
-      preprocess_string(s,fname);
-      expand_preprocmacros(fname);
-      slgh->parseFromNewFile(fname);
-      fname = slgh->grabCurrentFilePath();
-      yyin = fopen(fname.c_str(),"r");
-      if (yyin == (FILE *)0)
-        preproc_error("Could not open included file "+fname);
-      filebuffers.back().file = yyin;
+      dynarray_add(&filebuffers, fss_new());
+      fss_back()->lastbuffer = YY_CURRENT_BUFFER;
+      fss_back()->file = 0;
+      skip_space(s);
+      CSTR_INIT(fname);
+      preprocess_string(s,&fname);
+      expand_preprocmacros(&fname);
+      SleighCompile_parseFromNewFile(slgh, fname.data);
+      cstr_free(&fname);
+      filename = SleighCompile_grabCurrentFilePath(slgh);
+      yyin = fopen(filename,"r");
+      if (yyin == (FILE *)0) {
+        vm_error("Could not open included file %s", filename);
+      }
+      fss_back()->file = yyin;
       yy_switch_to_buffer( yy_create_buffer(yyin, YY_BUF_SIZE) );
       check_to_endofline(s);
     }
   }
-  else if (type == "define") {
+  else if (!strcmp(type, "define")) {
     if (negative_if == -1) {
-      string varname;
-      string value;
-      varname = read_identifier(s);   // Get name of variable being defined
-      s >> ws;
-      if (s.peek() == '\"')
-        preprocess_string(s,value);
+      read_identifier(s, &varname);   // Get name of variable being defined
+      skip_space(s);
+      if (s[0] == '\"')
+        preprocess_string(s,&value);
       else
-        value = read_identifier(s);
-      if (varname.size()==0)
-        preproc_error("Error in preprocessor definition");
-      slgh->setPreprocValue(varname,value);
+        read_identifier(s, &value);
+      if (varname.size ==0)
+        vm_error("Error in preprocessor definition");
+      SleighCompile_setPreprocValue(slgh, &varname,&value);
       check_to_endofline(s);
     }
   }
-  else if (type == "undef") {
+  else if (!strcmp (type, "undef")) {
     if (negative_if == -1) {
-      string varname;
-      varname = read_identifier(s);		// Name of variable to undefine
-      if (varname.size()==0)
-        preproc_error("Error in preprocessor undef");
-      slgh->undefinePreprocValue(varname);
+      read_identifier(s, &varname);		// Name of variable to undefine
+      if (varname.size ==0)
+        vm_error("Error in preprocessor undef");
+      SleighCompile_undefinePreprocValue(slgh, &varname);
       check_to_endofline(s);
     }
   }
-  else if (type=="ifdef") {
-    string varname;
-    varname = read_identifier(s);
-    if (varname.size()==0)
-      preproc_error("Error in preprocessor ifdef");
-    string value;
-    int4 truth = (slgh->getPreprocValue(varname,value)) ? 1 : 0;
-    ifstack.push_back(truth);
+  else if (!strcmp(type, "ifdef")) {
+    read_identifier(s, &varname);
+    if (varname.size ==0)
+      vm_error("Error in preprocessor ifdef");
+    int4 truth = (SleighCompile_getPreprocValue(slgh, &varname, &value)) ? 1 : 0;
+
+    ifstack_push(truth);
     check_to_endofline(s);
   }
-  else if (type=="ifndef") {
-    string varname;
-    varname = read_identifier(s);
-    if (varname.size()==0)
-      preproc_error("Error in preprocessor ifndef");
-    string value;
-    int4 truth = (slgh->getPreprocValue(varname,value)) ? 0 : 1;	// flipped from ifdef
-    ifstack.push_back(truth);
+  else if (!strcmp(type, "ifndef")) {
+    varname = read_identifier(s, &varname);
+    if (varname.size ==0)
+      vm_error("Error in preprocessor ifndef");
+    int4 truth = (SleighCompile_getPreprocValue(slgh, &varname, &value)) ? 0 : 1;	// flipped from ifdef
+
+    ifstack_push(truth);
     check_to_endofline(s);
   }
-  else if (type=="if") {
-    int4 truth = preprocess_if(s);
-    if (!s.eof())
-      preproc_error("Unbalanced parentheses");
-    ifstack.push_back(truth);
+  else if (!strcmp(type, "if")) {
+    int4 truth = preprocess_if(&s);
+    if (!s[0])
+      vm_error("Unbalanced parentheses");
+    ifstack_push(truth);
   }
-  else if (type=="elif") {
-    if (ifstack.empty())
-      preproc_error("elif without preceding if");
-    if ((ifstack.back()&2)!=0)		// We have already seen an else clause
-      preproc_error("elif follows else");
-    if ((ifstack.back()&4)!=0)          // We have already seen a true elif clause
-      ifstack.back() = 4;               // don't include any other elif clause
-    else if ((ifstack.back()&1)!=0)     // Last clause was a true if
-      ifstack.back() = 4;               // don't include this elif
+  else if (!strcmp(type, "elif")) {
+    if (ifstack.len == 0)
+      vm_error("elif without preceding if");
+    if ((ifstack_back()&2)!=0)		// We have already seen an else clause
+      vm_error("elif follows else");
+    if ((ifstack_back()&4)!=0)          // We have already seen a true elif clause
+      ifstack_back_set(4);               // don't include any other elif clause
+    else if ((ifstack_back()&1)!=0)     // Last clause was a true if
+      ifstack_back_set(4);               // don't include this elif
     else {
       int4 truth = preprocess_if(s);
-      if (!s.eof())
-        preproc_error("Unbalanced parentheses");
+      if (!s[0])
+        vm_error("Unbalanced parentheses");
       if (truth==0)
-        ifstack.back() = 0;
+        ifstack_back_set(0);
       else
-        ifstack.back() = 5;
+        ifstack_back_set(5);
     }
   }
-  else if (type=="endif") {
-    if (ifstack.empty())
-      preproc_error("preprocessing endif without matching if");
-    ifstack.pop_back();
+  else if (!strcmp(type, "endif")) {
+    if (!ifstack.len)
+      vm_error("preprocessing endif without matching if");
+    ifstack_pop();
     check_to_endofline(s);
   }
-  else if (type=="else") {
-    if (ifstack.empty())
-      preproc_error("preprocessing else without matching if");
-    if ((ifstack.back()&2)!=0)
-      preproc_error("second else for one if");
-    if ((ifstack.back()&4)!=0)       // Seen a true elif clause before
-      ifstack.back() = 6;
-    else if (ifstack.back()==0)
-      ifstack.back() = 3;
+  else if (!strcmp(type, "else")) {
+    if (!ifstack.len)
+      vm_error("preprocessing else without matching if");
+    if ((ifstack_back()&2)!=0)
+      vm_error("second else for one if");
+    if ((ifstack_back()&4)!=0)       // Seen a true elif clause before
+      ifstack_back_set(6);
+    else if (ifstack_back()==0)
+      ifstack_back_set(3);
     else
-      ifstack.back() = 2;
+      ifstack_back_set(2);
     check_to_endofline(s);
   }
   else
-    preproc_error("Unknown preprocessing directive: "+type);
+    vm_error("Unknown preprocessing directive: %s", type);
 
   if (negative_if >= 0) {  // We were in a false state
-    if (negative_if+1 < ifstack.size())
+    if (negative_if+1 < ifstack.len)
       return blank_state;  // false state is still deep in stack
     else                   // false state is popped off or is current and changed
       negative_if = -1;
   }
-  if (ifstack.empty()) return last_preproc;
-  if ((ifstack.back()&1)==0) {
-    negative_if = ifstack.size()-1;
+  if (!ifstack.len) return last_preproc;
+  if ((ifstack_back()&1)==0) {
+    negative_if = ifstack.len -1;
     return blank_state;
   }
+
+  cstr_free(&varname);
+  cstr_free(&value);
+  str_free(str);
+
   return last_preproc;
 }
 
 void preproc_macroexpand(void)
 
 {
-  filebuffers.push_back(FileStreamState());
-  filebuffers.back().lastbuffer = YY_CURRENT_BUFFER;
-  filebuffers.back().file = (FILE *)0;
-  string macro(yytext);
-  macro.erase(0,2);
-  macro.erase(macro.size()-1,1);
-  string value;
-  if (!slgh->getPreprocValue(macro,value))
-    preproc_error("Unknown preprocessing macro "+macro);
-  yy_switch_to_buffer( yy_scan_string( value.c_str() ) );
-  slgh->parsePreprocMacro();
+  dynarray(&filebuffers, vm_malloz(sizeof (FileStreamState)));
+  fss_back()->lastbuffer = YY_CURRENT_BUFFER;
+  fss_back()->file = (FILE *)0;
+  CSTR_INIT(macro);
+  CSTR_INIT(value);
+
+  int len = strlen(yytext);
+  macro.data = yytext + 2;
+  macro.size = len - 3;
+
+  if (!SleighCompile_getPreprocValue(slgh, &macro, &value))
+    vm_error("Unknown preprocessing macro %s", macro.data);
+  yy_switch_to_buffer( yy_scan_string( value.data ) );
+  SleighCompile_parsePreprocMacro(slgh);
 }
 
 int4 find_symbol(void) {
-  string * newstring = new string(yytext);
-  SleighSymbol *sym = slgh->findSymbol(*newstring);
+  char *newstring = str_new(yytext, 0);
+  SleighSymbol *sym = SleighCompile_findSymbol(slgh, newstring);
   if (sym == (SleighSymbol *)0) {
     yylval.str = newstring;
     return STRING;
   }
-  delete newstring;
-  switch(sym->getType()) {
-  case SleighSymbol::section_symbol:
+  free (newstring);
+  switch(sym->type) {
+  case section_symbol:
     yylval.sectionsym = (SectionSymbol *)sym;
     return SECTIONSYM;
-  case SleighSymbol::space_symbol:
+  case space_symbol:
     yylval.spacesym = (SpaceSymbol *)sym;
     return SPACESYM;
-  case SleighSymbol::token_symbol:
+  case token_symbol:
     yylval.tokensym = (TokenSymbol *)sym;
     return TOKENSYM;
-  case SleighSymbol::userop_symbol:
+  case userop_symbol:
     yylval.useropsym = (UserOpSymbol *)sym;
     return USEROPSYM;
-  case SleighSymbol::value_symbol:
+  case value_symbol:
     yylval.valuesym = (ValueSymbol *)sym;
     return VALUESYM;
-  case SleighSymbol::valuemap_symbol:
+  case valuemap_symbol:
     yylval.valuemapsym = (ValueMapSymbol *)sym;
     return VALUEMAPSYM;
-  case SleighSymbol::name_symbol:
+  case name_symbol:
     yylval.namesym = (NameSymbol *)sym;
     return NAMESYM;
-  case SleighSymbol::varnode_symbol:
+  case varnode_symbol:
     yylval.varsym = (VarnodeSymbol *)sym;
     return VARSYM;
-  case SleighSymbol::bitrange_symbol:
+  case bitrange_symbol:
     yylval.bitsym = (BitrangeSymbol *)sym;
     return BITSYM;
-  case SleighSymbol::varnodelist_symbol:
+  case varnodelist_symbol:
     yylval.varlistsym = (VarnodeListSymbol *)sym;
     return VARLISTSYM;
-  case SleighSymbol::operand_symbol:
+  case operand_symbol:
     yylval.operandsym = (OperandSymbol *)sym;
     return OPERANDSYM;
-  case SleighSymbol::start_symbol:
+  case start_symbol:
     yylval.startsym = (StartSymbol *)sym;
     return STARTSYM;
-  case SleighSymbol::end_symbol:
+  case end_symbol:
     yylval.endsym = (EndSymbol *)sym;
     return ENDSYM;
-  case SleighSymbol::subtable_symbol:
+  case subtable_symbol:
     yylval.subtablesym = (SubtableSymbol *)sym;
     return SUBTABLESYM;
-  case SleighSymbol::macro_symbol:
+  case macro_symbol:
     yylval.macrosym = (MacroSymbol *)sym;
     return MACROSYM;
-  case SleighSymbol::label_symbol:
+  case label_symbol:
     yylval.labelsym = (LabelSymbol *)sym;
     return LABELSYM;
-  case SleighSymbol::epsilon_symbol:
+  case epsilon_symbol:
     yylval.specsym = (SpecificSymbol *)sym;
     return SPECSYM;
-  case SleighSymbol::context_symbol:
+  case context_symbol:
     yylval.contextsym = (ContextSymbol *)sym;
     return CONTEXTSYM;
-  case SleighSymbol::dummy_symbol:
+  case dummy_symbol:
     break;
   }
   return -1;   // Should never reach here
@@ -464,18 +489,21 @@ int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
       }
       ++numtext;
     }
-  } else {
-    istringstream s(numtext);
-    s.unsetf(ios::dec | ios::hex | ios::oct);
-    s >> val;
-    if (!s)
-      return BADINTEGER;
+  } 
+  else if (numtext[0] == '0' && (numtext[1] == 'x' || numtext[1] == 'X')) {
+    val = strtoull(numtext, NULL, 16);
+  }
+  else if (numtext[0] == '0'){
+    val = strtoull(numtext, NULL, 8);
+  }
+  else {
+      vm_error("bad integer %s", numtext);
   }
   if (signednum) {
-    lval->big = new intb(val);
+    lval->big = int64_new(val);
     return INTB;
   }
-  lval->i = new uintb(val);
+  lval->i = int64_new(val);
   return INTEGER;
 }
 
@@ -489,31 +517,31 @@ int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
 %x preproc
 %%
 
-^@[^\n]*\n?  { slgh->nextLine(); BEGIN( preprocess(INITIAL,preproc) ); }
+^@[^\n]*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(INITIAL,preproc) ); }
 \$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 [(),\-] { yylval.ch = yytext[0]; return yytext[0]; }
-\:    { BEGIN(print); slgh->calcContextLayout(); yylval.ch = yytext[0]; return yytext[0]; }
+\:    { BEGIN(print); SleighCompile_calcContextLayout(slgh); yylval.ch = yytext[0]; return yytext[0]; }
 \{    { BEGIN(sem); yylval.ch = yytext[0]; return yytext[0]; }
 #.*$
 [\r\ \t\v]+
-\n             { slgh->nextLine(); }
+\n             { SleighCompile_nextLine(slgh); }
 macro  { BEGIN(macroblock); return MACRO_KEY; }
 define { BEGIN(defblock); return DEFINE_KEY; }
-attach { BEGIN(defblock); slgh->calcContextLayout(); return ATTACH_KEY; }
-with   { BEGIN(pattern); withsection = 1; slgh->calcContextLayout(); return WITH_KEY; }
+attach { BEGIN(defblock); SleighCompile_calcContextLayout(slgh); return ATTACH_KEY; }
+with   { BEGIN(pattern); withsection = 1; SleighCompile_calcContextLayout(slgh); return WITH_KEY; }
 [a-zA-Z_.][a-zA-Z0-9_.]* {  return find_symbol();  }
 .      { return yytext[0]; }
 
-<macroblock>^@[^\n]*\n?  { slgh->nextLine(); BEGIN( preprocess(macroblock,preproc) ); }
+<macroblock>^@[^\n]*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(macroblock,preproc) ); }
 <macroblock>\$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 <macroblock>[(),]  { yylval.ch = yytext[0]; return yytext[0]; }
 <macroblock>\{     { BEGIN(sem); return yytext[0]; }
-<macroblock>[a-zA-Z_.][a-zA-Z0-9_.]*   {  yylval.str = new string(yytext); return STRING;  }
+<macroblock>[a-zA-Z_.][a-zA-Z0-9_.]*   {  yylval.str = str_new(yytext, 0); return STRING;  }
 <macroblock>[\r\ \t\v]+
-<macroblock>\n     { slgh->nextLine(); }
+<macroblock>\n     { SleighCompile_nextLine(slgh); }
 <macroblock>.      { return yytext[0]; }
 
-<defblock>^@[^\n]*\n?  { slgh->nextLine(); BEGIN( preprocess(defblock,preproc) ); }
+<defblock>^@[^\n]*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(defblock,preproc) ); }
 <defblock>\$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 <defblock>[(),=:\[\]]  { yylval.ch = yytext[0]; return yytext[0]; }
 <defblock>\;   { BEGIN(INITIAL); yylval.ch = yytext[0]; return yytext[0]; }
@@ -545,24 +573,24 @@ with   { BEGIN(pattern); withsection = 1; slgh->calcContextLayout(); return WITH
 <defblock>[0-9]|[1-9][0-9]+	{ return scan_number(yytext,&yylval,false); }
 <defblock>0x[0-9a-fA-F]+	{ return scan_number(yytext,&yylval,false); }
 <defblock>0b[01]+		{ return scan_number(yytext,&yylval,false); }
-<defblock>\"([^\"]|\"\")*\"	{ yylval.str = new string(yytext+1,strlen(yytext)-2); return STRING; }
+<defblock>\"([^\"]|\"\")*\"	{ yylval.str = str_new(yytext+1,strlen(yytext)-2); return STRING; }
 <defblock>[\r\ \t\v]+
-<defblock>\n        { slgh->nextLine(); }
+<defblock>\n        { SleighCompile_nextLine(slgh); }
 <defblock>.         { return yytext[0]; }
 
 
-<print>^@[^\n]*\n?  { slgh->nextLine(); BEGIN( preprocess(print,preproc) ); }
+<print>^@[^\n]*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(print,preproc) ); }
 <print>\$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 <print>[~!@#$%&*()\-=+\[\]{}|;:<>?,/0-9] { yylval.ch = yytext[0]; return CHAR; }
 <print>\^           { yylval.ch = '^'; return '^'; }
 <print>is           { BEGIN(pattern); actionon=0; return IS_KEY; }
-<print>[a-zA-Z_.][a-zA-Z0-9_.]*   {  yylval.str = new string(yytext); return SYMBOLSTRING;  }
-<print>\"([^\"]|\"\")*\"       { yylval.str = new string(yytext+1,strlen(yytext)-2); return STRING; }
+<print>[a-zA-Z_.][a-zA-Z0-9_.]*   {  yylval.str = str_new(yytext, strlen(yytext)); return SYMBOLSTRING;  }
+<print>\"([^\"]|\"\")*\"       { yylval.str = str_new(yytext+1,strlen(yytext)-2); return STRING; }
 <print>[\r\ \t\v]+  { yylval.ch = ' '; return ' '; }
-<print>\n           { slgh->nextLine(); return ' '; }
+<print>\n           { SleighCompile_nextLine(slgh); return ' '; }
 <print>.            { return yytext[0]; }
 
-<pattern>^@[^\n]*\n?  { slgh->nextLine(); BEGIN( preprocess(pattern,preproc) ); }
+<pattern>^@[^\n]*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(pattern,preproc) ); }
 <pattern>\$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 <pattern>\{         { BEGIN((withsection==1) ? INITIAL:sem); withsection=0; yylval.ch = yytext[0]; return yytext[0]; }
 <pattern>unimpl     { BEGIN(INITIAL); return OP_UNIMPL; }
@@ -588,10 +616,10 @@ with   { BEGIN(pattern); withsection = 1; slgh->calcContextLayout(); return WITH
 <pattern>0x[0-9a-fA-F]+  { return scan_number(yytext,&yylval,true); }
 <pattern>0b[01]+         { return scan_number(yytext,&yylval,true); }
 <pattern>[\r\ \t\v]+
-<pattern>\n        { slgh->nextLine(); }
+<pattern>\n        { SleighCompile_nextLine(slgh); }
 <pattern>.         { return yytext[0]; }
 
-<sem>^@[^\n]*\n?   { slgh->nextLine(); BEGIN( preprocess(sem,preproc) ); }
+<sem>^@[^\n]*\n?   { SleighCompile_nextLine(slgh); BEGIN( preprocess(sem,preproc) ); }
 <sem>\$\([a-zA-Z0-9_.][a-zA-Z0-9_.]*\)  { preproc_macroexpand(); }
 <sem>\}            { BEGIN(INITIAL); yylval.ch = yytext[0]; return yytext[0]; }
 <sem>\|\|          { return OP_BOOL_OR; }
@@ -654,19 +682,20 @@ with   { BEGIN(pattern); withsection = 1; slgh->calcContextLayout(); return WITH
 <sem>0x[0-9a-fA-F]+  { return scan_number(yytext,&yylval,false); }
 <sem>0b[01]+         { return scan_number(yytext,&yylval,false); }
 <sem>[\r\ \t\v]+
-<sem>\n         { slgh->nextLine(); }
+<sem>\n         { SleighCompile_nextLine(slgh); }
 <sem>.          { return yytext[0]; }
 
-<preproc>^@.*\n?  { slgh->nextLine(); BEGIN( preprocess(preproc,preproc) ); }
-<preproc>^.*\n    { slgh->nextLine(); }
+<preproc>^@.*\n?  { SleighCompile_nextLine(slgh); BEGIN( preprocess(preproc,preproc) ); }
+<preproc>^.*\n    { SleighCompile_nextLine(slgh); }
 
 <<EOF>> { yy_delete_buffer( YY_CURRENT_BUFFER );
-          if (filebuffers.empty())
+          if (!filebuffers.len)
             yyterminate(); 
-          yy_switch_to_buffer( filebuffers.back().lastbuffer );
-	  FILE *curfile = filebuffers.back().file;
+          yy_switch_to_buffer( fss_back()->lastbuffer );
+	  FILE *curfile = fss_back()->file;
 	  if (curfile != (FILE *)0)
 	    fclose(curfile);
-          filebuffers.pop_back();
-          slgh->parseFileFinished();
+          vm_free(fss_back());
+          filebuffers.len--;
+          SleighCompile_parseFileFinished(slgh);
         }
