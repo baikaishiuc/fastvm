@@ -342,9 +342,19 @@ static void add_char(CString *cstr, int c)
     }
 }
 
-CString *cstr_new()
+CString *cstr_new(char *src, int len)
 {
-    return NULL;
+    CString *cs = vm_mallocz(sizeof (cs[0]));
+
+    cstr_cat(cs, src, len);
+
+    return cs;
+}
+
+void cstr_delete(CString *cs)
+{
+    cstr_free(cs);
+    vm_free(cs);
 }
 
 CString *cstr_copy(CString *dst, CString *src)

@@ -69,6 +69,12 @@ typedef struct VarnodeTpl {
 
 ConstTpl *VarnodeTpl_getOffset(VarnodeTpl *v);
 
+VarnodeTpl*     VarnodeTpl_new();
+VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn);
+VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
+VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
+void            VarnodeTpl_delete(VarnodeTpl *vn);
+
 typedef struct HandleTpl {
   ConstTpl space;
   ConstTpl size;

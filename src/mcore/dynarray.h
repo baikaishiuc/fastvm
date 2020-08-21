@@ -12,6 +12,7 @@ extern "C" {
     /* 动态数组，这个地方的length和size不是字节数，而是元素个数 */
 
     typedef int(*cmp_fn)(void *lhs, void *rhs, void *ref);
+    typedef void(*free_fn)(void *data);
     struct dynarray
     {
         void    **ptab;
@@ -19,9 +20,10 @@ extern "C" {
         int     size;
         void    *ref;
         cmp_fn  cmp;
+        free_fn free;
     };
 
-    struct dynarray*    dynarray_new(cmp_fn cmp);
+    struct dynarray*    dynarray_new(cmp_fn cmp, free_fn);
     void                dynarray_delete(struct dynarray *d);
 
     int dynarray_add(struct dynarray *darray, void *data);

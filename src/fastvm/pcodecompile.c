@@ -1,6 +1,21 @@
 ﻿
 #include "pcodecompile.h"
 
+ExpTree*            ExpTree_new()
+{
+    return NULL;
+}
+
+ExpTree*            ExpTree_newV(VarnodeTpl *vn)
+{
+    return NULL;
+}
+
+ExpTree*            ExpTree_newO(OpTpl *op)
+{
+    return NULL;
+}
+
 PcodeCompile*       PcodeCompile_new()
 {
     return NULL;

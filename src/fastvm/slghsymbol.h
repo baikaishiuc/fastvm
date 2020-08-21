@@ -94,6 +94,12 @@ struct SleighSymbol {
         struct {
             AddrSpace *const_space;
         } flow_dest, flow_ref;
+
+        struct {
+            u4 index;
+            bool ispaced;
+            u4 refcount;
+        } label;
     };
 
     int id;
@@ -114,14 +120,24 @@ uint32_t        SleighSymbol_getBitOffset(SleighSymbol *sym);
 uint32_t        SleighSymbol_numBits(SleighSymbol *sym);
 #define SleighSymbol_getIndex(sym)          sym->index
 
-static AddrSpace*   SleighSymbol_getSpace(SleighSymbol *sym) {
+inline AddrSpace*   SleighSymbol_getSpace(SleighSymbol *sym) {
     assert(sym->type == space_symbol);
 
     return sym->space;
 }
 
+inline void         SleighSymbol_setCodeAddress(SleighSymbol *sym) {
+    assert(sym->type == operand_symbol);
 
-#define SleighSymbol_getName(sym)       sym->name 
+    sym->operand.flags |= CODE_ADDRESS;
+}
+
+inline void         SleighSymbol_incrementRefCount(SleighSymbol *sym) {
+    assert(sym->type == label_symbol);
+
+}
+
+#define SleighSymbol_getName(sym)           sym->name 
 
 typedef int (*SymbolCompare)(const SleighSymbol *a, const SleighSymbol *b);
 
@@ -178,7 +194,7 @@ struct Constructor {
 
 Constructor*    Constructor_new();
 void            Constructor_delete(Constructor *c);
-void            Constructor_addSyntx(Constructor *c, const char *syn);
+void            Constructor_addSyntax(Constructor *c, const char *syn);
 #define Constructor_getParent(ct)       (ct)->parent
 
 

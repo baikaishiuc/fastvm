@@ -130,6 +130,13 @@ struct dynarray*    dynarray_new(cmp_fn cmp)
 
 void                dynarray_delete(struct dynarray *d)
 {
+    int i;
+    if (d->free) {
+        for (i = 0; i < d->len; i++) {
+            d->free(d->ptab[i]);
+        }
+    }
+
     free(d->ptab);
     free(d);
 }

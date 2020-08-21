@@ -40,7 +40,7 @@ struct dynarray filebuffers;
 struct dynarray ifstack;
 int4 negative_if = -1;
 
-#define fss_back()       ((struct FileSteramState *)dynarray_back(&filebuffers))
+#define fss_back()       ((struct FileStreamState *)dynarray_back(&filebuffers))
 #define skip_space(s)       while (isspace(*(s)++))
 #define ifstack_push(a)     dynarray_add(&ifstack, (void *)a)
 #define ifstack_back()        ((int)dynarray_back(&ifstack))
@@ -58,7 +58,7 @@ void check_to_endofline(const char *s)
       vm_error("Extra characters in preprocessor directive"); 
 }
 
-CString *read_identifier(const char **old, CString *res)
+CString *read_identifier(char **old, CString *res)
 
 {  // Read a proper identifier from the stream
   char *s = *old;
@@ -73,7 +73,7 @@ CString *read_identifier(const char **old, CString *res)
   return res;
 }
 
-void preprocess_string(const char **old, CString *res)
+void preprocess_string(char **old, CString *res)
 
 {  // Grab string surrounded by double quotes from stream or call preprocess_error
   char *s = *old;
@@ -94,7 +94,7 @@ void preprocess_string(const char **old, CString *res)
 
 extern int4 preprocess_if(const char **old);
 
-int4 read_defined_operator(const char **old)
+int4 read_defined_operator(char **old)
 
 {  // We have seen a -defined- keyword in an if or elif
    // Read macro name used as input, return 1 if it is defined
@@ -140,7 +140,7 @@ int4 read_boolean_clause(const char **old)
   if (s[0] =='\"')		// Read left-hand side string
     preprocess_string(&s,&lhs);
   else {
-    read_identifier(s, &lhs);
+    read_identifier(&s, &lhs);
     if (!strcmp(lhs.data, "defined"))
       return read_defined_operator(s);
     if (!SleighCompile_getPreprocValue(slgh, &lhs, &lhs))
@@ -155,7 +155,7 @@ int4 read_boolean_clause(const char **old)
     preprocess_string(&s,&rhs);
   }
   else {
-    read_identifier(s, &rhs);
+    read_identifier(&s, &rhs);
     if (!SleighCompile_getPreprocValue(slgh, &rhs, &rhs))
       vm_error("Could not find preprocessor macro %s", rhs.data);
   }
@@ -216,7 +216,7 @@ void expand_preprocmacros(CString *cstr)
     if (NULL == pos) {
       cstr_cat(&res, lastpos, end - lastpos);
       cstr_free(cstr);
-      cstr_copy(cstr, &res);
+      cstr_cat(cstr, res.data, res.size);
 
       cstr_free(&res);
       return;
@@ -233,7 +233,7 @@ void expand_preprocmacros(CString *cstr)
     if (!SleighCompile_getPreprocValue(slgh, &macro, &value)) {
       vm_error("Unknown preprocessing macro %s", macro.data);
     }
-    cstr_cat(res, value.data, value.size);
+    cstr_cat(&res, value.data, value.size);
 
     pos = strstr(++lastpos, "$(");
   }
@@ -282,12 +282,12 @@ int4 preprocess(int4 cur_state,int4 blank_state)
   }
   else if (!strcmp(type, "define")) {
     if (negative_if == -1) {
-      read_identifier(s, &varname);   // Get name of variable being defined
+      read_identifier(&s, &varname);   // Get name of variable being defined
       skip_space(s);
       if (s[0] == '\"')
         preprocess_string(s,&value);
       else
-        read_identifier(s, &value);
+        read_identifier(&s, &value);
       if (varname.size ==0)
         vm_error("Error in preprocessor definition");
       SleighCompile_setPreprocValue(slgh, &varname,&value);
@@ -296,7 +296,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
   }
   else if (!strcmp (type, "undef")) {
     if (negative_if == -1) {
-      read_identifier(s, &varname);		// Name of variable to undefine
+      read_identifier(&s, &varname);		// Name of variable to undefine
       if (varname.size ==0)
         vm_error("Error in preprocessor undef");
       SleighCompile_undefinePreprocValue(slgh, &varname);
@@ -304,7 +304,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     }
   }
   else if (!strcmp(type, "ifdef")) {
-    read_identifier(s, &varname);
+    read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifdef");
     int4 truth = (SleighCompile_getPreprocValue(slgh, &varname, &value)) ? 1 : 0;
@@ -313,7 +313,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     check_to_endofline(s);
   }
   else if (!strcmp(type, "ifndef")) {
-    varname = read_identifier(s, &varname);
+    varname = read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifndef");
     int4 truth = (SleighCompile_getPreprocValue(slgh, &varname, &value)) ? 0 : 1;	// flipped from ifdef
@@ -390,7 +390,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
 void preproc_macroexpand(void)
 
 {
-  dynarray(&filebuffers, vm_malloz(sizeof (FileStreamState)));
+  dynarray_add(&filebuffers, vm_mallocz(sizeof (FileStreamState)));
   fss_back()->lastbuffer = YY_CURRENT_BUFFER;
   fss_back()->file = (FILE *)0;
   CSTR_INIT(macro);
@@ -500,10 +500,10 @@ int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
       vm_error("bad integer %s", numtext);
   }
   if (signednum) {
-    lval->big = int64_new(val);
+    lval->big = val;
     return INTB;
   }
-  lval->i = int64_new(val);
+  lval->i = val;
   return INTEGER;
 }
 

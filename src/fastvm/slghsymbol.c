@@ -52,6 +52,6 @@ void            Constructor_delete(Constructor *c)
 {
 }
 
-void            Constructor_addSyntx(Constructor *c, const char *syn)
+void            Constructor_addSyntax(Constructor *c, const char *syn)
 {
 }

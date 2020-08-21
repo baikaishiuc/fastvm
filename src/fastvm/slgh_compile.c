@@ -50,7 +50,7 @@ void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
 {
 }
 
-void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb *off, uintb *size, struct dynarray *names)
+void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb off, uintb size, struct dynarray *names)
 {
 }
 
@@ -222,7 +222,7 @@ char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
     return NULL;
 }
 
-SleighSymbol*       SleighSympile_findSymbol(SleighCompile *s, char *name)
+SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
     return NULL;
 }
@@ -231,7 +231,7 @@ void                SleighCompile_nextLine(SleighCompile *s)
 {
 }
 
-FieldQuality*   FieldQuality_new(const char *name, uintb *l, uintb *h)
+FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h)
 {
     return NULL;
 }

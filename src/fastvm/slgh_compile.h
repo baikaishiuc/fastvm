@@ -42,7 +42,7 @@ struct FieldQuality {
     bool hex;
 };
 
-FieldQuality*   FieldQuality_new(const char *name, uintb *l, uintb *h);
+FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h);
 
 typedef struct SectionVector {
     int4 nextindex;
@@ -98,12 +98,12 @@ SleighCompile*  SleighArch_register();
 void            SleighCompile_resetConstructor(SleighCompile *s);
 void            SleighCompile_setEndian(SleighCompile *s, int e);
 void            SleighCompile_setAlignment(SleighCompile *s, int e);
-TokenSymbol*    SleighCompile_defineToken(SleighCompile *s, const char *name, uint64_t *sz);
+TokenSymbol*    SleighCompile_defineToken(SleighCompile *s, const char *name, intb sz);
 void            SleighCompile_addTokenField(SleighCompile *s, TokenSymbol *sym, FieldQuality *qual);
 bool            SleighCompile_addContextField(SleighCompile *s, VarnodeSymbol *sym, FieldQuality *qual);
 void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad);
 
-void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb *off, uintb *size, struct dynarray *names);
+void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb off, uintb size, struct dynarray *names);
 void            SleighCompile_defineBitrange(SleighCompile *s, const char *name, VarnodeSymbol *sym, uint32_t bitoffset, uint32_t numb);
 void            SleighCompile_defineOperand(SleighCompile *s, OperandSymbol *sym, PatternExpression *exp);
 
@@ -112,6 +112,7 @@ void            SleighCompile_attachValues(SleighCompile *s, struct dynarray *sy
 void            SleighCompile_attachNames(SleighCompile *s, struct dynarray *symlist, struct dynarray *names);
 void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *symlist, struct dynarray *varlist);
 void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *tpl);
+bool            SleighCompile_parsePreprocMacro(SleighCompile *s);
 void            SleighCompile_pushWith(SleighCompile *s, SubtableSymbol *sym, PatternEquation *pateq, struct dynarray *contvec);
 void            SleighCompile_popWith(SleighCompile *s);
 SubtableSymbol* SleighCompile_newTable(SleighCompile *s, const char *name);
@@ -146,10 +147,12 @@ struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *
 bool                SleighCompile_getPreprocValue(SleighCompile *s, CString *name, CString *value);
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *filename);
 char*               SleighCompile_grabCurrentFilePath(SleighCompile *s);
-SleighSymbol*       SleighSympile_findSymbol(SleighCompile *s, char *name);
+SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name);
 void                SleighCompile_nextLine(SleighCompile *s);
 
-#define  SleighCompile_isInRoot(s, ct)      (s->root == Construct_getParent(ct))
+#define SleighCompile_isInRoot(s, ct)           (s->root == Constructor_getParent(ct))
+#define SleighCompile_getDefaultCodeSpace(s)    s->defaultcodespace
+#define SleighCompile_getConstantSpace(s)       s->constantspace
 
 
 #ifdef __cplusplus

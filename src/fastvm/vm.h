@@ -303,11 +303,13 @@ struct sym_attr *get_sym_attr(VMState *s1, int index, int alloc);
 #define gnu_ext(s)                  s->gnu_ext
 
 #define CSTR_INIT(c)               CString c = {0}
-CString *cstr_cat(CString *cstr, const char *str, int len);
-void cstr_init(CString *cstr);
-CString *cstr_new();
-void cstr_free(CString *cstr);
-void cstr_free(CString *cstr);
+CString *           cstr_cat(CString *cstr, const char *str, int len);
+static inline void  cstr_ccat(CString *cstr, int ch);
+void                cstr_init(CString *cstr);
+void                cstr_free(CString *cstr);
+CString*            cstr_new(char *src, int len);
+void                cstr_delete(CString *cstr);
+
 char* str_new(char *src, int len);
 void str_free(char *);
 

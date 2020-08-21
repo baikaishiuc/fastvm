@@ -93,8 +93,11 @@ typedef struct PatternExpression {
     };
 } PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue;;
 
-PatternExpression*  PatternExpression_new(int type, PatternExpression *left, PatternExpression *right);
+PatternExpression*  PatternExpression_new(int type, ...);
 void                PatternExpression_delete(PatternExpression *p);
+
+ConstantValue*      ConstantValue_new(void);
+ConstantValue*      ConstantValue_newB(intb b);
 
 typedef struct OperandResolve {
     struct dynarray     *operands;
