@@ -1,6 +1,8 @@
 ﻿
 #include "slgh_compile.h"
 
+SleighCompile *slgh = NULL;
+
 SpaceQuality*   SpaceQuality_new(char *name)
 {
     return NULL;
@@ -32,7 +34,7 @@ void            SleighCompile_setAlignment(SleighCompile *s, int e)
 {
 }
 
-TokenSymbol*    SleighCompile_defineToken(SleighCompile *s, const char *name, uint64_t *sz)
+TokenSymbol*    SleighCompile_defineToken(SleighCompile *s, const char *name, intb sz)
 {
     return NULL;
 }
@@ -55,6 +57,11 @@ void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym,
 }
 
 void            SleighCompile_defineBitrange(SleighCompile *s, const char *name, VarnodeSymbol *sym, uint32_t bitoffset, uint32_t numb)
+{
+
+}
+
+void            SleighCompile_defineOperand(SleighCompile *s, OperandSymbol *sym, PatternExpression *exp)
 {
 
 }
@@ -82,6 +89,11 @@ void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *
 void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *tpl)
 {
 
+}
+
+bool            SleighCompile_parsePreprocMacro(SleighCompile *s)
+{
+    return true;
 }
 
 void            SleighCompile_pushWith(SleighCompile *s, SubtableSymbol *sym, PatternEquation *pateq, struct dynarray *contvec)
@@ -207,14 +219,27 @@ struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *
     return NULL;
 }
 
-bool                SleighCompile_getPreprocValue(SleighCompile *s, CString *name, CString *value)
+bool                SleighCompile_getPreprocValue(SleighCompile *s, char *name, char **value)
 {
     return true;
+}
+
+void                SleighCompile_setPreprocValue(SleighCompile *s, char *name, char *value)
+{
+}
+
+bool                SleighCompile_undefinePreprocValue(SleighCompile *s, char *name)
+{
+    return false;
 }
 
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *filename)
 {
 
+}
+
+void                SleighCompile_parseFileFinished(SleighCompile *s)
+{
 }
 
 char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
@@ -228,6 +253,10 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 }
 
 void                SleighCompile_nextLine(SleighCompile *s)
+{
+}
+
+void                SleighCompile_calcContextLayout(SleighCompile *s)
 {
 }
 

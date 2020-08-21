@@ -17,6 +17,8 @@
 #include "slgh_compile.h"
 
 #define YYERROR_VERBOSE
+#define YYMALLOC
+#define YYFREE
 
   extern SleighCompile *slgh;
   extern int4 actionon;
@@ -107,7 +109,7 @@
 %token SIZE_KEY WORDSIZE_KEY OFFSET_KEY NAMES_KEY VALUES_KEY VARIABLES_KEY PCODEOP_KEY IS_KEY LOCAL_KEY
 %token DELAYSLOT_KEY CROSSBUILD_KEY EXPORT_KEY BUILD_KEY CONTEXT_KEY ELLIPSIS_KEY GLOBALSET_KEY BITRANGE_KEY
 
-%token <ch> CHAR
+%token <ch> CH
 %token <i> INTEGER
 %token <big> INTB
 %token <str> STRING SYMBOLSTRING
@@ -331,7 +333,7 @@ constraint: familysymbol '=' pexpression { $$ = PatternEquation_new(a_equalEq, S
   | OPERANDSYM '=' pexpression		{ $$ = SleighCompile_constrainOperand(slgh, $1, $3);
                                           if ($$ == (PatternEquation *)0) 
                                             { yyerror("Constraining currently undefined operand %s", SleighSymbol_getName($1)); } }
-  | OPERANDSYM				{ $$ = PatternEquation_new(a_operandEq, SleighSymbol_getIndex($1)); SleighCompile_selfDefine(slgh, $1); }
+  | OPERANDSYM				{ $$ = PatternEquation_new(a_operandEq, OperandSymbol_getIndex($1)); SleighCompile_selfDefine(slgh, $1); }
   | SPECSYM                             { $$ = PatternEquation_new(a_unconstrainedEq, SleighSymbol_getPatternExpression($1)); }
   | familysymbol                        { $$ = SleighCompile_defineInvisibleOperand(slgh, $1); }
   | SUBTABLESYM                         { $$ = SleighCompile_defineInvisibleOperand(slgh, $1); }
@@ -363,7 +365,7 @@ rtl: rtlmid { $$ = $1; if (!ConstructTpl_getOpvec($1)->len && (ConstructTpl_getR
   ;
 rtlmid: /* EMPTY */			{ $$ = ConstructTpl_new(); }
   | rtlmid statement			{ $$ = $1; if (!ConstructTpl_addOpList($$, $2)) { vm_free($2); yyerror("Multiple delayslot declarations"); YYERROR; } dynarray_delete($2); }
-  | rtlmid LOCAL_KEY STRING ';' { $$ = $1; PcodeCompile_newLocalDefinition(slgh->pcode, $3->data); cstr_delete($3); }
+  | rtlmid LOCAL_KEY STRING ';' { $$ = $1; PcodeCompile_newLocalDefinition(slgh->pcode, $3->data, 0); cstr_delete($3); }
   | rtlmid LOCAL_KEY STRING ':' INTEGER ';' { $$ = $1; PcodeCompile_newLocalDefinition(slgh->pcode, $3->data, (uint32_t)$5);  }
   ;
 statement: lhsvarnode '=' expr ';'	{ ExpTree_setOutput($3, $1); $$ = ExpTree_toVector($3); }
@@ -376,12 +378,12 @@ statement: lhsvarnode '=' expr ';'	{ ExpTree_setOutput($3, $1); $$ = ExpTree_toV
   | USEROPSYM '(' paramlist ')' ';'	{ $$ = PcodeCompile_createUserOpNoOut(slgh->pcode, $1,$3); }
   | lhsvarnode '[' INTEGER ',' INTEGER ']' '=' expr ';' { $$ = PcodeCompile_assignBitRange(slgh->pcode, $1,(uint4)$3,(uint4)$5,$8); }
   | BITSYM '=' expr ';'                 { $$= PcodeCompile_assignBitRange(slgh->pcode, 
-                                          SleighSymbol_getVarnode (SleighSymbol_getParentSymbol($1)), 
-                                          SleighSymbol_getBitOffset($1),
-                                          SleighSymbol_numBits($1),$3); }
+                                          SleighSymbol_getVarnode (BitrangeSymbol_getParentSymbol($1)), 
+                                          BitrangeSymbol_getBitOffset($1),
+                                          BitrangeSymbol_numBits($1),$3); }
   | varnode ':' INTEGER '='		{ VarnodeTpl_delete($1); yyerror("Illegal truncation on left-hand side of assignment"); YYERROR; }
   | varnode '(' INTEGER ')'		{ VarnodeTpl_delete($1); yyerror("Illegal subpiece on left-hand side of assignment"); YYERROR; }
-  | BUILD_KEY OPERANDSYM ';'		{ $$ = PcodeCompile_createOpConst(slgh->pcode, BUILD, SleighSymbol_getIndex($2)); }
+  | BUILD_KEY OPERANDSYM ';'		{ $$ = PcodeCompile_createOpConst(slgh->pcode, BUILD, OperandSymbol_getIndex($2)); }
   | CROSSBUILD_KEY varnode ',' SECTIONSYM ';' { $$ = SleighCompile_createCrossBuild(slgh, $2,$4); }
   | CROSSBUILD_KEY varnode ',' STRING ';'   { $$ = SleighCompile_createCrossBuild(slgh, $2, SleighCompile_newSectionSymbol(slgh, $4->data)); cstr_delete($4); }
   | DELAYSLOT_KEY '(' INTEGER ')' ';'	{ $$ = PcodeCompile_createOpConst(slgh->pcode, DELAY_SLOT,$3); }
@@ -456,9 +458,12 @@ expr: varnode { $$ = ExpTree_newV($1); }
   | OP_NEW '(' expr ',' expr ')' { $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_NEW,$3,$5); }
   | OP_POPCOUNT '(' expr ')' { $$ = PcodeCompile_createOp(slgh->pcode, CPUI_POPCOUNT,$3); }
   | specificsymbol '(' integervarnode ')' { $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_SUBPIECE,ExpTree_newV(SleighSymbol_getVarnode($1)),ExpTree_newV($3)); }
-  | specificsymbol ':' INTEGER	{ $$ = PcodeCompile_createBitRange(slgh->pcode, $1,0,(uint4)(*$3 * 8)); }
+  | specificsymbol ':' INTEGER	{ $$ = PcodeCompile_createBitRange(slgh->pcode, $1,0,(u4)($3 * 8)); }
   | specificsymbol '[' INTEGER ',' INTEGER ']' { $$ = PcodeCompile_createBitRange(slgh->pcode, $1,(uint4)$3,(uint4)$5); }
-  | BITSYM                      { $$=PcodeCompile_createBitRange(slgh->pcode, SleighSymbol_getParentSymbol($1),SleighSymbol_getBitOffset($1),SleighSymbol_numBits($1)); }
+  | BITSYM                      { $$=PcodeCompile_createBitRange(slgh->pcode, 
+                                  BitrangeSymbol_getParentSymbol($1),
+                                  BitrangeSymbol_getBitOffset($1),
+                                  BitrangeSymbol_numBits($1)); }
   | USEROPSYM '(' paramlist ')' { $$ = PcodeCompile_createUserOp(slgh->pcode, $1,$3); }
   | OP_CPOOLREF '(' paramlist ')'  { if ($3->len < 2) { yyerror("Must at least two inputs to cpool");  YYERROR; } $$ = PcodeCompile_createVariadic(slgh->pcode, CPUI_CPOOLREF,$3); }
   ;  
@@ -478,7 +483,7 @@ jumpdest: STARTSYM		{ VarnodeTpl *sym = SleighSymbol_getVarnode($1);
   | INTEGER '[' SPACESYM ']'	{ AddrSpace *spc = SleighSymbol_getSpace($3); 
                                 $$ = VarnodeTpl_new(ConstTpl_newA(spc),ConstTpl_new2(real,$1),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); }
   | label                       { $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
-                                    ConstTpl_new2(j_relative,SleighSymbol_getIndex($1)),ConstTpl_new2(real,sizeof(uintm))); SleighSymbol_incrementRefCount($1); }
+                                    ConstTpl_new2(j_relative, LabelSymbol_getIndex($1)),ConstTpl_new2(real,sizeof(uintm))); SleighSymbol_incrementRefCount($1); }
   | STRING			{ yyerror("Unknown jump destination: %s", *$1); cstr_delete($1); YYERROR; }
   ;
 varnode: specificsymbol		{ $$ = SleighSymbol_getVarnode($1); }
@@ -488,7 +493,7 @@ varnode: specificsymbol		{ $$ = SleighSymbol_getVarnode($1); }
   ;
 integervarnode: INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                               ConstTpl_new2(real,$1),ConstTpl_new2(real,0)); }
-  | BADINTEGER                  { $$ = VarnodeTpl_new(ConstTpl_new1(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
+  | BADINTEGER                  { $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
                                   yyerror("Parsed integer is too big (overflow)"); }
   | INTEGER ':' INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                       ConstTpl_new2(real,$1),ConstTpl_new2(real,$3)); }
@@ -522,8 +527,8 @@ specificsymbol: VARSYM		{ $$ = $1; }
   | STARTSYM			{ $$ = $1; }
   | ENDSYM			{ $$ = $1; }
   ;
-charstring: CHAR		{ $$ = cstr_new(NULL, 0); cstr_ccat($$, $1); }
-  | charstring CHAR		{ $$ = $1; cstr_ccat($$, $2); }
+charstring: CH		{ $$ = cstr_new(NULL, 0); cstr_ccat($$, $1); }
+  | charstring CH		{ $$ = $1; cstr_ccat($$, $2); }
   ;
 intblist: '[' intbpart ']'	{ $$ = $2; }
   | INTEGER                     { $$ = dynarray_new(int64_cmp, int64_delete); dynarray_add($$, int64_new($1)); }
@@ -531,11 +536,11 @@ intblist: '[' intbpart ']'	{ $$ = $2; }
   ;
 intbpart: INTEGER		{ $$ = dynarray_new(int64_cmp, int64_delete); dynarray_add($$, int64_new($1)); }
   | '-' INTEGER                 { $$ = dynarray_new(int64_cmp, int64_delete); dynarray_add($$, int64_new(-$2)); }
-  | STRING                      { if (strcmp ($1, "_")) { yyerror("Expecting integer but saw: %s", $1->data); cstr_delete($1); YYERROR; }
+  | STRING                      { if (strcmp ($1->data, "_")) { yyerror("Expecting integer but saw: %s", $1->data); cstr_delete($1); YYERROR; }
                                   $$ = dynarray_new(int64_cmp, int64_delete); dynarray_add($$, int64_new((intb)0xBADBEEF)); cstr_delete($1); }
   | intbpart INTEGER            { $$ = $1; dynarray_add($1, int64_new($2)); }
   | intbpart '-' INTEGER        { $$ = $1; dynarray_add($1, int64_new(-$3)); }
-  | intbpart STRING             { if (strcmp($2, "_")) { yyerror("Expecting integer but saw: %s", $2->data); cstr_delete($2);  YYERROR; }
+  | intbpart STRING             { if (strcmp($2->data, "_")) { yyerror("Expecting integer but saw: %s", $2->data); cstr_delete($2);  YYERROR; }
                                   $$ = $1; dynarray_add($1, int64_new((intb)0xBADBEEF)); cstr_delete($2); }
   ;
 stringlist: '[' stringpart ']'	{ $$ = $2; }
@@ -566,10 +571,10 @@ varlist: '[' varpart ']'	{ $$ = $2; }
   | VARSYM			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); }
   ;
 varpart: VARSYM			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); }
-  | STRING                      { if (*$1!="_") { yyerror("%s: is not a varnode symbol", $1->data); cstr_delete($1); YYERROR; }
+  | STRING                      { if (strcmp($1->data, "_")) { yyerror("%s: is not a varnode symbol", $1->data); cstr_delete($1); YYERROR; }
 				  $$ = dynarray_new(NULL, NULL); dynarray_add($$, (SleighSymbol *)0); vm_free($1); }
   | varpart VARSYM		{ $$ = $1; dynarray_add($$, $1); }
-  | varpart STRING		{ if (*$2!="_") { yyerror("%s: is not a varnode symbol", $2->data); cstr_delete($2); YYERROR; }
+  | varpart STRING		{ if (strcmp($2->data, "_")) { yyerror("%s: is not a varnode symbol", $2->data); cstr_delete($2); YYERROR; }
                                   $$ = $1; dynarray_add($$, (SleighSymbol *)0); cstr_delete($2); }
   ;
 paramlist: /* EMPTY */		{ $$ = dynarray_new(NULL, NULL); }
@@ -604,7 +609,7 @@ int yyerror(const char *s, ...)
 {
   va_list ap;
   va_start(ap, s);
-  fprintf(stderr, "Error(%s:%d.%d):", SleighCompile_grabCurrentFilePath(slgh), yylineno, yyrowno);
+  fprintf(stderr, "Error(%s:%d):", SleighCompile_grabCurrentFilePath(slgh), SleighCompile_curLineNo(slgh));
   vfprintf(stderr, s, ap);
   puts("");
   va_end(ap);

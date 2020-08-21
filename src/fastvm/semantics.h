@@ -67,7 +67,7 @@ typedef struct VarnodeTpl {
   bool unnamed_flag;
 } VarnodeTpl;
 
-ConstTpl *VarnodeTpl_getOffset(VarnodeTpl *v);
+#define VarnodeTpl_getOffset(v)             &v->offset
 
 VarnodeTpl*     VarnodeTpl_new();
 VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn);

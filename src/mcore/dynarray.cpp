@@ -117,13 +117,14 @@ int dynarray_exist(struct dynarray *d, int k)
     return 0;
 }
 
-struct dynarray*    dynarray_new(cmp_fn cmp)
+struct dynarray*    dynarray_new(cmp_fn cmp, free_fn free1)
 {
     struct dynarray *d = (struct dynarray *)calloc(1, sizeof (d[0]));
     if (!d)
         return NULL;
 
     d->cmp = cmp;
+    d->free1 = free1;
 
     return d;
 }
@@ -131,9 +132,9 @@ struct dynarray*    dynarray_new(cmp_fn cmp)
 void                dynarray_delete(struct dynarray *d)
 {
     int i;
-    if (d->free) {
+    if (d->free1) {
         for (i = 0; i < d->len; i++) {
-            d->free(d->ptab[i]);
+            d->free1(d->ptab[i]);
         }
     }
 
@@ -153,4 +154,9 @@ int64_t *int64_new(int64_t a)
     to[0] = a;
 
     return to;
+}
+
+void    int64_delete(int64_t *a)
+{
+    free(a);
 }

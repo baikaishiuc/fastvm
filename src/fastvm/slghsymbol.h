@@ -100,6 +100,12 @@ struct SleighSymbol {
             bool ispaced;
             u4 refcount;
         } label;
+
+        struct {
+            VarnodeSymbol *varsym;
+            u4 bitoffset;
+            u4 numbits;
+        } bitrange;
     };
 
     int id;
@@ -115,10 +121,17 @@ PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
 
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym);
-VarnodeSymbol*  SleighSymbol_getParentSymbol(SleighSymbol *sym);
-uint32_t        SleighSymbol_getBitOffset(SleighSymbol *sym);
-uint32_t        SleighSymbol_numBits(SleighSymbol *sym);
-#define SleighSymbol_getIndex(sym)          sym->index
+VarnodeTpl*     VarnodeSymbol_getVarnode(SleighSymbol *sym);
+VarnodeTpl*     StartSymbol_getVarnode(StartSymbol *sym);
+VarnodeTpl*     EndSymbol_getVarnode(EndSymbol *sym);
+VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
+
+#define BitrangeSymbol_getParentSymbol(sym)             sym->bitrange.varsym
+#define BitrangeSymbol_getBitOffset(sym)                sym->bitrange.bitoffset
+#define BitrangeSymbol_numBits(sym)                     sym->bitrange.numbits
+#define OperandSymbol_getIndex(sym)                     sym->operand.hand
+#define LabelSymbol_getIndex(sym)                       sym->label.index
+
 
 inline AddrSpace*   SleighSymbol_getSpace(SleighSymbol *sym) {
     assert(sym->type == space_symbol);

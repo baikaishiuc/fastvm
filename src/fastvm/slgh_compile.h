@@ -59,10 +59,23 @@ struct SleighCompile {
     struct {
         int counts;
     } preproc_defines;
+
+    AddrSpace   *constantspace;
+    AddrSpace   *defaultcodespace;
+    AddrSpace   *defaultdataspace;
+    AddrSpace   *iopspace;
+    AddrSpace   *fspecspace;
+    AddrSpace   *joinspace;
+    AddrSpace   *stackspace;
+    AddrSpace   *uniqspace;
+    u8          joinallocate;
+
     struct dynarray     contexttable;   // FieldContext
     struct dynarray     macrotable;     // ConstructTpl
     struct dynarray     tokentable;     // Token
     struct dynarray     tables;         // SubtableSymbol
+
+    struct dynarray     lineno;
 
     PcodeCompile *pcode;
 
@@ -144,16 +157,24 @@ ConstructTpl*       SleighCompile_setResultStarVarnode(SleighCompile *s, Constru
 struct dynarray*    SleighCompile_createCrossBuild(SleighCompile *s, VarnodeTpl *addr, SectionSymbol *sym);
 struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *sym, struct dynarray *param);
 
-bool                SleighCompile_getPreprocValue(SleighCompile *s, CString *name, CString *value);
+bool                SleighCompile_getPreprocValue(SleighCompile *s, char *name, char **value);
+void                SleighCompile_setPreprocValue(SleighCompile *s, char *name, char *value);
+bool                SleighCompile_undefinePreprocValue(SleighCompile *s, char *name);
+
+
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *filename);
+void                SleighCompile_parseFileFinished(SleighCompile *s);
 char*               SleighCompile_grabCurrentFilePath(SleighCompile *s);
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name);
 void                SleighCompile_nextLine(SleighCompile *s);
+void                SleighCompile_calcContextLayout(SleighCompile *s);
 
 #define SleighCompile_isInRoot(s, ct)           (s->root == Constructor_getParent(ct))
 #define SleighCompile_getDefaultCodeSpace(s)    s->defaultcodespace
 #define SleighCompile_getConstantSpace(s)       s->constantspace
+#define SleighCompile_curLineNo(s)             (i4)dynarray_back(&s->lineno)
 
+extern SleighCompile*   slgh;
 
 #ifdef __cplusplus
 }

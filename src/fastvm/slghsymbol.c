@@ -55,3 +55,40 @@ void            Constructor_delete(Constructor *c)
 void            Constructor_addSyntax(Constructor *c, const char *syn)
 {
 }
+
+void            SleighSymbol_delete(SleighSymbol *sym)
+{
+}
+
+SleighSymbol*   SpaceSymbol_new(AddrSpace *spc)
+{
+    return NULL;
+}
+
+SleighSymbol*   SectionSymbol_new(const char *name, int id)
+{
+    return NULL;
+}
+
+VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)
+{
+    switch (sym->type) {
+
+    case operand_symbol:
+        break;
+
+    case varnode_symbol:
+        break;
+
+    case start_symbol:
+        break;
+
+    case end_symbol:
+        break;
+
+    default:
+        break;
+    }
+
+    return NULL;
+}

@@ -20,7 +20,7 @@ extern "C" {
         int     size;
         void    *ref;
         cmp_fn  cmp;
-        free_fn free;
+        free_fn free1;
     };
 
     struct dynarray*    dynarray_new(cmp_fn cmp, free_fn);

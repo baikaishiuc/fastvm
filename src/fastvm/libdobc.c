@@ -267,7 +267,7 @@ static void cstr_realloc(CString *cstr, int new_size)
     cstr->size_allocated = size;
 }
 
-static inline void cstr_ccat(CString *cstr, int ch)
+void            cstr_ccat(CString *cstr, int ch)
 {
     int size;
     size = cstr->size + 1;

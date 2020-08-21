@@ -36,3 +36,13 @@ PatternEquation*    PatternEquation_new(int type, ...)
 void                PatternEquation_delete(PatternEquation *p)
 {
 }
+
+ConstantValue*      ConstantValue_new(void)
+{
+    return NULL;
+}
+
+ConstantValue*      ConstantValue_newB(intb b)
+{
+    return NULL;
+}

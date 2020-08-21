@@ -304,7 +304,7 @@ struct sym_attr *get_sym_attr(VMState *s1, int index, int alloc);
 
 #define CSTR_INIT(c)               CString c = {0}
 CString *           cstr_cat(CString *cstr, const char *str, int len);
-static inline void  cstr_ccat(CString *cstr, int ch);
+void                cstr_ccat(CString *cstr, int ch);
 void                cstr_init(CString *cstr);
 void                cstr_free(CString *cstr);
 CString*            cstr_new(char *src, int len);
