@@ -22,7 +22,7 @@ extern "C" {
 /* 使用这个函数时自己注意obuf的大小，是前面的len * 2 + 1，因为要加0 */
 unsigned char *hex2str(unsigned char *hex, int len, unsigned char *obuf);
 
-char *basename(char *name);
+char *basename(const char *name);
 
 #ifdef __cplusplus
 }

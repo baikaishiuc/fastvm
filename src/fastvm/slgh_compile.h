@@ -53,12 +53,31 @@ typedef struct SectionVector {
 SectionVector*  SectionVector_new(ConstructTpl *rtl, SymbolScope *scope);
 void            SectionVector_delete(SectionVector *sv);
 
+struct slgh_macro;
+struct slgh_macro {
+    struct {
+        struct slgh_macro *next;
+        struct slgh_macro *prev;
+    } in_list;
+
+    char *value;
+    char name[1];
+};
+
+struct slgh_preproc
+{
+    CString filename;
+    CString relpath;
+    int lineno;
+};
+
 struct SleighCompile {
     int SLA_FORMAT_VERSION;
 
     struct {
         int counts;
-    } preproc_defines;
+        struct slgh_macro *list;
+    } defines;
 
     AddrSpace   *constantspace;
     AddrSpace   *defaultcodespace;
@@ -75,8 +94,6 @@ struct SleighCompile {
     struct dynarray     tokentable;     // Token
     struct dynarray     tables;         // SubtableSymbol
 
-    struct dynarray     lineno;
-
     PcodeCompile *pcode;
 
     SubtableSymbol *root;
@@ -85,7 +102,17 @@ struct SleighCompile {
     uint32_t unique_allocatemask;
     uint32_t numSections;
 
-    void(*saveXml)(FILE *out);
+    bool warnunnecessarypcode;
+    bool warndeadtemps;
+    bool lenientconfliciterros;
+    bool warnallocalcollisions;
+    bool warnallnops;
+    struct dynarray     noplist;
+
+    struct dynarray     preproc;
+    int errors;
+
+    void(*saveXml)(SleighCompile *s, FILE *out);
 };
 
 typedef enum SleighArchType {
@@ -103,8 +130,8 @@ typedef struct SleighCompileClass {
 } SleighCompileClass;
 
 
-SleighCompile*  SleighCompile_new(SleighArchType arch);
-void            SleighCompile_delete();
+SleighCompile*  SleighCompile_new();
+void            SleighCompile_delete(SleighCompile *s);
 
 SleighCompile*  SleighArch_register();
 
@@ -125,7 +152,6 @@ void            SleighCompile_attachValues(SleighCompile *s, struct dynarray *sy
 void            SleighCompile_attachNames(SleighCompile *s, struct dynarray *symlist, struct dynarray *names);
 void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *symlist, struct dynarray *varlist);
 void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *tpl);
-bool            SleighCompile_parsePreprocMacro(SleighCompile *s);
 void            SleighCompile_pushWith(SleighCompile *s, SubtableSymbol *sym, PatternEquation *pateq, struct dynarray *contvec);
 void            SleighCompile_popWith(SleighCompile *s);
 SubtableSymbol* SleighCompile_newTable(SleighCompile *s, const char *name);
@@ -161,9 +187,10 @@ bool                SleighCompile_getPreprocValue(SleighCompile *s, char *name, 
 void                SleighCompile_setPreprocValue(SleighCompile *s, char *name, char *value);
 bool                SleighCompile_undefinePreprocValue(SleighCompile *s, char *name);
 
-
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *filename);
+void                SleighCompile_parsePreprocMacro(SleighCompile *s);
 void                SleighCompile_parseFileFinished(SleighCompile *s);
+
 char*               SleighCompile_grabCurrentFilePath(SleighCompile *s);
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name);
 void                SleighCompile_nextLine(SleighCompile *s);
@@ -172,7 +199,9 @@ void                SleighCompile_calcContextLayout(SleighCompile *s);
 #define SleighCompile_isInRoot(s, ct)           (s->root == Constructor_getParent(ct))
 #define SleighCompile_getDefaultCodeSpace(s)    s->defaultcodespace
 #define SleighCompile_getConstantSpace(s)       s->constantspace
-#define SleighCompile_curLineNo(s)             (i4)dynarray_back(&s->lineno)
+#define SleighCompile_curLineNo(s)             ((struct slgh_preproc *)dynarray_back(&s->preproc))->lineno
+
+int                 SleighCompile_main(int argc, char **argv);
 
 extern SleighCompile*   slgh;
 

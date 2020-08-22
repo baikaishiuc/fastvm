@@ -35,7 +35,9 @@ extern "C" {
     int dynarray_exist(struct dynarray *d, int i);
 
 #define dynarray_is_empty(_a)		((_a)->len == 0)
+#define dynarray_push               dynarray_add
 #define dynarray_back(_a)           ((_a)->ptab[(_a)->len - 1])
+#define dynarray_pop(_a)            (_a)->len--
 
     int int64_cmp(void *lhs, void *rhs, void *ref);
     int64_t *int64_new(int64_t a);

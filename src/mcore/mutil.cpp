@@ -19,9 +19,9 @@ unsigned char *hex2str(unsigned char *hex, int len, unsigned char *obuf)
     return obuf;
 }
 
-char *basename(char *name)
+char *basename(const char *name)
 {
-    char *p = strchr(name, 0);
+    char *p = strchr((char *)name, 0);
     while (p > name && !IS_DIRSEP(p[-1]))
         --p;
     return p;
