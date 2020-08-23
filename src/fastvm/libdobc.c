@@ -272,8 +272,9 @@ void            cstr_ccat(CString *cstr, int ch)
     int size;
     size = cstr->size + 1;
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(cstr, size + 1);
     ((unsigned char *)cstr->data)[size - 1] = ch;
+    ((unsigned char *)cstr->data)[size] = 0;
     cstr->size = size;
 }
 
@@ -284,9 +285,10 @@ CString *cstr_cat(CString *cstr, const char *str, int len)
         len = strlen(str) + 1 + len;
     size = cstr->size + len;
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(cstr, size + 1);
     memmove(((unsigned char *)cstr->data) + cstr->size, str, len);
     cstr->size = size;
+    cstr->data[size] = 0;
 
     return cstr;
 }
@@ -297,7 +299,7 @@ void cstr_wccat(CString *cstr, int ch)
     int size;
     size = cstr->size + sizeof(wchar_t);
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(cstr, size + 2);
     *(wchar_t *)(((unsigned char *)cstr->data) + size - sizeof(wchar_t)) = ch;
     cstr->size = size;
 }

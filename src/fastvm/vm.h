@@ -94,7 +94,7 @@
 
 typedef struct CString {
     int size;
-    void *data;     /* either char * or nwchar_t */
+    char *data;     /* either char * or nwchar_t */
     int size_allocated;
 } CString;
 
@@ -223,8 +223,8 @@ struct VMState {
 #define VM_SET_STATE(fn)    fn        
 
 #define vm_error_noabort    VM_SET_STATE(_vm_error_noabort)
-#define vm_error            VM_SET_STATE(_vm_error)
-#define vm_warning          VM_SET_STATE(_vm_warning)
+#define vm_error(fmt, ...)  _vm_error(fmt " %s:%d", ##__VA_ARGS__, __FILE__, __LINE__)            
+#define vm_warn             VM_SET_STATE(_vm_warning)
 
 void _vm_error_noabort(const char *fmt, ...);
 void _vm_error(const char *fmt, ...);

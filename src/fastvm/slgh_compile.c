@@ -11,7 +11,7 @@ int yylex_destroy(void) {
     return 0;
 }
 
-struct slgh_macro* slgh_find_macro(SleighCompile *slgh, const char *sym)
+struct slgh_macro* slgh_get_macro1(SleighCompile *slgh, const char *sym)
 {
     struct slgh_macro *macro;
     int i;
@@ -23,35 +23,51 @@ struct slgh_macro* slgh_find_macro(SleighCompile *slgh, const char *sym)
     return NULL;
 }
 
+bool                slgh_get_macro(SleighCompile *s, char *name, char **val)
+{
+    struct slgh_macro *m = slgh_get_macro1(slgh, name);
 
-void slgh_define_macro(SleighCompile *slgh, const char *sym, const char *val)
+    if (m) {
+        if (val)
+            *val = m->value;
+        return true;
+    }
+
+    return false;
+}
+
+void                slgh_set_macro(SleighCompile *s, char *name, char *val)
 {
     int len1, len2;
     struct slgh_macro *macro;
-    if ((macro = slgh_find_macro(slgh, sym))) {
-        vm_error("redefine macro %s\n", sym);
+    if ((macro = slgh_get_macro1(slgh, name))) {
+        vm_error("redefine macro %s\n", name);
     }
 
-    len1 = strlen(sym);
-    len2 = strlen(val);
+    len1 = strlen(name);
+    len2 = val ? strlen(val):0;
 
     macro = vm_mallocz(sizeof (macro[0]) + len1 + len2 + 1);
-    strcpy(macro->name, sym);
-    strcpy(macro->name + len1 + 1, val);
+    strcpy(macro->name, name);
+    if (val)
+        strcpy(macro->name + len1 + 1, val);
 
     mlist_add(slgh->defines, macro, in_list);
 }
 
-void slgh_undefine_macro(SleighCompile *slgh, const char *sym)
+bool                slgh_del_macro(SleighCompile *s, char *name)
 {
-    struct slgh_macro *macro = slgh_find_macro(slgh, sym);
+    struct slgh_macro *macro = slgh_get_macro1(slgh, name);
 
     if (!macro) {
-        vm_error("undefined macro[%s] not exist", sym);
+        vm_warn("undefined macro[%s] not exist", name);
+        return false;
     }
 
     mlist_del(slgh->defines, macro, in_list);
     free(macro);
+
+    return true;
 }
 
 SpaceQuality*   SpaceQuality_new(char *name)
@@ -292,18 +308,19 @@ bool                SleighCompile_undefinePreprocValue(SleighCompile *s, char *n
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *fname)
 {
     struct slgh_preproc *proc = vm_mallocz(sizeof (proc[0]));
-    char *base = basename(fname);
+    char *base;
 
-    cstr_cat(&proc->filename, base, strlen(base));
     proc->lineno = 1;
 
     if (slgh->preproc.len && !IS_ABSPATH(fname)) {
         struct slgh_preproc *last = dynarray_back(&slgh->preproc);
-        cstr_cat(&proc->relpath, last->relpath.data, last->relpath.size);
+        base = basename(last->fullpath.data);
+        cstr_cat(&proc->fullpath, last->fullpath.data, base - last->fullpath.data);
     }
-    cstr_cat(&proc->relpath, fname, base - fname - 1);
 
-    dynarray_add(&s->preproc, &proc);
+    cstr_cat(&proc->fullpath, fname, strlen(fname));
+
+    dynarray_add(&s->preproc, proc);
 }
 
 void                SleighCompile_parsePreprocMacro(SleighCompile *s)
@@ -311,10 +328,9 @@ void                SleighCompile_parsePreprocMacro(SleighCompile *s)
     struct slgh_preproc *last = dynarray_back(&s->preproc);
     struct slgh_preproc *proc = vm_mallocz(sizeof (proc[0]));
 
-    cstr_cat(&proc->filename, last->filename.data, last->filename.size);
-    cstr_cat(&proc->filename, ":macro", 0);
+    cstr_cat(&proc->fullpath, last->fullpath.data, last->fullpath.size);
+    cstr_cat(&proc->fullpath, ":macro", 0);
 
-    cstr_cat(&proc->relpath, last->relpath.data, last->relpath.size);
     proc->lineno = last->lineno;
     dynarray_add(&s->preproc, proc);
 }
@@ -327,7 +343,10 @@ void                SleighCompile_parseFileFinished(SleighCompile *s)
 
 char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
 {
-    return NULL;
+    if (!s->preproc.len) return "";
+    char *s1 = ((struct slgh_preproc *)dynarray_back(&s->preproc))->fullpath.data;
+
+    return s1;
 }
 
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
@@ -386,6 +405,8 @@ int                 slgh_run(SleighCompile *s, const char *filein, const char *f
 {
     slgh = s;
 
+    SleighCompile_parseFromNewFile(s, filein);
+
     yyin = fopen(filein, "r");
     if (NULL == yyin) 
         vm_error("unable to open specfile: %s", filein);
@@ -409,15 +430,10 @@ int             slgh_run_xml(SleighCompile *s, const char *filein)
     return 0;
 }
 
-int                 SleighCompile_main(int argc, char **argv)
+#if defined(SLEIGH_EXE)
+int                 main(int argc, char **argv)
 {
     int i;
-    bool enableUnnecessaryPcodeWarning = false;
-    bool disableLenientConflicit = false;
-    bool enableAllCollisionWarning = false;
-    bool enableAllNopWarning = false;
-    bool enableDeadTempWarning = false;
-    bool enforceLocalKeyWord = false;
     bool compileAll = false;
     SleighCompile *slgh = SleighCompile_new(0);
     char *p, *newstr, *sym, *val;
@@ -427,7 +443,7 @@ int                 SleighCompile_main(int argc, char **argv)
         exit(2);
     }
 
-    for (i = 0; i < argc; i++) {
+    for (i = 1; i < argc; i++) {
         p = argv[i];
         if (*p != '_') break;
         else if (p[1] == 'a')
@@ -456,11 +472,35 @@ int                 SleighCompile_main(int argc, char **argv)
             slgh->warndeadtemps = true;
         else if (p[1] == 'e')
             PcodeCompile_setEnforceLocalKey(slgh->pcode, true);
+        else {
+            printf("Unknown option %s\n", p);
+            return;
+        }
     }
+
+    char *filein = argv[i];
+    CString cs = {0};
 
     if (compileAll) {
     }
     else {
+        char *ext = strrchr(filein, '.');
+        cstr_cat(&cs, filein, ext - filein);
+        cstr_cat(&cs, ".sla", 4);
+        if (!strcmp(ext, ".xml")) {
+        }
+        else if (!strcmp(ext, ".slaspec")) {
+            return slgh_run(slgh, filein, cs.data);
+        }
+        else {
+            printf("Unkown file %s\n", filein);
+            return -1;
+        }
     }
+    cstr_free(&cs);
+
+    SleighCompile_delete(slgh);
+
     return 0;
 }
+#endif

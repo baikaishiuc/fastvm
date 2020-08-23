@@ -26,6 +26,7 @@ static const char version[] =
 #endif
 ")\n";
 
+#if defined(FASTVM_EXE)
 int main(int argc, char **argv)
 {
     int opt;
@@ -54,3 +55,4 @@ int main(int argc, char **argv)
 
     return 0;
 }
+#endif

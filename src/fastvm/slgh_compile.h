@@ -66,8 +66,7 @@ struct slgh_macro {
 
 struct slgh_preproc
 {
-    CString filename;
-    CString relpath;
+    CString fullpath;
     int lineno;
 };
 
@@ -183,9 +182,11 @@ ConstructTpl*       SleighCompile_setResultStarVarnode(SleighCompile *s, Constru
 struct dynarray*    SleighCompile_createCrossBuild(SleighCompile *s, VarnodeTpl *addr, SectionSymbol *sym);
 struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *sym, struct dynarray *param);
 
-bool                SleighCompile_getPreprocValue(SleighCompile *s, char *name, char **value);
-void                SleighCompile_setPreprocValue(SleighCompile *s, char *name, char *value);
-bool                SleighCompile_undefinePreprocValue(SleighCompile *s, char *name);
+bool                slgh_get_macro(SleighCompile *s, char *name, char **value);
+void                slgh_set_macro(SleighCompile *s, char *name, char *value);
+bool                slgh_del_macro(SleighCompile *s, char *name);
+#define slgh_define_macro       slgh_set_macro      
+#define slgh_undefine_macro     slgh_del_macro      
 
 void                SleighCompile_parseFromNewFile(SleighCompile *s, const char *filename);
 void                SleighCompile_parsePreprocMacro(SleighCompile *s);
@@ -200,8 +201,6 @@ void                SleighCompile_calcContextLayout(SleighCompile *s);
 #define SleighCompile_getDefaultCodeSpace(s)    s->defaultcodespace
 #define SleighCompile_getConstantSpace(s)       s->constantspace
 #define SleighCompile_curLineNo(s)             ((struct slgh_preproc *)dynarray_back(&s->preproc))->lineno
-
-int                 SleighCompile_main(int argc, char **argv);
 
 extern SleighCompile*   slgh;
 

@@ -35,7 +35,7 @@ struct dynarray ifstack;
 int4 negative_if = -1;
 
 #define fss_back()       ((struct FileStreamState *)dynarray_back(&filebuffers))
-#define skip_space(s)       while (isspace(*(s)++))
+#define skip_space(s)       while (isspace(*s)) s++;
 #define ifstack_push(a)     dynarray_add(&ifstack, (void *)a)
 #define ifstack_back()        ((int)dynarray_back(&ifstack))
 #define ifstack_back_set(i)      (dynarray_back(&ifstack)) = (void *)i
@@ -75,7 +75,7 @@ void preprocess_string(char **old, CString *res)
   
   skip_space(s);
   if (s[0] != '\"')
-    vm_error("Expecting double quoted string");
+    vm_error("Expecting double quoted string, %s", s);
   s++;
   t = strchr(s, '\"');
   if (!t)
@@ -101,7 +101,7 @@ int4 read_defined_operator(char **old)
     vm_error("Badly formed \"defined\" operator");
   ++s;
   read_identifier(&s, &macroname);
-  int4 res = SleighCompile_getPreprocValue(slgh, macroname.data, NULL) ? 1 : 0;
+  int4 res = slgh_get_macro(slgh, macroname.data, NULL) ? 1 : 0;
   skip_space(s);
   if (s[0] != ')')
     vm_error("Badly formed \"defined\" operator");
@@ -137,7 +137,7 @@ int4 read_boolean_clause(char **old)
     read_identifier(&s, &lhs);
     if (!strcmp(lhs.data, "defined"))
       return read_defined_operator(&s);
-    if (!SleighCompile_getPreprocValue(slgh, lhs.data, &lhs_val))
+    if (!slgh_get_macro(slgh, lhs.data, &lhs_val))
       vm_error("Could not find preprocessor macro %s", lhs.data);
   }
 
@@ -150,7 +150,7 @@ int4 read_boolean_clause(char **old)
   }
   else {
     read_identifier(&s, &rhs);
-    if (!SleighCompile_getPreprocValue(slgh, rhs.data, &rhs_val))
+    if (!slgh_get_macro(slgh, rhs.data, &rhs_val))
       vm_error("Could not find preprocessor macro %s", rhs.data);
   }
 
@@ -223,7 +223,7 @@ void expand_preprocmacros(CString *cstr)
 
     macro.data = pos + 2;
     macro.size = lastpos - (char *)macro.data;
-    if (!SleighCompile_getPreprocValue(slgh, macro.data, &value)) {
+    if (!slgh_get_macro(slgh, macro.data, &value)) {
       vm_error("Unknown preprocessing macro %s", macro.data);
     }
     cstr_cat(&res, value, strlen(value));
@@ -239,19 +239,20 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     CSTR_INIT(varname);
     CSTR_INIT(value);
   char *str = str_new(yytext, 0);
-  char *macro = strchr (str, '#');
+  char *comment = strchr (str, '#');
   char *filename;
-  if (macro) {
-    *macro = 0;
+  if (comment) {
+    *comment = 0;
   }
   char *type, *s = str;
 
   if (cur_state != blank_state)
     last_preproc = cur_state;
 
-  skip_space(s);
-  s = strtok(s, " ");
-  type = strtok(NULL, " ");
+// skip @
+  s++; skip_space(s);
+  type = s;
+  s = strchr(s, ' '); *s = 0; s++;
   if (!strcmp(type, "include")) {
     if (negative_if == -1) {  // Not in the middle of a false if clause
       dynarray_add(&filebuffers, fss_new());
@@ -283,7 +284,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
         read_identifier(&s, &value);
       if (varname.size ==0)
         vm_error("Error in preprocessor definition");
-      SleighCompile_setPreprocValue(slgh, varname.data, value.data);
+      slgh_set_macro(slgh, varname.data, value.data);
       check_to_endofline(s);
     }
   }
@@ -292,7 +293,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
       read_identifier(&s, &varname);		// Name of variable to undefine
       if (varname.size ==0)
         vm_error("Error in preprocessor undef");
-      SleighCompile_undefinePreprocValue(slgh, varname.data);
+      slgh_del_macro(slgh, varname.data);
       check_to_endofline(s);
     }
   }
@@ -300,7 +301,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifdef");
-    int4 truth = (SleighCompile_getPreprocValue(slgh, varname.data, NULL)) ? 1 : 0;
+    int4 truth = (slgh_get_macro(slgh, varname.data, NULL)) ? 1 : 0;
 
     ifstack_push(truth);
     check_to_endofline(s);
@@ -309,7 +310,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifndef");
-    int4 truth = (SleighCompile_getPreprocValue(slgh, varname.data, NULL)) ? 0 : 1;	// flipped from ifdef
+    int4 truth = (slgh_get_macro(slgh, varname.data, NULL)) ? 0 : 1;	// flipped from ifdef
 
     ifstack_push(truth);
     check_to_endofline(s);
@@ -393,7 +394,7 @@ void preproc_macroexpand(void)
   macro.data = yytext + 2;
   macro.size = len - 3;
 
-  if (!SleighCompile_getPreprocValue(slgh, macro.data, &value))
+  if (!slgh_get_macro(slgh, macro.data, &value))
     vm_error("Unknown preprocessing macro %s", macro.data);
   yy_switch_to_buffer( yy_scan_string( value ) );
   SleighCompile_parsePreprocMacro(slgh);
