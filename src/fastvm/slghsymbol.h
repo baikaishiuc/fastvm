@@ -110,12 +110,14 @@ struct SleighSymbol {
 
     int id;
     int scopeid;
+    struct rb_node in_scope;
     char name[1];
 };
 
 void            SleighSymbol_delete(SleighSymbol *sym);
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
+SleighSymbol*   SubtableSymbol_new(const char *name);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
@@ -154,13 +156,10 @@ inline void         SleighSymbol_incrementRefCount(SleighSymbol *sym) {
 
 typedef int (*SymbolCompare)(const SleighSymbol *a, const SleighSymbol *b);
 
-typedef struct SymbolTree {
-    SymbolCompare cmp;
-} SymbolTree;
-
-
 struct SymbolScope {
-    SymbolTable *tab;
+    SymbolScope *parent;
+    struct rb_root tree;
+    int id;
 };
 
 struct SymbolTable {
@@ -180,13 +179,15 @@ SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scop
 
 void            SymbolTable_addScope(SymbolTable *s);
 void            SymbolTable_popScope(SymbolTable *s);
+SymbolScope*    SymbolTable_skipScope(SymbolTable *s, int i);
+
 void            SymbolTable_addGlobalSymbol(SymbolTable *s, SleighSymbol *a);
-void            SymoblTable_addSymbol(SymbolTable *s, SleighSymbol *a);
+void            SymbolTable_addSymbol(SymbolTable *s, SleighSymbol *a);
 SleighSymbol*   SymbolTable_findSymbol(SymbolTable *s, const char *name);
 SleighSymbol*   SymbolTable_findSymbolSkip(SymbolTable *s, const char *name, int skip);
 SleighSymbol*   SymbolTable_findGlobalSymbol(SymbolTable *s, const char *name);
 SleighSymbol*   SymbolTable_findSymbolById(SymbolTable *s, int id);
-void            SymbolTable_replaceSymbol(SleighSymbol *a, SleighSymbol *b);
+void            SymbolTable_replaceSymbol(SymbolTable *s, SleighSymbol *a, SleighSymbol *b);
 
 struct Constructor {
     TokenPattern *pattern;

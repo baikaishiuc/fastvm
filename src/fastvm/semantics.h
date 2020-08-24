@@ -17,6 +17,12 @@ extern "C" {
 #define MACROBUILD  CPUI_CAST
 #define LABELBUILD  CPUI_PTRADD
 
+typedef struct ConstTpl     ConstTpl;
+typedef struct VarnodeTpl   VarnodeTpl;
+typedef struct HandleTpl    HandleTpl;
+typedef struct OpTpl        OpTpl;
+typedef struct ConstructTpl ConstructTpl;
+
 typedef enum const_type { 
     real=0,
     handle=1,
@@ -39,7 +45,7 @@ typedef enum v_field {
     v_offset_plus=3
 } v_field;
 
-typedef struct ConstTpl { 
+struct ConstTpl { 
   const_type type;
   union {
     //    uintb real;			// an actual constant
@@ -48,7 +54,7 @@ typedef struct ConstTpl {
   } value;
   uintb value_real;
   v_field select;		// Which part of handle to use as constant
-} ConstTpl;
+};
 
 ConstTpl*   ConstTpl_clone(ConstTpl *);
 ConstTpl*   ConstTpl_newA(AddrSpace *space);
@@ -62,10 +68,10 @@ void        ConstTpl_delete(ConstTpl *);
 void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
 v_field     ConstTpl_readHandleSelector(const char *name);
 
-typedef struct VarnodeTpl {
+struct VarnodeTpl {
   ConstTpl space,offset,size;
   bool unnamed_flag;
-} VarnodeTpl;
+};
 
 #define VarnodeTpl_getOffset(v)             &v->offset
 
@@ -75,7 +81,7 @@ VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
 void            VarnodeTpl_delete(VarnodeTpl *vn);
 
-typedef struct HandleTpl {
+struct HandleTpl {
   ConstTpl space;
   ConstTpl size;
   ConstTpl ptrspace;
@@ -83,20 +89,20 @@ typedef struct HandleTpl {
   ConstTpl ptrsize;
   ConstTpl temp_space;
   ConstTpl temp_offset;
-} HandleTpl;
+};
 
-typedef struct OpTpl {
+struct OpTpl {
   VarnodeTpl *output;
   OpCode opc;
   struct dynarray input;    // VarnodeTpl *
-} OpTpl;
+};
 
-typedef struct ConstructTpl {
+struct ConstructTpl {
   uint4 delayslot;
   uint4 numlabels;		// Number of label templates
   struct dynarray *vec;
   HandleTpl *result;
-} ConstructTpl;
+};
 
 #define ConstructTpl_setOpvec(c, v)     (c)->vec = v
 #define ConstructTpl_setNumLabels(c, v) (c)->numlabels = val

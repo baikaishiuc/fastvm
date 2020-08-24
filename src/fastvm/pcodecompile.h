@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #include "slghsymbol.h"
+#include "semantics.h"
 
 typedef struct Location Location;
 typedef struct StarQuality StarQuality;

@@ -2,9 +2,7 @@
 #include "slgh_compile.h"
 
 SleighCompile *slgh = NULL;
-#ifdef YYDEBUG
-extern in yydebug;
-#endif
+extern int yydebug;
 extern FILE *yyin;
 extern int yyparse(void);
 int yylex_destroy(void) {
@@ -44,13 +42,15 @@ void                slgh_set_macro(SleighCompile *s, char *name, char *val)
         vm_error("redefine macro %s\n", name);
     }
 
+    val = val ? val : "\0";
+
     len1 = strlen(name);
-    len2 = val ? strlen(val):0;
+    len2 = strlen(val);
 
     macro = vm_mallocz(sizeof (macro[0]) + len1 + len2 + 1);
     strcpy(macro->name, name);
-    if (val)
-        strcpy(macro->name + len1 + 1, val);
+    macro->value = macro->name + len1 + 1;
+    strcpy(macro->value, val);
 
     mlist_add(slgh->defines, macro, in_list);
 }
@@ -72,7 +72,13 @@ bool                slgh_del_macro(SleighCompile *s, char *name)
 
 SpaceQuality*   SpaceQuality_new(char *name)
 {
-    return NULL;
+    SpaceQuality *sq = vm_mallocz(sizeof (sq[0]) + strlen(name) + 1);
+
+    strcpy(sq->name, name);
+    sq->wordsize = 1;
+    sq->type = RAMTYPE;
+
+    return sq;
 }
 
 SleighCompile*  SleighCompile_new()
@@ -103,8 +109,70 @@ void            SleighCompile_resetConstructor(SleighCompile *s)
 {
 }
 
+void            SleighCompile_insertSpace(SleighCompile *s, AddrSpace *spc)
+{
+    bool nameTypeMismatch = false;
+    bool duplicateName = false;
+    bool duplicateId = false;
+
+    switch (spc->type) {
+    case IPTR_CONSTANT:
+        if (strcmp(spc->name, "const"))
+            nameTypeMismatch = true;
+        if (spc->index != constant_space_index)
+            vm_error("const space must be assigned index 0");
+        s->constantspace = spc;
+        break;
+
+    case IPTR_INTERNAL:
+        if (strcmp(spc->name, "unique"))
+            nameTypeMismatch = true;
+        if (s->uniqspace)
+            duplicateName = true;
+
+        s->uniqspace = spc;
+        break;
+
+    case IPTR_FSPEC:
+        if (strcmp(spc->name, "fspec"))
+            nameTypeMismatch = true;
+        if (s->fspecspace)
+            duplicateName = true;
+        s->fspecspace = spc;
+        break;
+
+    case IPTR_JOIN:
+        if (strcmp(spc->name, "join"))
+            nameTypeMismatch = true;
+        if (s->joinspace)
+            duplicateName = true;
+        s->joinspace = spc;
+        break;
+
+    case IPTR_IOP:
+        if (strcmp(spc->name, "iop"))
+            nameTypeMismatch = true;
+        if (s->iopspace)
+            duplicateName = true;
+        s->iopspace = spc;
+        break;
+
+    case IPTR_SPACEBASE:
+        break;
+    }
+}
+
+void            SleighCompile_predefinedSymbols(SleighCompile *s)
+{
+    SymbolTable_addScope(s->symtab);
+
+    s->root = SubtableSymbol_new("instruction");
+    SymbolTable_addSymbol(s->symtab, s->root);
+}
+
 void            SleighCompile_setEndian(SleighCompile *s, int e)
 {
+    s->bigendian = e;
 }
 
 void            SleighCompile_setAlignment(SleighCompile *s, int e)
@@ -127,6 +195,14 @@ bool            SleighCompile_addContextField(SleighCompile *s, VarnodeSymbol *s
 
 void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
 {
+    struct slgh_preproc *proc = dynarray_back(&s->preproc);
+
+    if (quad->size == 0) {
+        vm_error("%s:%d Space definition %s missing size attribute", basename(proc->fullpath.data), proc->lineno, quad->name);
+    }
+
+    int delay = (quad->type == REGISTERTYPE) ? 0 : 1;
+    //AddrSpace *spc = AddrSpace_new();
 }
 
 void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb off, uintb size, struct dynarray *names)
@@ -356,6 +432,11 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 
 void                SleighCompile_nextLine(SleighCompile *s)
 {
+    struct slgh_preproc *proc = dynarray_back(&s->preproc);
+
+    proc->lineno++;
+
+    printf("*****scan %s line %d\n", basename(proc->fullpath.data), proc->lineno);
 }
 
 void                SleighCompile_calcContextLayout(SleighCompile *s)
@@ -445,7 +526,7 @@ int                 main(int argc, char **argv)
 
     for (i = 1; i < argc; i++) {
         p = argv[i];
-        if (*p != '_') break;
+        if (*p != '-') break;
         else if (p[1] == 'a')
             compileAll = true;
         else if (p[1] == 'D') {
@@ -472,6 +553,8 @@ int                 main(int argc, char **argv)
             slgh->warndeadtemps = true;
         else if (p[1] == 'e')
             PcodeCompile_setEnforceLocalKey(slgh->pcode, true);
+        else if (p[1] == 'x')
+            yydebug = 1;
         else {
             printf("Unknown option %s\n", p);
             return;

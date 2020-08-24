@@ -1,3 +1,7 @@
 file(GLOB srclist *.cpp *.c *.h)
 add_executable(fastvm ${srclist})
+add_executable(sleigh ${srclist})
+target_compile_definitions(fastvm PUBLIC FASTVM_EXE)
+target_compile_definitions(sleigh PUBLIC SLEIGH_EXE)
 target_link_libraries(fastvm mcore Shlwapi)
+target_link_libraries(sleigh mcore Shlwapi)

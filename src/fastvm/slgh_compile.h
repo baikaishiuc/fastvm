@@ -13,7 +13,7 @@ extern "C" {
 typedef struct SpaceQuality SpaceQuality;
 typedef struct RtlPair RtlPair;
 typedef struct FieldQuality FieldQuality;
-typedef struct SleighCompile SleighCompile;
+typedef struct SleighCompile SleighCompile, AddrSpaceManager, Translator;
 
 struct RtlPair {
     //ConstructTpl *section;
@@ -25,11 +25,11 @@ struct RtlPair {
 #define REGISTERTYPE        1
 
 struct SpaceQuality {
-    const char *name;
     int type;
     int size;
     int wordsize;
     bool isdefault;
+    char name[1];
 };
 
 SpaceQuality*   SpaceQuality_new(char *name);
@@ -73,6 +73,11 @@ struct slgh_preproc
 struct SleighCompile {
     int SLA_FORMAT_VERSION;
 
+    bool    bigendian;
+    uintm   unique_base;
+    int     alignment;
+    struct dynarray     floatformats;
+
     struct {
         int counts;
         struct slgh_macro *list;
@@ -96,7 +101,7 @@ struct SleighCompile {
     PcodeCompile *pcode;
 
     SubtableSymbol *root;
-    SymbolTable symtab;
+    SymbolTable *symtab;
     uint32_t maxdelayslotbytes;
     uint32_t unique_allocatemask;
     uint32_t numSections;

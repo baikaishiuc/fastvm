@@ -11,7 +11,9 @@ extern "C" {
 
 /* copy from Ghidra space.hh */
 
-typedef enum spacetype {
+    typedef enum spacetype spacetype;
+
+enum spacetype {
     IPTR_CONSTANT = 0,
     IPTR_PROCESSOR = 1,
     IPTR_SPACEBASE = 2,
@@ -19,43 +21,45 @@ typedef enum spacetype {
     IPTR_FSPEC = 4,
     IPTR_IOP = 5,
     IPTR_JOIN = 6,
-} spacetype;
+};
 
-typedef struct AddrSpaceManager AddrSpaceManager;
-typedef struct AddrSpaceManager Translate;
+typedef struct AddrSpace AddrSpace, ConstantSpace, OtherSpace, UniqueSpace, JoinSpace, OverlaySpace;
+
+#define big_endian              0x0001
+#define heritaged               0x0002
+#define does_deadcode           0x0004
+#define programspecific         0x008
+#define reverse_justification   0x0010
+#define overlay                 0x0020
+#define truncated               0x0040
+#define hashpysical             0x0080
+#define is_otherspace           0x0100
+#define has_nearpointers        0x0200
+
+#define constant_space_index    0
+#define other_space_index       1
 
 
-typedef struct AddrSpace {
-    struct {
-        unsigned big_endian : 1;
-        unsigned heritaged : 1;
-        unsigned does_deadcode : 1;
-        unsigned programspecific : 1;
-        unsigned reverse_justification : 1;
-        unsigned overlay : 1;
-        unsigned truncated : 1;
-        unsigned hashpysical : 1;
-        unsigned is_otherspace : 1;
-        unsigned has_nearpointers : 1;
-    } flags;
+struct AddrSpace {
+    u4 flags;
     /* privated */
     spacetype type;
-    AddrSpaceManager *manage;
-    Translate *trans;
+    void *manage;
+    void *trans;
     int refcount;
     uintb highest;
     unsigned pointerLowerBound;
     int shortcut;
 
     /* protected */
-    char *name;
     int addrsize;
     int wordsize;
     int minimumPointerSize;
     int index;
     int delay;   // delay in heritage for the space
     int deadcodedelay;      // delay before deadcode removal is allowed on this space
-} AddrSpace;
+    char name[1];
+};
 
 #define AddrSpace_getTrans(a)               (a)->trans
 #define AddrSpace_getType(a)                (a)->type
@@ -68,45 +72,17 @@ typedef struct AddrSpace {
 #define AddrSpace_getPointerLowerBound(a)   (a)->pointerLowerBound
 #define AddrSpace_getMinimumPtrSize(a)      (a)->minimumPointerSize
 #define AddrSpace_getShortcut(a)            (a)->shortcut
-#define AddrSpace_isHeritaged(a)            (a)->flags.heritaged
-#define AddrSpace_doesDeadCode(a)           (a)->flags.does_deadcode
-#define AddrSpace_hasPhysical(a)            (a)->flags.hashpysical
-#define AddrSpace_isBigEndian(a)            (a)->flags.isBigEndian
-#define AddrSpace_isReverseJustified(a)     (a)->flags.reverse_justification
-#define AddrSpace_isOverlay(a)              (a)->flags.overlay
+#define AddrSpace_isHeritaged(a)            ((a)->flags & heritaged)
+#define AddrSpace_doesDeadCode(a)           ((a)->flags & does_deadcode)
+#define AddrSpace_hasPhysical(a)            ((a)->flags & hashpysical)
+#define AddrSpace_isBigEndian(a)            ((a)->flags & big_endian)
+#define AddrSpace_isReverseJustified(a)     ((a)->flags & reverse_justification)
+#define AddrSpace_isOverlay(a)              ((a)->flags & overlay)
 
-inline uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off)
-{
-    if (off <= s->highest)
-        return off;
+uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off);
 
-    intb mod = (intb)(s->highest + 1);
-    intb res = (intb)(off % mod);
-    if (res < 0)
-        res += mod;
-    return (uintb)res;
-}
-
-
-typedef struct AddrSpaceManager {
-    struct dynarray baselist;
-    AddrSpace *constantspace;
-    AddrSpace *defaultcodespace;
-    AddrSpace *defaultdataspace;
-    AddrSpace *iospace;
-    AddrSpace *fspecspace;
-    AddrSpace *joinspace;
-    AddrSpace *stackspace;
-} AddrSpaceManager, Translate;
-
-AddrSpace*          AddrSpace_new(AddrSpaceManager *m);
-
-AddrSpaceManager*   AddrSpaceManager_new();
-void                AddrSpaceManager_delete(AddrSpaceManager *mgr);
-
-int                 AddrSpaceManager_getDefaultSize(AddrSpaceManager *mgr);
-AddrSpace*          AddrSpaceManager_getSpaceByName(AddrSpaceManager *mgr, const char *name);
-AddrSpace*          AddrSpaceManager_getSpaceByShortcunt(AddrSpaceManager *m, char sc);
+AddrSpace*          AddrSpace_new2(void *m, spacetype tp);
+AddrSpace*          AddrSpace_new8(void *m, spacetype tp, const char *name, u4 size, u4 ws, int ind, u4 fl, int dl);
 
 typedef struct VarnodeData {
     AddrSpace *space;
@@ -114,9 +90,7 @@ typedef struct VarnodeData {
     uint32_t size;
 } VarnodeData;
 
-static inline bool VarnodeData_less(const VarnodeData *op1, const VarnodeData *op2) {
-    return false;
-}
+bool VarnodeData_less(const VarnodeData *op1, const VarnodeData *op2);
 
 #ifdef __cplusplus
 }

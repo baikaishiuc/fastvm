@@ -390,14 +390,13 @@ void preproc_macroexpand(void)
   CSTR_INIT(macro);
   char *value = NULL;
 
-  int len = strlen(yytext);
-  macro.data = yytext + 2;
-  macro.size = len - 3;
+  cstr_cat(&macro, yytext + 2, strlen(yytext) - 3);
 
   if (!slgh_get_macro(slgh, macro.data, &value))
     vm_error("Unknown preprocessing macro %s", macro.data);
   yy_switch_to_buffer( yy_scan_string( value ) );
   SleighCompile_parsePreprocMacro(slgh);
+  cstr_free(&macro);
 }
 
 int4 find_symbol(void) {
@@ -466,7 +465,9 @@ int4 find_symbol(void) {
   case dummy_symbol:
     break;
   }
-  return -1;   // Should never reach here
+  //return -1;   // Should never reach here
+  vm_error("should never reach here");
+  return -1;
 }
 
 int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
@@ -489,6 +490,9 @@ int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
   }
   else if (numtext[0] == '0'){
     val = strtoull(numtext, NULL, 8);
+  }
+  else if (numtext[0] >= '1' && numtext[0] <= '9') {
+    val = strtoull(numtext, NULL, 10);
   }
   else {
       vm_error("bad integer %s", numtext);
