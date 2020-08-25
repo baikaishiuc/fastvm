@@ -15,6 +15,9 @@ PatternExpression*  PatternExpression_new(int type, ...)
             pat->and.right = va_arg(ap, PatternExpression *);
             break;
 
+        case a_startInstructionValue:
+            break;
+
         default:
             vm_error("un-support PatternExpression(%d)", type);
     }
@@ -45,4 +48,9 @@ ConstantValue*      ConstantValue_new(void)
 ConstantValue*      ConstantValue_newB(intb b)
 {
     return NULL;
+}
+
+StartInstructionValue*  StartInstructionValue_new()
+{
+    return PatternExpression_new(a_startInstructionValue);
 }

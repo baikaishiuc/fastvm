@@ -1,8 +1,11 @@
 ﻿
+#include "vm.h"
 #include "space.h"
-#include "slgh_compile.h"
 
-AddrSpace*          AddrSpace_new2(SleighCompile *m, spacetype tp)
+#define clearFlags(spc, f)          (spc->flags & ~(f))
+#define setFlags(spc, f)            (spc->flags &= big_endian)
+
+AddrSpace*          AddrSpace_new2(void *m, spacetype tp)
 {
     AddrSpace *spc = vm_mallocz(sizeof(spc[0]));
 
@@ -19,7 +22,7 @@ AddrSpace*          AddrSpace_new2(SleighCompile *m, spacetype tp)
     return spc;
 }
 
-AddrSpace*          AddrSpace_new8(SleighCompile *m, spacetype tp, const char *name, u4 size, u4 ws, int ind, u4 fl, int dl)
+AddrSpace*          AddrSpace_new8(void *m, spacetype tp, const char *name, u4 size, u4 ws, int ind, u4 fl, int dl)
 {
     AddrSpace *spc = vm_mallocz(sizeof(spc[0]) + strlen(name));
 
@@ -35,7 +38,41 @@ AddrSpace*          AddrSpace_new8(SleighCompile *m, spacetype tp, const char *n
     spc->minimumPointerSize = 0;
     spc->shortcut = ' ';
 
-    spc->flags = (fl & hashpysical);
+    spc->flags = (fl & hasphysical);
+
+    return spc;
+}
+
+ConstantSpace*      ConstantSpace_new(void *m, const char *name, int ind)
+{
+    AddrSpace *spc;
+
+    spc = AddrSpace_new8(m, IPTR_CONSTANT, name, sizeof(uintb), 1, ind, 0, 0);
+
+    if (HOST_ENDIAN == 1)
+        setFlags(spc, big_endian);
+
+    return spc;
+}
+
+OtherSpace*         OtherSpace_new(void *m, const char *name, int ind)
+{
+    AddrSpace *spc;
+
+    spc = AddrSpace_new8(m, IPTR_PROCESSOR, name, sizeof(uintb), 1, ind, 0, 0);
+
+    clearFlags(spc, heritaged | does_deadcode);
+    setFlags(spc, is_otherspace);
+
+    return spc;
+}
+
+UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl)
+{
+    AddrSpace *spc;
+
+    spc = AddrSpace_new8(m, IPTR_INTERNAL, name, 1, ind, fl, 0, 0);
+    setFlags(spc, hasphysical);
 
     return spc;
 }
@@ -54,4 +91,9 @@ uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off)
 
 bool VarnodeData_less(const VarnodeData *op1, const VarnodeData *op2) {
     return false;
+}
+
+void                AddrSpace_delete(AddrSpace *a)
+{
+    free(a);
 }

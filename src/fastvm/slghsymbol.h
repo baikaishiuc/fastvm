@@ -50,7 +50,9 @@ struct SleighSymbol {
     } type;
 
     union {
-        AddrSpace *space;
+        struct {
+            AddrSpace *space;
+        } space;
         Token *tok;
 
         struct {
@@ -118,6 +120,8 @@ void            SleighSymbol_delete(SleighSymbol *sym);
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
 SleighSymbol*   SubtableSymbol_new(const char *name);
+StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
+EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
@@ -138,7 +142,7 @@ VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
 inline AddrSpace*   SleighSymbol_getSpace(SleighSymbol *sym) {
     assert(sym->type == space_symbol);
 
-    return sym->space;
+    return sym->space.space;
 }
 
 inline void         SleighSymbol_setCodeAddress(SleighSymbol *sym) {

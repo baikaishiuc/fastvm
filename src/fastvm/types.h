@@ -47,4 +47,6 @@ typedef uint8 uintb;		/* This is an unsigned big integer */
 typedef uint4 uintb;
 #endif
 
+#define HOST_ENDIAN     0
+
 #endif

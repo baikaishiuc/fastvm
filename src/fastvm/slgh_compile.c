@@ -109,6 +109,10 @@ void            SleighCompile_resetConstructor(SleighCompile *s)
 {
 }
 
+void            SleighCompile_assignShortcut(SleighCompile *s, AddrSpace *spc)
+{
+}
+
 void            SleighCompile_insertSpace(SleighCompile *s, AddrSpace *spc)
 {
     bool nameTypeMismatch = false;
@@ -158,8 +162,49 @@ void            SleighCompile_insertSpace(SleighCompile *s, AddrSpace *spc)
         break;
 
     case IPTR_SPACEBASE:
+        if (!strcmp(spc->name, "stack")) {
+            if (s->stackspace) {
+                duplicateName = true;
+            }
+
+            s->stackspace = spc;
+        }
+
+    case IPTR_PROCESSOR:
+        if (AddrSpace_isOverlay(spc)) {
+            spc->baseSpace->flags |= overlaybase;
+        }
+        else if (spc->flags & is_otherspace) {
+            if (spc->index != is_otherspace)
+                vm_error("Other Space must be assigned index");
+        }
         break;
     }
+
+    if (s->baselist.len <= spc->index)
+        dynarray_add(&s->baselist, NULL);
+
+    duplicateId = s->baselist.ptab[spc->index] != 0;
+
+    if (!nameTypeMismatch && !duplicateName && !duplicateId) {
+        dynarray_add(&s->name2Space, spc);
+    }
+
+    if (nameTypeMismatch || duplicateId || duplicateName) {
+        if (spc->refcount == 0)
+            AddrSpace_delete(spc);
+        spc = NULL;
+    }
+
+    if (nameTypeMismatch)
+        vm_error("Space %s was initialized with wrong type", spc->name);
+    if (duplicateName)
+        vm_error("Space %s was initialized more than once", spc->name);
+    if (duplicateId)
+        vm_error("Space %s was assigned as id duplicating", ((AddrSpace *)s->name2Space.ptab[spc->index])->name);
+
+    s->baselist.ptab[spc->index] = spc;
+    spc->refcount += 1;
 }
 
 void            SleighCompile_predefinedSymbols(SleighCompile *s)
@@ -168,7 +213,24 @@ void            SleighCompile_predefinedSymbols(SleighCompile *s)
 
     s->root = SubtableSymbol_new("instruction");
     SymbolTable_addSymbol(s->symtab, s->root);
+    SleighCompile_insertSpace(s, ConstantSpace_new(s, "const", constant_space_index));
+
+    SpaceSymbol *spacesym = SpaceSymbol_new(s->constantspace);
+    SymbolTable_addSymbol(s->symtab, spacesym);
+
+    OtherSpace *otherSpace = OtherSpace_new(s, "OTHER", other_space_index);
+    SleighCompile_insertSpace(s, otherSpace);
+    spacesym = SpaceSymbol_new(otherSpace);
+    SymbolTable_addSymbol(s->symtab, spacesym);
+
+    SleighCompile_insertSpace(s, UniqueSpace_new(s, "unique", s->baselist.len, 0));
+    spacesym = SpaceSymbol_new(s->uniqspace);
+    SymbolTable_addSymbol(s->symtab, spacesym);
+
+    StartSymbol *startsym = StartSymbol_new("inst_start", s->constantspace);
+    SymbolTable_addSymbol(s->symtab, startsym);
 }
+
 
 void            SleighCompile_setEndian(SleighCompile *s, int e)
 {

@@ -26,9 +26,10 @@ TokenPattern*   TokenPattern_doOr(const TokenPattern *op1, const TokenPattern *o
 TokenPattern*   TokenPattern_doCat(const TokenPattern *op1, const TokenPattern *op2);
 TokenPattern*   TokenPattern_commobSubPattern(const TokenPattern *pat, const TokenPattern *subpat);
 
-typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue; 
+typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
+            StartInstructionValue; 
 
-typedef struct PatternExpression {
+struct PatternExpression {
     int refcount;
 
     enum {
@@ -91,13 +92,16 @@ typedef struct PatternExpression {
             int reserved;
         } startInstructionValue;
     };
-} PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue;;
+};
 
 PatternExpression*  PatternExpression_new(int type, ...);
 void                PatternExpression_delete(PatternExpression *p);
 
 ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
+
+StartInstructionValue*  StartInstructionValue_new();
+
 
 typedef struct OperandResolve {
     struct dynarray     *operands;

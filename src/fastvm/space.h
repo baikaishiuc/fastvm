@@ -31,10 +31,11 @@ typedef struct AddrSpace AddrSpace, ConstantSpace, OtherSpace, UniqueSpace, Join
 #define programspecific         0x008
 #define reverse_justification   0x0010
 #define overlay                 0x0020
-#define truncated               0x0040
-#define hashpysical             0x0080
-#define is_otherspace           0x0100
-#define has_nearpointers        0x0200
+#define overlaybase             0x0040
+#define truncated               0x0080
+#define hasphysical             0x0100
+#define is_otherspace           0x0200
+#define has_nearpointers        0x0400
 
 #define constant_space_index    0
 #define other_space_index       1
@@ -50,6 +51,10 @@ struct AddrSpace {
     uintb highest;
     unsigned pointerLowerBound;
     int shortcut;
+
+    union {
+        AddrSpace*  baseSpace;
+    };
 
     /* protected */
     int addrsize;
@@ -83,6 +88,10 @@ uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off);
 
 AddrSpace*          AddrSpace_new2(void *m, spacetype tp);
 AddrSpace*          AddrSpace_new8(void *m, spacetype tp, const char *name, u4 size, u4 ws, int ind, u4 fl, int dl);
+void                AddrSpace_delete(AddrSpace *a);
+ConstantSpace*      ConstantSpace_new(void *m, const char *name, int ind);
+OtherSpace*         OtherSpace_new(void *m, const char *name, int ind);
+UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl);
 
 typedef struct VarnodeData {
     AddrSpace *space;

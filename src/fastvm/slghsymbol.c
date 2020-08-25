@@ -60,9 +60,22 @@ void            SleighSymbol_delete(SleighSymbol *sym)
 {
 }
 
+SleighSymbol *SleighSymbol_new(int type)
+{
+    SleighSymbol *sym = vm_mallocz(sizeof(sym[0]));
+
+    sym->type = type;
+
+    return sym;
+}
+
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc)
 {
-    return NULL;
+    SleighSymbol *sym = SleighSymbol_new(space_symbol);
+
+    sym->space.space = spc;
+
+    return sym;
 }
 
 SleighSymbol*   SectionSymbol_new(const char *name, int id)
@@ -73,6 +86,20 @@ SleighSymbol*   SectionSymbol_new(const char *name, int id)
 SleighSymbol*   SubtableSymbol_new(const char *name)
 {
     return NULL;
+}
+
+StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc)
+{
+    StartSymbol *sym = vm_mallocz(sizeof (sym[0]) + strlen(name));
+
+    sym->type = start_symbol;
+    strcpy(sym->name, name);
+
+    sym->start.const_space = spc;
+    sym->start.patexp = StartInstructionValue_new();
+    sym->start.patexp->refcount++;
+
+    return sym;
 }
 
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)

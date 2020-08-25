@@ -83,6 +83,15 @@ struct SleighCompile {
         struct slgh_macro *list;
     } defines;
 
+    struct dynarray     baselist;
+    struct dynarray     resolvelist;
+
+    struct dynarray     name2Space;
+
+    struct {
+        int counts;
+    } shortcut2Space;
+
     AddrSpace   *constantspace;
     AddrSpace   *defaultcodespace;
     AddrSpace   *defaultdataspace;
