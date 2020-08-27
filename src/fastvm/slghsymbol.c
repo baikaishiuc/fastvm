@@ -71,9 +71,10 @@ SleighSymbol *SleighSymbol_new(int type)
 
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc)
 {
-    SleighSymbol *sym = SleighSymbol_new(space_symbol);
+    SleighSymbol *sym = vm_mallocz(sizeof(spc[0]) + strlen(spc->name));
 
     sym->space.space = spc;
+    strcpy(sym->name, spc->name);
 
     return sym;
 }
@@ -85,7 +86,12 @@ SleighSymbol*   SectionSymbol_new(const char *name, int id)
 
 SleighSymbol*   SubtableSymbol_new(const char *name)
 {
-    return NULL;
+    SubtableSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(name));
+
+    sym->type = subtable_symbol;
+    strcpy(sym->name, name);
+
+    return sym;
 }
 
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc)
@@ -98,6 +104,30 @@ StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc)
     sym->start.const_space = spc;
     sym->start.patexp = StartInstructionValue_new();
     sym->start.patexp->refcount++;
+
+    return sym;
+}
+
+EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc)
+{
+    EndSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(name));
+
+    sym->type = end_symbol;
+    strcpy(sym->name, name);
+
+    sym->end.const_space = spc;
+    sym->end.patexp = EndInstructionValue_new();
+    sym->end.patexp->refcount++;
+
+    return sym;
+}
+
+EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc)
+{
+    EpsilonSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(name));
+
+    sym->type = epsilon_symbol;
+    sym->epsilon.const_space = spc;
 
     return sym;
 }
@@ -162,7 +192,7 @@ SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scop
 
 void            SymbolTable_addScope(SymbolTable *s)
 {
-    s->curscope = vm_mallocz(sizeof(s->curscope));
+    s->curscope = vm_mallocz(sizeof(struct SymbolScope));
     dynarray_add(&s->table, s->curscope);
 }
 

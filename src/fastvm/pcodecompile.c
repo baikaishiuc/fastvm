@@ -1,4 +1,5 @@
 ﻿
+#include "vm.h"
 #include "pcodecompile.h"
 
 StarQuality*        StarQuality_new()
@@ -37,11 +38,14 @@ struct dynarray*    ExpTree_toVector(ExpTree *e)
 
 PcodeCompile*       PcodeCompile_new()
 {
-    return NULL;
+    PcodeCompile *pcode = vm_mallocz(sizeof(pcode[0]));
+
+    return pcode;
 }
 
-void                PcodeCompile_delete(PcodeCompile *n)
+void                PcodeCompile_delete(PcodeCompile *pcode)
 {
+    vm_free(pcode);
 }
 
 struct dynarray*    PcodeCompile_placeLabel(PcodeCompile *p, LabelSymbol *sym)

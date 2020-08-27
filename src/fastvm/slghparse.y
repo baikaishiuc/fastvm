@@ -211,7 +211,7 @@ contextfielddef: STRING '=' '(' INTEGER ',' INTEGER ')' { $$ = FieldQuality_new(
   | contextfielddef HEX_KEY			{ $$ = $1; $$->hex = true; }
   | contextfielddef DEC_KEY			{ $$ = $1; $$->hex = false; }
   ;
-spacedef: spaceprop ';'			{ SleighCompile_newSpace(slgh, $1); }
+spacedef: spaceprop ';'			{ SleighCompile_newSpace(slgh, $1); SpaceQuality_delete($1); }
   ;
 spaceprop: DEFINE_KEY SPACE_KEY STRING	{ $$ = SpaceQuality_new($3->data); cstr_delete($3); }
   | DEFINE_KEY SPACE_KEY anysymbol	{ yyerror("%s: redefined as space", SleighSymbol_getName($3)); YYERROR; }

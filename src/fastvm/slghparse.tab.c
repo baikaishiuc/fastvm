@@ -2679,7 +2679,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 214 "slghparse.y"
-    { SleighCompile_newSpace(slgh, (yyvsp[(1) - (2)].spacequal)); ;}
+    { SleighCompile_newSpace(slgh, (yyvsp[(1) - (2)].spacequal)); SpaceQuality_delete((yyvsp[(1) - (2)].spacequal)); ;}
     break;
 
   case 42:

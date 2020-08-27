@@ -81,9 +81,18 @@ SpaceQuality*   SpaceQuality_new(char *name)
     return sq;
 }
 
+void            SpaceQuality_delete(SpaceQuality *sp)
+{
+    vm_free(sp);
+}
+
 SleighCompile*  SleighCompile_new()
 {
     SleighCompile *slgh = vm_mallocz(sizeof (slgh[0]));
+
+    slgh->symtab = SymbolTable_new();
+
+    slgh->pcode = PcodeCompile_new();
 
     return slgh;
 }
@@ -229,12 +238,22 @@ void            SleighCompile_predefinedSymbols(SleighCompile *s)
 
     StartSymbol *startsym = StartSymbol_new("inst_start", s->constantspace);
     SymbolTable_addSymbol(s->symtab, startsym);
+
+    EndSymbol *endsym = EndSymbol_new("inst_next", s->constantspace);
+    SymbolTable_addSymbol(s->symtab, endsym);
+
+    EpsilonSymbol *epsilon = EpsilonSymbol_new("epsilon", s->constantspace);
+    SymbolTable_addSymbol(s->symtab, epsilon);
+
+    PcodeCompile_setConstantSpace(s->pcode, s->constantspace);
+    PcodeCompile_setUniqueSpace(s->pcode, s->uniqspace);
 }
 
 
 void            SleighCompile_setEndian(SleighCompile *s, int e)
 {
     s->bigendian = e;
+    SleighCompile_predefinedSymbols(s);
 }
 
 void            SleighCompile_setAlignment(SleighCompile *s, int e)
@@ -255,6 +274,26 @@ bool            SleighCompile_addContextField(SleighCompile *s, VarnodeSymbol *s
     return TRUE;
 }
 
+void            SleighCompile_setDefaultCodeSpace(SleighCompile *s, int index)
+{
+    if (s->defaultcodespace)
+        vm_error("Default space set multi times");
+    if (index >= s->baselist.len || !s->baselist.ptab[index])
+        vm_error("bad index for default space");
+
+    s->defaultcodespace = s->baselist.ptab[index];
+    s->defaultdataspace = s->defaultcodespace;
+}
+
+void            SleighCompile_addSymbol(SleighCompile *s, SleighSymbol *sym)
+{
+    struct slgh_preproc *proc = dynarray_back(&s->preproc);
+    sym->filename = basename(proc->fullpath.data);
+    sym->lineno = proc->lineno;
+
+    SymbolTable_addSymbol(s->symtab, sym);
+}
+
 void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
 {
     struct slgh_preproc *proc = dynarray_back(&s->preproc);
@@ -264,7 +303,18 @@ void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
     }
 
     int delay = (quad->type == REGISTERTYPE) ? 0 : 1;
-    //AddrSpace *spc = AddrSpace_new();
+    AddrSpace *spc = AddrSpace_new8(s, IPTR_PROCESSOR, quad->name, quad->size, quad->wordsize, s->baselist.len, hasphysical, delay);
+    SleighCompile_insertSpace(s, spc);
+    if (quad->isdefault) {
+        if (s->defaultcodespace)
+            vm_error("%s:%d Multiple default spaces -- %s, %s", s->defaultcodespace->name, quad->name);
+        else {
+            SleighCompile_setDefaultCodeSpace(s, spc->index);
+            PcodeCompile_setDefaultSpace(s->pcode, spc);
+        }
+    }
+
+    SleighCompile_addSymbol(s, SpaceSymbol_new(spc));
 }
 
 void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb off, uintb size, struct dynarray *names)

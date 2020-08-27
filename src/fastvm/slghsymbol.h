@@ -15,7 +15,7 @@ extern "C" {
 #define MARKED                  0x08
 
 typedef struct SleighSymbol SleighSymbol, SpaceSymbol, TokenSymbol, SectionSymbol, UserOpSymbol, TripleSymbol, FamilySymbol,
-PatternlessSymbol, EpsilnSymbol, ValueSymbol, ValueMapSymbol, NameSymbol, VarnodeSymbol, BitRangeSymbol,
+PatternlessSymbol, EpsilonSymbol, ValueSymbol, ValueMapSymbol, NameSymbol, VarnodeSymbol, BitRangeSymbol,
 ContextSymbol, VarnodeListSymbol, OperandSymbol, StartSymbol, EndSymbol, MacroSymbol, SubtableSymbol, LabelSymbol,
 BitrangeSymbol, SpecificSymbol;
 
@@ -80,6 +80,7 @@ struct SleighSymbol {
 
         struct {
             ConstantValue *patexp;
+            AddrSpace *const_space;
         } epsilon;
 
         struct {
@@ -113,6 +114,10 @@ struct SleighSymbol {
     int id;
     int scopeid;
     struct rb_node in_scope;
+
+    /* 在源文件中的位置，方便调试 */
+    int lineno;
+    char *filename;
     char name[1];
 };
 
@@ -122,6 +127,7 @@ SleighSymbol*   SectionSymbol_new(const char *name, int id);
 SleighSymbol*   SubtableSymbol_new(const char *name);
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
 EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
+EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);

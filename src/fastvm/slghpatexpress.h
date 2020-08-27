@@ -27,7 +27,7 @@ TokenPattern*   TokenPattern_doCat(const TokenPattern *op1, const TokenPattern *
 TokenPattern*   TokenPattern_commobSubPattern(const TokenPattern *pat, const TokenPattern *subpat);
 
 typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
-            StartInstructionValue; 
+            StartInstructionValue, EndInstructionValue;
 
 struct PatternExpression {
     int refcount;
@@ -101,6 +101,7 @@ ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
 
 StartInstructionValue*  StartInstructionValue_new();
+EndInstructionValue*    EndInstructionValue_new();
 
 
 typedef struct OperandResolve {

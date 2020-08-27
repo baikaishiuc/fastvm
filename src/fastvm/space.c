@@ -26,6 +26,7 @@ AddrSpace*          AddrSpace_new8(void *m, spacetype tp, const char *name, u4 s
 {
     AddrSpace *spc = vm_mallocz(sizeof(spc[0]) + strlen(name));
 
+    spc->type = tp;
     spc->refcount = 0;
     spc->manage = m;
     spc->trans = m;
@@ -71,7 +72,7 @@ UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl)
 {
     AddrSpace *spc;
 
-    spc = AddrSpace_new8(m, IPTR_INTERNAL, name, 1, ind, fl, 0, 0);
+    spc = AddrSpace_new8(m, IPTR_INTERNAL, name, sizeof (uintb), 1, ind, fl, 0);
     setFlags(spc, hasphysical);
 
     return spc;

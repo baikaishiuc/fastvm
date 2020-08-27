@@ -33,6 +33,7 @@ struct SpaceQuality {
 };
 
 SpaceQuality*   SpaceQuality_new(char *name);
+void            SpaceQuality_delete(SpaceQuality *sp);
 
 struct FieldQuality {
     const char *name;

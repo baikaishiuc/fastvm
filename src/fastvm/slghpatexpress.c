@@ -16,6 +16,7 @@ PatternExpression*  PatternExpression_new(int type, ...)
             break;
 
         case a_startInstructionValue:
+        case a_endInstructionValue:
             break;
 
         default:
@@ -53,4 +54,9 @@ ConstantValue*      ConstantValue_newB(intb b)
 StartInstructionValue*  StartInstructionValue_new()
 {
     return PatternExpression_new(a_startInstructionValue);
+}
+
+EndInstructionValue*    EndInstructionValue_new()
+{
+    return PatternExpression_new(a_endInstructionValue);
 }
