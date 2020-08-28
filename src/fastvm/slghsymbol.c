@@ -73,6 +73,7 @@ SleighSymbol*   SpaceSymbol_new(AddrSpace *spc)
 {
     SleighSymbol *sym = vm_mallocz(sizeof(spc[0]) + strlen(spc->name));
 
+    sym->type = space_symbol;
     sym->space.space = spc;
     strcpy(sym->name, spc->name);
 

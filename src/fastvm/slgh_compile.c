@@ -539,7 +539,7 @@ char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
 
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
-    return NULL;
+    return SymbolTable_findSymbol(s->symtab, name);
 }
 
 void                SleighCompile_nextLine(SleighCompile *s)
