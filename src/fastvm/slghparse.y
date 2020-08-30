@@ -262,7 +262,7 @@ bitpat_or_nil: /* empty */ { $$ = (PatternEquation *)0; }
   | pequation              { $$ = $1; }
   ;
 
-macrostart: MACRO_KEY STRING '(' oplist ')' { $$ = SleighCompile_createMacro(slgh, $2->data, $4); }
+macrostart: MACRO_KEY STRING '(' oplist ')' { $$ = SleighCompile_createMacro(slgh, $2->data, $4); dynarray_delete($4); }
   ;
 rtlbody: '{' rtl '}' { $$ = SleighCompile_standaloneSection(slgh, $2); }
   | '{' rtlcontinue rtlmid '}' { $$ = SleighCompile_finalNamedSection(slgh, $2, $3); }
@@ -582,8 +582,8 @@ paramlist: /* EMPTY */		{ $$ = dynarray_new(NULL, NULL); }
   | paramlist ',' expr		{ $$ = $1; dynarray_add($$, $3); }
   ;
 oplist: /* EMPTY */		{ $$ = dynarray_new(NULL, NULL); }
-  | STRING			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); vm_free($1); }
-  | oplist ',' STRING		{ $$ = $1; dynarray_add($$, $3); vm_free($3); }
+  | STRING			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); }
+  | oplist ',' STRING		{ $$ = $1; dynarray_add($$, $3);  }
   ;
 anysymbol: SPACESYM		{ $$ = $1; }
   | SECTIONSYM                  { $$ = $1; }

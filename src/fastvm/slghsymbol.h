@@ -21,7 +21,6 @@ BitrangeSymbol, SpecificSymbol;
 
 typedef struct SymbolTable  SymbolTable;
 typedef struct SymbolScope  SymbolScope;
-typedef struct Constructor  Constructor;
 
 struct SleighSymbol {
     enum {
@@ -109,6 +108,12 @@ struct SleighSymbol {
             u4 bitoffset;
             u4 numbits;
         } bitrange;
+
+        struct {
+            int index;
+            ConstructTpl *construct;
+            struct dynarray operands;
+        } macro;
     };
 
     int id;
@@ -129,6 +134,10 @@ StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
 EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
 EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
+MacroSymbol*    MacroSymbol_new(const char *name, int i);
+OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
+
+void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);

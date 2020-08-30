@@ -145,7 +145,32 @@ VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offse
     return sym;
 }
 
-#define sym_is_spec(sym)                (pattern(sym)->type)
+MacroSymbol*    MacroSymbol_new(const char *name, int i)
+{
+    MacroSymbol * sym = SleighSymbol_new(macro_symbol, name);
+
+    sym->macro.index = i;
+
+    return sym;
+}
+
+void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand)
+{
+    assert(sym->type == macro_symbol);
+
+    dynarray_add(&sym->macro.operands, operand);
+}
+
+OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct)
+{
+    OperandSymbol *sym = SleighSymbol_new(operand_symbol, name);
+
+    sym->operand.hand = index;
+    sym->operand.localexp = OperandValue_new(index, ct);
+    PatternExpression_layClaim(sym->operand.localexp);
+
+    return sym;
+}
 
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)
 {

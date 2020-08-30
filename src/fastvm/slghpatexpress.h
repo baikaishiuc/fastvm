@@ -7,13 +7,17 @@ extern "C" {
 #endif
 
 #include "slghpattern.h"
+#include "slghsymbol.h"
 
-typedef struct TokenPattern {
+typedef struct Constructor  Constructor;
+typedef struct TokenPattern TokenPattern;
+
+struct TokenPattern {
     Pattern *pattern;
     struct dynarray toklist;
     int leftellipsis;
     int rightellipsis;
-} TokenPattern;
+};
 
 TokenPattern*   TokenPattern_new(Pattern *pat);
 
@@ -91,6 +95,11 @@ struct PatternExpression {
         struct {
             int reserved;
         } startInstructionValue;
+
+        struct {
+            int index;
+            Constructor *ct;
+        } operandValue;
     };
 };
 
@@ -102,7 +111,9 @@ ConstantValue*      ConstantValue_newB(intb b);
 
 StartInstructionValue*  StartInstructionValue_new();
 EndInstructionValue*    EndInstructionValue_new();
+#define PatternExpression_layClaim(e)       e->refcount++
 
+OperandValue*       OperandValue_new(int index, Constructor *ct);
 
 typedef struct OperandResolve {
     struct dynarray     *operands;

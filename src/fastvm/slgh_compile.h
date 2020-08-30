@@ -124,8 +124,12 @@ struct SleighCompile {
     bool warnallnops;
     struct dynarray     noplist;
 
-    struct dynarray     preproc;
     int errors;
+    struct dynarray     preproc;
+    Constructor*        curct;
+    MacroSymbol*        curmacro;
+    bool                contextlock;
+
 
     void(*saveXml)(SleighCompile *s, FILE *out);
 };

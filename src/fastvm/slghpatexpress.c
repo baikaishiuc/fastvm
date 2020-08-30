@@ -1,5 +1,6 @@
 ﻿
 #include "vm.h"
+#include "slghsymbol.h"
 #include "slghpatexpress.h"
 
 PatternExpression*  PatternExpression_new(int type, ...) 
@@ -17,6 +18,11 @@ PatternExpression*  PatternExpression_new(int type, ...)
 
         case a_startInstructionValue:
         case a_endInstructionValue:
+            break;
+
+        case a_operandValue:
+            pat->operandValue.index = va_arg(ap, int);
+            pat->operandValue.ct = va_arg(ap, Constructor *);
             break;
 
         default:
@@ -59,4 +65,9 @@ StartInstructionValue*  StartInstructionValue_new()
 EndInstructionValue*    EndInstructionValue_new()
 {
     return PatternExpression_new(a_endInstructionValue);
+}
+
+OperandValue*       OperandValue_new(int index, Constructor *ct)
+{
+    return PatternExpression_new(a_operandValue, index, ct);
 }

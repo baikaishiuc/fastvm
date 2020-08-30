@@ -379,9 +379,25 @@ SubtableSymbol* SleighCompile_newTable(SleighCompile *s, const char *name)
     return NULL;
 }
 
-MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, struct dynarray *param)
+MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, struct dynarray *params)
 {
-    return NULL;
+    int i;
+    s->curct = NULL;
+    s->curmacro = MacroSymbol_new(name, s->macrotable.len);
+
+    SleighCompile_addSymbol(s, s->curmacro);
+
+    SymbolTable_addScope(s->symtab);
+    PcodeCompile_resetLabelCount(s->pcode);
+
+    for (i = 0; i < params->len; i++) {
+        CString *param = params->ptab[i];
+        OperandSymbol *oper = OperandSymbol_new(param->data, i, NULL);
+        SleighCompile_addSymbol(s, oper);
+        MacroSymbol_addOperand(s->curmacro, oper);
+    }
+
+    return s->curmacro;
 }
 
 SectionVector*  SleighCompile_standaloneSection(SleighCompile *s, ConstructTpl *main)
