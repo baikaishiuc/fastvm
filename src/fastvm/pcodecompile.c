@@ -141,6 +141,9 @@ struct dynarray*    PcodeCompile_newOutput(PcodeCompile *p, bool usesLocalKey, E
 
 ExpTree*    PcodeCompile_createOp(PcodeCompile *p, OpCode opc, ExpTree *vn)
 {
+    VarnodeTpl *outvn = PcodeCompile_buildTemporary(p);
+    OpTpl *op = OpTpl_new1(opc);
+    //OpTpl_addInput();
     return NULL;
 }
 

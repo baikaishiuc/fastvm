@@ -326,6 +326,7 @@ void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym,
     for (i = 0; i < names->len; i++) {
         cstr = names->ptab[i];
         SleighCompile_addSymbol(s, VarnodeSymbol_new(cstr->data, spc, off, (int)size));
+        off += size;
     }
 }
 

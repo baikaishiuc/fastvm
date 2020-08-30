@@ -2843,7 +2843,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 265 "slghparse.y"
-    { (yyval.macrosym) = SleighCompile_createMacro(slgh, (yyvsp[(2) - (5)].str)->data, (yyvsp[(4) - (5)].strlist)); ;}
+    { (yyval.macrosym) = SleighCompile_createMacro(slgh, (yyvsp[(2) - (5)].str)->data, (yyvsp[(4) - (5)].strlist)); dynarray_delete((yyvsp[(4) - (5)].strlist)); ;}
     break;
 
   case 71:
@@ -4586,14 +4586,14 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 585 "slghparse.y"
-    { (yyval.strlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); vm_free((yyvsp[(1) - (1)].str)); ;}
+    { (yyval.strlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
     break;
 
   case 320:
 
 /* Line 1455 of yacc.c  */
 #line 586 "slghparse.y"
-    { (yyval.strlist) = (yyvsp[(1) - (3)].strlist); dynarray_add((yyval.strlist), (yyvsp[(3) - (3)].str)); vm_free((yyvsp[(3) - (3)].str)); ;}
+    { (yyval.strlist) = (yyvsp[(1) - (3)].strlist); dynarray_add((yyval.strlist), (yyvsp[(3) - (3)].str));  ;}
     break;
 
   case 321:
@@ -4933,8 +4933,8 @@ int yyerror(const char *s, ...)
   va_start(ap, s);
   fprintf(stderr, "Error(%s:%d):", SleighCompile_grabCurrentFilePath(slgh), SleighCompile_curLineNo(slgh));
   vfprintf(stderr, s, ap);
-  puts("");
   va_end(ap);
+  exit(1);
 
   return 0;
 }

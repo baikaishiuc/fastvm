@@ -182,11 +182,11 @@ VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)
             return VarnodeTpl_new2(sym->operand.hand, true);
         else {
             SleighSymbol *triple = sym->operand.triple;
-            res = SleighSymbol_getVarnode(triple);
-            if (res)
+
+            if (triple && (res = SleighSymbol_getVarnode(triple)))
                 return res;
 
-            if (triple->type == valuemap_symbol || triple->type == name_symbol)
+            if (triple && (triple->type == valuemap_symbol || triple->type == name_symbol))
                 return VarnodeTpl_new2(sym->operand.hand, true);
             else
                 return VarnodeTpl_new2(sym->operand.hand, false);
@@ -267,7 +267,11 @@ SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scop
 
 void            SymbolTable_addScope(SymbolTable *s)
 {
-    s->curscope = vm_mallocz(sizeof(struct SymbolScope));
+    SymbolScope *scope;
+
+    scope = vm_mallocz(sizeof(struct SymbolScope));
+    scope->parent = s->curscope;
+    s->curscope = scope;
     dynarray_add(&s->table, s->curscope);
 }
 
@@ -312,8 +316,7 @@ SleighSymbol*   SymbolScope_addSymbol(SymbolScope *scope, SleighSymbol *a)
 
     return a;
 }
-
-SleighSymbol*   SymbolScope_findSymbolInternal(SymbolScope *s, const char *name)
+SleighSymbol*   SymbolScope__findSymbol(SymbolScope *s, const char *name)
 {
     struct rb_node *n = s->tree.rb_node;
     int ret;
@@ -327,6 +330,21 @@ SleighSymbol*   SymbolScope_findSymbolInternal(SymbolScope *s, const char *name)
             n = n->rb_right;
         else
             return t;
+    }
+
+    return NULL;
+}
+
+SleighSymbol*   SymbolScope_findSymbolInternal(SymbolScope *scope, const char *name)
+{
+    SleighSymbol *res;
+
+    while (scope) {
+        res = SymbolScope__findSymbol(scope, name);
+        if (res)
+            return res;
+
+        scope = scope->parent;
     }
 
     return NULL;

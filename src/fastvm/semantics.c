@@ -109,7 +109,13 @@ ConstTpl*   ConstTpl_new2(const_type tp, uintb val)
 
 ConstTpl*   ConstTpl_new3(const_type tp, int4 ht, v_field vf)
 {
-    return NULL;
+    ConstTpl *c = vm_mallocz(sizeof(c[0]));
+
+    c->type = tp;
+    c->value.handle_index = ht;
+    c->select = vf;
+
+    return c;
 }
 
 ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus)
@@ -133,7 +139,19 @@ VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn)
 
 VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize)
 {
-    return NULL;
+    VarnodeTpl *v = vm_mallocz(sizeof (v[0]));
+
+    v->space = ConstTpl_new3(handle, hand, v_space);
+    v->offset = ConstTpl_new3(handle, hand, v_offset);
+
+    if (zerosize)
+        v->size = ConstTpl_new2(real, 0);
+    else
+        v->size = ConstTpl_new3(handle, hand, v_size);
+
+    v->unnamed_flag = false;
+
+    return v;
 }
 
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz)

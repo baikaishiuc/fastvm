@@ -611,8 +611,8 @@ int yyerror(const char *s, ...)
   va_start(ap, s);
   fprintf(stderr, "Error(%s:%d):", SleighCompile_grabCurrentFilePath(slgh), SleighCompile_curLineNo(slgh));
   vfprintf(stderr, s, ap);
-  puts("");
   va_end(ap);
+  exit(1);
 
   return 0;
 }
