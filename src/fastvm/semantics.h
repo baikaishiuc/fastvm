@@ -67,9 +67,14 @@ ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus);
 void        ConstTpl_delete(ConstTpl *);
 void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
 v_field     ConstTpl_readHandleSelector(const char *name);
+#define ConstTpl_getSpace(ct)       (ct)->value.spaceid
+#define ConstTpl_getReal(ct)        (ct)->value_real
+
 
 struct VarnodeTpl {
-  ConstTpl space,offset,size;
+  ConstTpl *space;
+  ConstTpl *offset;
+  ConstTpl *size;
   bool unnamed_flag;
 };
 
@@ -80,6 +85,7 @@ VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn);
 VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
 void            VarnodeTpl_delete(VarnodeTpl *vn);
+#define VarnodeTpl_setSize(c, sz)         c->size->value_real = sz
 
 struct HandleTpl {
   ConstTpl space;
@@ -97,22 +103,31 @@ struct OpTpl {
   struct dynarray input;    // VarnodeTpl *
 };
 
+OpTpl*      OpTpl_new();
+OpTpl*      OpTpl_new1(OpCode oc);
+void        OpTpl_delete(OpTpl *);
+
+void        OpTpl_clearOutput(OpTpl *o);
+void        OpTpl_addInput(OpTpl *o, VarnodeTpl *vt);
+#define OpTpl_setOutput(o, out)         o->output = out
+
+
 struct ConstructTpl {
   uint4 delayslot;
   uint4 numlabels;		// Number of label templates
-  struct dynarray *vec;
+  struct dynarray vec;
   HandleTpl *result;
 };
 
-#define ConstructTpl_setOpvec(c, v)     (c)->vec = v
 #define ConstructTpl_setNumLabels(c, v) (c)->numlabels = val
-#define ConstructTpl_getOpvec(c)        ((c)->vec)
+#define ConstructTpl_getOpvec(c)        (&((c)->vec))
 #define ConstructTpl_getResult(c)       (c)->result
 
 ConstructTpl*   ConstructTpl_new();
 void            ConstructTpl_delete(ConstructTpl *c);
 
-bool            ConstructTpl_addOpList(ConstructTpl *c, struct dynarray *oplist);
+bool            ConstructTpl_addOpList(ConstructTpl *t, struct dynarray *oplist);
+bool            ConstructTpl_addOp(ConstructTpl *t, OpTpl *ot);
 
 typedef struct PcodeBuilder { // SLEIGH specific pcode generator
   uint4 labelbase;

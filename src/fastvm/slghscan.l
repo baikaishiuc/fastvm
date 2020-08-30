@@ -47,7 +47,7 @@ void check_to_endofline(const char *s)
 
 { // Make sure there is nothing to the end of the line
   skip_space(s);
-  if (!s[0])
+  if (s[0])
     if (s[0] != '#')
       vm_error("Extra characters in preprocessor directive"); 
 }
@@ -83,7 +83,7 @@ void preprocess_string(char **old, CString *res)
 
   cstr_cat(res, s, t - s);
 
-  *old = t;
+  *old = ++t;
 }
 
 extern int4 preprocess_if(char **old);
@@ -113,6 +113,7 @@ int4 read_boolean_clause(char **old)
 
 {				// We have seen an if or elif
 				// return 1 if condition is true or else 0
+  int ret = 0;
   char *s = *old;
   skip_space(s);
   if (*s =='(') {		// Parenthetical expression spawns recursion
@@ -129,23 +130,27 @@ int4 read_boolean_clause(char **old)
 				// Otherwise we must have a normal comparison operator
   CSTR_INIT(lhs);
   CSTR_INIT(rhs);
-  char *comp, *lhs_val = NULL, *rhs_val = NULL;
+  char *comp, *lhs_val = "\0", *rhs_val = "\0";
 
   if (s[0] =='\"')		// Read left-hand side string
     preprocess_string(&s,&lhs);
   else {
     read_identifier(&s, &lhs);
-    if (!strcmp(lhs.data, "defined"))
-      return read_defined_operator(&s);
+    if (!strcmp(lhs.data, "defined")) {
+      ret = read_defined_operator(&s);
+      goto exit_label;
+    }
     if (!slgh_get_macro(slgh, lhs.data, &lhs_val))
       vm_error("Could not find preprocessor macro %s", lhs.data);
   }
 
+  skip_space(s);
+
   comp = s;
+  s += 2;
 
   skip_space(s);
   if (*s =='\"') {// Read right-hand side string
-    ++s;
     preprocess_string(&s,&rhs);
   }
   else {
@@ -154,18 +159,20 @@ int4 read_boolean_clause(char **old)
       vm_error("Could not find preprocessor macro %s", rhs.data);
   }
 
-  if (!strncmp(comp, "==", 2))
-    return !strcmp (lhs_val, rhs_val) ? 1 : 0;
+  if (!strncmp(comp, "==", 2)) {
+    ret = !strcmp (lhs_val, rhs_val) ? 1 : 0;
+  }
   else if (!strncmp(comp, "!=", 2))
-    return (strcmp(lhs_val, rhs_val)) ? 1 : 0;
+    ret = strcmp(lhs_val, rhs_val) ? 1 : 0;
   else
     vm_error("Syntax error in condition");
 
+exit_label:
   cstr_free(&lhs);
   cstr_free(&rhs);
 
   *old = s;
-  return 0;
+  return ret;
 }
 
 int4 preprocess_if(char **old)
@@ -177,13 +184,13 @@ int4 preprocess_if(char **old)
   while(s[0] && (s[0] != ')')) {
     char *boolop = s;
 
-    s += 2; *s = 0;
+    s += 2;
     int4 res2 = read_boolean_clause(&s);
-    if (!strcmp(boolop, "&&"))
+    if (!strncmp(boolop, "&&", 2))
       res = res & res2;
-    else if (!strcmp(boolop, "||"))
+    else if (!strncmp(boolop, "||", 2))
       res = res | res2;
-    else if (!strcmp(boolop, "^^"))
+    else if (!strncmp(boolop, "^^", 2))
       res = res ^ res2;
     else
       vm_error("Syntax error in expression");
@@ -236,24 +243,24 @@ void expand_preprocmacros(CString *cstr)
 int4 preprocess(int4 cur_state,int4 blank_state)
 
 {
-    CSTR_INIT(varname);
-    CSTR_INIT(value);
+  CSTR_INIT(varname);
+  CSTR_INIT(value);
   char *str = str_new(yytext, 0);
   char *comment = strchr (str, '#');
   char *filename;
   if (comment) {
     *comment = 0;
   }
-  char *type, *s = str;
+  char *s = str;
+  CSTR_INIT(type);
 
   if (cur_state != blank_state)
     last_preproc = cur_state;
 
 // skip @
-  s++; skip_space(s);
-  type = s;
-  s = strchr(s, ' '); *s = 0; s++;
-  if (!strcmp(type, "include")) {
+  s++; 
+  read_identifier(&s, &type);
+  if (!strcmp(type.data, "include")) {
     if (negative_if == -1) {  // Not in the middle of a false if clause
       dynarray_add(&filebuffers, fss_new());
       fss_back()->lastbuffer = YY_CURRENT_BUFFER;
@@ -274,7 +281,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
       check_to_endofline(s);
     }
   }
-  else if (!strcmp(type, "define")) {
+  else if (!strcmp(type.data, "define")) {
     if (negative_if == -1) {
       read_identifier(&s, &varname);   // Get name of variable being defined
       skip_space(s);
@@ -288,7 +295,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
       check_to_endofline(s);
     }
   }
-  else if (!strcmp (type, "undef")) {
+  else if (!strcmp (type.data, "undef")) {
     if (negative_if == -1) {
       read_identifier(&s, &varname);		// Name of variable to undefine
       if (varname.size ==0)
@@ -297,7 +304,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
       check_to_endofline(s);
     }
   }
-  else if (!strcmp(type, "ifdef")) {
+  else if (!strcmp(type.data, "ifdef")) {
     read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifdef");
@@ -306,7 +313,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     ifstack_push(truth);
     check_to_endofline(s);
   }
-  else if (!strcmp(type, "ifndef")) {
+  else if (!strcmp(type.data, "ifndef")) {
     read_identifier(&s, &varname);
     if (varname.size ==0)
       vm_error("Error in preprocessor ifndef");
@@ -315,13 +322,13 @@ int4 preprocess(int4 cur_state,int4 blank_state)
     ifstack_push(truth);
     check_to_endofline(s);
   }
-  else if (!strcmp(type, "if")) {
+  else if (!strcmp(type.data, "if")) {
     int4 truth = preprocess_if(&s);
-    if (!s[0])
+    if (s[0])
       vm_error("Unbalanced parentheses");
     ifstack_push(truth);
   }
-  else if (!strcmp(type, "elif")) {
+  else if (!strcmp(type.data, "elif")) {
     if (ifstack.len == 0)
       vm_error("elif without preceding if");
     if ((ifstack_back()&2)!=0)		// We have already seen an else clause
@@ -340,13 +347,13 @@ int4 preprocess(int4 cur_state,int4 blank_state)
         ifstack_back_set(5);
     }
   }
-  else if (!strcmp(type, "endif")) {
+  else if (!strcmp(type.data, "endif")) {
     if (!ifstack.len)
       vm_error("preprocessing endif without matching if");
     ifstack_pop();
     check_to_endofline(s);
   }
-  else if (!strcmp(type, "else")) {
+  else if (!strcmp(type.data, "else")) {
     if (!ifstack.len)
       vm_error("preprocessing else without matching if");
     if ((ifstack_back()&2)!=0)
@@ -376,6 +383,7 @@ int4 preprocess(int4 cur_state,int4 blank_state)
 
   cstr_free(&varname);
   cstr_free(&value);
+  cstr_free(&type);
   str_free(str);
 
   return last_preproc;
@@ -466,7 +474,7 @@ int4 find_symbol(void) {
     break;
   }
   //return -1;   // Should never reach here
-  vm_error("should never reach here");
+  vm_error("should never reach here, sym->name = %s, sym->type = %d", sym->name, sym->type);
   return -1;
 }
 

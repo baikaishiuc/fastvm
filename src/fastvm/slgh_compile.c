@@ -92,7 +92,7 @@ SleighCompile*  SleighCompile_new()
 
     slgh->symtab = SymbolTable_new();
 
-    slgh->pcode = PcodeCompile_new();
+    slgh->pcode = PcodeCompile_new(slgh, SleighCompile_getUniqueAddr, SleighCompile_addSymbol);
 
     return slgh;
 }
@@ -319,6 +319,14 @@ void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
 
 void            SleighCompile_defineVarnodes(SleighCompile *s, SpaceSymbol *sym, uintb off, uintb size, struct dynarray *names)
 {
+    CString *cstr;
+    AddrSpace *spc = sym->space.space;
+    int i;
+
+    for (i = 0; i < names->len; i++) {
+        cstr = names->ptab[i];
+        SleighCompile_addSymbol(s, VarnodeSymbol_new(cstr->data, spc, off, (int)size));
+    }
 }
 
 void            SleighCompile_defineBitrange(SleighCompile *s, const char *name, VarnodeSymbol *sym, uint32_t bitoffset, uint32_t numb)
@@ -459,6 +467,15 @@ void                SleighCompile_getUserOpNames(SleighCompile *s, struct dynarr
 
 }
 
+uintb               SleighCompile_getUniqueAddr(SleighCompile *s)
+{
+    uintb base = s->unique_base;
+
+    s->unique_base += 16;
+
+    return base;
+}
+
 ConstructTpl*       SleighCompile_setResultVarnode(SleighCompile *s, ConstructTpl *ct, VarnodeTpl *vn)
 {
     return NULL;
@@ -557,7 +574,21 @@ void                SleighCompile_calcContextLayout(SleighCompile *s)
 
 FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h)
 {
-    return NULL;
+    FieldQuality *f = vm_mallocz(sizeof (f[0]) + strlen(name));
+
+    f->low = l;
+    f->high = h;
+    f->signext = true;
+    f->flow = true;
+    f->hex = true;
+    strcpy(f->name, name);
+
+    return f;
+}
+
+void            FieldQuality_delete(FieldQuality *f)
+{
+    vm_free(f);
 }
 
 SectionVector*  SleighCompile_finalNamedSection(SleighCompile *s, SectionVector *vec, ConstructTpl *section)

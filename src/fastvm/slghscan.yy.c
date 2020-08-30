@@ -891,7 +891,7 @@ int4 read_boolean_clause(char **old)
 				// Otherwise we must have a normal comparison operator
   CSTR_INIT(lhs);
   CSTR_INIT(rhs);
-  char *comp, *lhs_val = NULL, *rhs_val = NULL;
+  char *comp, *lhs_val = "\0", *rhs_val = "\0";
 
   if (s[0] =='\"')		// Read left-hand side string
     preprocess_string(&s,&lhs);
@@ -905,11 +905,13 @@ int4 read_boolean_clause(char **old)
       vm_error("Could not find preprocessor macro %s", lhs.data);
   }
 
+  skip_space(s);
+
   comp = s;
+  s += 2;
 
   skip_space(s);
   if (*s =='\"') {// Read right-hand side string
-    ++s;
     preprocess_string(&s,&rhs);
   }
   else {
@@ -1284,7 +1286,7 @@ int4 scan_number(char *numtext,YYSTYPE *lval,bool signednum)
 
 #define preproc 6
 
-#line 1288 "slghscan.yy.c"
+#line 1290 "slghscan.yy.c"
 
 /* Macros after this point can all be overridden by user definitions in
  * section 1.
@@ -1438,10 +1440,10 @@ YY_DECL
 	register char *yy_cp, *yy_bp;
 	register int yy_act;
 
-#line 522 "slghscan.l"
+#line 524 "slghscan.l"
 
 
-#line 1445 "slghscan.yy.c"
+#line 1447 "slghscan.yy.c"
 
 	if ( yy_init )
 		{
@@ -1527,27 +1529,27 @@ do_action:	/* This label is used only to access EOF actions. */
 
 case 1:
 YY_RULE_SETUP
-#line 524 "slghscan.l"
+#line 526 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(INITIAL,preproc) ); }
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
-#line 525 "slghscan.l"
+#line 527 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 526 "slghscan.l"
+#line 528 "slghscan.l"
 { yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 4:
 YY_RULE_SETUP
-#line 527 "slghscan.l"
+#line 529 "slghscan.l"
 { BEGIN(print); SleighCompile_calcContextLayout(slgh); yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 528 "slghscan.l"
+#line 530 "slghscan.l"
 { BEGIN(sem); yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 6:
@@ -1555,222 +1557,222 @@ case 6:
 yy_c_buf_p = yy_cp -= 1;
 YY_DO_BEFORE_ACTION; /* set up yytext again */
 YY_RULE_SETUP
-#line 529 "slghscan.l"
+#line 531 "slghscan.l"
 
 	YY_BREAK
 case 7:
 YY_RULE_SETUP
-#line 530 "slghscan.l"
+#line 532 "slghscan.l"
 
 	YY_BREAK
 case 8:
 YY_RULE_SETUP
-#line 531 "slghscan.l"
+#line 533 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 532 "slghscan.l"
+#line 534 "slghscan.l"
 { BEGIN(macroblock); return MACRO_KEY; }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 533 "slghscan.l"
+#line 535 "slghscan.l"
 { BEGIN(defblock); return DEFINE_KEY; }
 	YY_BREAK
 case 11:
 YY_RULE_SETUP
-#line 534 "slghscan.l"
+#line 536 "slghscan.l"
 { BEGIN(defblock); SleighCompile_calcContextLayout(slgh); return ATTACH_KEY; }
 	YY_BREAK
 case 12:
 YY_RULE_SETUP
-#line 535 "slghscan.l"
+#line 537 "slghscan.l"
 { BEGIN(pattern); withsection = 1; SleighCompile_calcContextLayout(slgh); return WITH_KEY; }
 	YY_BREAK
 case 13:
 YY_RULE_SETUP
-#line 536 "slghscan.l"
+#line 538 "slghscan.l"
 {  return find_symbol();  }
 	YY_BREAK
 case 14:
 YY_RULE_SETUP
-#line 537 "slghscan.l"
+#line 539 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 15:
 YY_RULE_SETUP
-#line 539 "slghscan.l"
+#line 541 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(macroblock,preproc) ); }
 	YY_BREAK
 case 16:
 YY_RULE_SETUP
-#line 540 "slghscan.l"
+#line 542 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 541 "slghscan.l"
+#line 543 "slghscan.l"
 { yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 18:
 YY_RULE_SETUP
-#line 542 "slghscan.l"
+#line 544 "slghscan.l"
 { BEGIN(sem); return yytext[0]; }
 	YY_BREAK
 case 19:
 YY_RULE_SETUP
-#line 543 "slghscan.l"
+#line 545 "slghscan.l"
 {  yylval.str = cstr_new(yytext, strlen(yytext)); return STRING;  }
 	YY_BREAK
 case 20:
 YY_RULE_SETUP
-#line 544 "slghscan.l"
+#line 546 "slghscan.l"
 
 	YY_BREAK
 case 21:
 YY_RULE_SETUP
-#line 545 "slghscan.l"
+#line 547 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case 22:
 YY_RULE_SETUP
-#line 546 "slghscan.l"
+#line 548 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 23:
 YY_RULE_SETUP
-#line 548 "slghscan.l"
+#line 550 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(defblock,preproc) ); }
 	YY_BREAK
 case 24:
 YY_RULE_SETUP
-#line 549 "slghscan.l"
+#line 551 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 25:
 YY_RULE_SETUP
-#line 550 "slghscan.l"
+#line 552 "slghscan.l"
 { yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 26:
 YY_RULE_SETUP
-#line 551 "slghscan.l"
+#line 553 "slghscan.l"
 { BEGIN(INITIAL); yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 27:
 YY_RULE_SETUP
-#line 552 "slghscan.l"
+#line 554 "slghscan.l"
 { return SPACE_KEY; }
 	YY_BREAK
 case 28:
 YY_RULE_SETUP
-#line 553 "slghscan.l"
+#line 555 "slghscan.l"
 { return TYPE_KEY; }
 	YY_BREAK
 case 29:
 YY_RULE_SETUP
-#line 554 "slghscan.l"
+#line 556 "slghscan.l"
 { return RAM_KEY; }
 	YY_BREAK
 case 30:
 YY_RULE_SETUP
-#line 555 "slghscan.l"
+#line 557 "slghscan.l"
 { return DEFAULT_KEY; }
 	YY_BREAK
 case 31:
 YY_RULE_SETUP
-#line 556 "slghscan.l"
+#line 558 "slghscan.l"
 { return REGISTER_KEY; }
 	YY_BREAK
 case 32:
 YY_RULE_SETUP
-#line 557 "slghscan.l"
+#line 559 "slghscan.l"
 { return TOKEN_KEY; }
 	YY_BREAK
 case 33:
 YY_RULE_SETUP
-#line 558 "slghscan.l"
+#line 560 "slghscan.l"
 { return CONTEXT_KEY; }
 	YY_BREAK
 case 34:
 YY_RULE_SETUP
-#line 559 "slghscan.l"
+#line 561 "slghscan.l"
 { return BITRANGE_KEY; }
 	YY_BREAK
 case 35:
 YY_RULE_SETUP
-#line 560 "slghscan.l"
+#line 562 "slghscan.l"
 { return SIGNED_KEY; }
 	YY_BREAK
 case 36:
 YY_RULE_SETUP
-#line 561 "slghscan.l"
+#line 563 "slghscan.l"
 { return NOFLOW_KEY; }
 	YY_BREAK
 case 37:
 YY_RULE_SETUP
-#line 562 "slghscan.l"
+#line 564 "slghscan.l"
 { return HEX_KEY; }
 	YY_BREAK
 case 38:
 YY_RULE_SETUP
-#line 563 "slghscan.l"
+#line 565 "slghscan.l"
 { return DEC_KEY; }
 	YY_BREAK
 case 39:
 YY_RULE_SETUP
-#line 564 "slghscan.l"
+#line 566 "slghscan.l"
 { return ENDIAN_KEY; }
 	YY_BREAK
 case 40:
 YY_RULE_SETUP
-#line 565 "slghscan.l"
+#line 567 "slghscan.l"
 { return ALIGN_KEY; }
 	YY_BREAK
 case 41:
 YY_RULE_SETUP
-#line 566 "slghscan.l"
+#line 568 "slghscan.l"
 { return BIG_KEY; }
 	YY_BREAK
 case 42:
 YY_RULE_SETUP
-#line 567 "slghscan.l"
+#line 569 "slghscan.l"
 { return LITTLE_KEY; }
 	YY_BREAK
 case 43:
 YY_RULE_SETUP
-#line 568 "slghscan.l"
+#line 570 "slghscan.l"
 { return SIZE_KEY; }
 	YY_BREAK
 case 44:
 YY_RULE_SETUP
-#line 569 "slghscan.l"
+#line 571 "slghscan.l"
 { return WORDSIZE_KEY; }
 	YY_BREAK
 case 45:
 YY_RULE_SETUP
-#line 570 "slghscan.l"
+#line 572 "slghscan.l"
 { return OFFSET_KEY; }
 	YY_BREAK
 case 46:
 YY_RULE_SETUP
-#line 571 "slghscan.l"
+#line 573 "slghscan.l"
 { return NAMES_KEY; }
 	YY_BREAK
 case 47:
 YY_RULE_SETUP
-#line 572 "slghscan.l"
+#line 574 "slghscan.l"
 { return VALUES_KEY; }
 	YY_BREAK
 case 48:
 YY_RULE_SETUP
-#line 573 "slghscan.l"
+#line 575 "slghscan.l"
 { return VARIABLES_KEY; }
 	YY_BREAK
 case 49:
 YY_RULE_SETUP
-#line 574 "slghscan.l"
+#line 576 "slghscan.l"
 { return PCODEOP_KEY; }
 	YY_BREAK
 case 50:
@@ -1778,197 +1780,197 @@ case 50:
 yy_c_buf_p = yy_cp -= 1;
 YY_DO_BEFORE_ACTION; /* set up yytext again */
 YY_RULE_SETUP
-#line 575 "slghscan.l"
+#line 577 "slghscan.l"
 
 	YY_BREAK
 case 51:
 YY_RULE_SETUP
-#line 576 "slghscan.l"
+#line 578 "slghscan.l"
 {  return find_symbol();  }
 	YY_BREAK
 case 52:
 YY_RULE_SETUP
-#line 577 "slghscan.l"
+#line 579 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 53:
 YY_RULE_SETUP
-#line 578 "slghscan.l"
+#line 580 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 54:
 YY_RULE_SETUP
-#line 579 "slghscan.l"
+#line 581 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 55:
 YY_RULE_SETUP
-#line 580 "slghscan.l"
+#line 582 "slghscan.l"
 { yylval.str = cstr_new(yytext+1,strlen(yytext)-2); return STRING; }
 	YY_BREAK
 case 56:
 YY_RULE_SETUP
-#line 581 "slghscan.l"
+#line 583 "slghscan.l"
 
 	YY_BREAK
 case 57:
 YY_RULE_SETUP
-#line 582 "slghscan.l"
+#line 584 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case 58:
 YY_RULE_SETUP
-#line 583 "slghscan.l"
+#line 585 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 59:
 YY_RULE_SETUP
-#line 586 "slghscan.l"
+#line 588 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(print,preproc) ); }
 	YY_BREAK
 case 60:
 YY_RULE_SETUP
-#line 587 "slghscan.l"
+#line 589 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 61:
 YY_RULE_SETUP
-#line 588 "slghscan.l"
+#line 590 "slghscan.l"
 { yylval.ch = yytext[0]; return CH; }
 	YY_BREAK
 case 62:
 YY_RULE_SETUP
-#line 589 "slghscan.l"
+#line 591 "slghscan.l"
 { yylval.ch = '^'; return '^'; }
 	YY_BREAK
 case 63:
 YY_RULE_SETUP
-#line 590 "slghscan.l"
+#line 592 "slghscan.l"
 { BEGIN(pattern); actionon=0; return IS_KEY; }
 	YY_BREAK
 case 64:
 YY_RULE_SETUP
-#line 591 "slghscan.l"
+#line 593 "slghscan.l"
 {  yylval.str = cstr_new(yytext, strlen(yytext)); return SYMBOLSTRING;  }
 	YY_BREAK
 case 65:
 YY_RULE_SETUP
-#line 592 "slghscan.l"
+#line 594 "slghscan.l"
 { yylval.str = cstr_new(yytext+1,strlen(yytext)-2); return STRING; }
 	YY_BREAK
 case 66:
 YY_RULE_SETUP
-#line 593 "slghscan.l"
+#line 595 "slghscan.l"
 { yylval.ch = ' '; return ' '; }
 	YY_BREAK
 case 67:
 YY_RULE_SETUP
-#line 594 "slghscan.l"
+#line 596 "slghscan.l"
 { SleighCompile_nextLine(slgh); return ' '; }
 	YY_BREAK
 case 68:
 YY_RULE_SETUP
-#line 595 "slghscan.l"
+#line 597 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 69:
 YY_RULE_SETUP
-#line 597 "slghscan.l"
+#line 599 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(pattern,preproc) ); }
 	YY_BREAK
 case 70:
 YY_RULE_SETUP
-#line 598 "slghscan.l"
+#line 600 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 71:
 YY_RULE_SETUP
-#line 599 "slghscan.l"
+#line 601 "slghscan.l"
 { BEGIN((withsection==1) ? INITIAL:sem); withsection=0; yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 72:
 YY_RULE_SETUP
-#line 600 "slghscan.l"
+#line 602 "slghscan.l"
 { BEGIN(INITIAL); return OP_UNIMPL; }
 	YY_BREAK
 case 73:
 YY_RULE_SETUP
-#line 601 "slghscan.l"
+#line 603 "slghscan.l"
 { return GLOBALSET_KEY; }
 	YY_BREAK
 case 74:
 YY_RULE_SETUP
-#line 602 "slghscan.l"
+#line 604 "slghscan.l"
 { return OP_RIGHT; }
 	YY_BREAK
 case 75:
 YY_RULE_SETUP
-#line 603 "slghscan.l"
+#line 605 "slghscan.l"
 { return OP_LEFT; }
 	YY_BREAK
 case 76:
 YY_RULE_SETUP
-#line 604 "slghscan.l"
+#line 606 "slghscan.l"
 { return OP_NOTEQUAL; }
 	YY_BREAK
 case 77:
 YY_RULE_SETUP
-#line 605 "slghscan.l"
+#line 607 "slghscan.l"
 { return OP_LESSEQUAL; }
 	YY_BREAK
 case 78:
 YY_RULE_SETUP
-#line 606 "slghscan.l"
+#line 608 "slghscan.l"
 { return OP_GREATEQUAL; }
 	YY_BREAK
 case 79:
 YY_RULE_SETUP
-#line 607 "slghscan.l"
+#line 609 "slghscan.l"
 { return OP_AND; }
 	YY_BREAK
 case 80:
 YY_RULE_SETUP
-#line 608 "slghscan.l"
+#line 610 "slghscan.l"
 { return OP_OR; }
 	YY_BREAK
 case 81:
 YY_RULE_SETUP
-#line 609 "slghscan.l"
+#line 611 "slghscan.l"
 { return OP_XOR; }
 	YY_BREAK
 case 82:
 YY_RULE_SETUP
-#line 610 "slghscan.l"
+#line 612 "slghscan.l"
 { return ELLIPSIS_KEY; }
 	YY_BREAK
 case 83:
 YY_RULE_SETUP
-#line 611 "slghscan.l"
+#line 613 "slghscan.l"
 { actionon = 1; yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 84:
 YY_RULE_SETUP
-#line 612 "slghscan.l"
+#line 614 "slghscan.l"
 { actionon = 0; yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 85:
 YY_RULE_SETUP
-#line 613 "slghscan.l"
+#line 615 "slghscan.l"
 { yylval.ch = yytext[0];  return (actionon==0) ? yytext[0] : OP_AND; }
 	YY_BREAK
 case 86:
 YY_RULE_SETUP
-#line 614 "slghscan.l"
+#line 616 "slghscan.l"
 { yylval.ch = yytext[0];  return (actionon==0) ? yytext[0] : OP_OR; }
 	YY_BREAK
 case 87:
 YY_RULE_SETUP
-#line 615 "slghscan.l"
+#line 617 "slghscan.l"
 { return OP_XOR; }
 	YY_BREAK
 case 88:
 YY_RULE_SETUP
-#line 616 "slghscan.l"
+#line 618 "slghscan.l"
 { yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 89:
@@ -1976,327 +1978,327 @@ case 89:
 yy_c_buf_p = yy_cp -= 1;
 YY_DO_BEFORE_ACTION; /* set up yytext again */
 YY_RULE_SETUP
-#line 617 "slghscan.l"
+#line 619 "slghscan.l"
 
 	YY_BREAK
 case 90:
 YY_RULE_SETUP
-#line 618 "slghscan.l"
+#line 620 "slghscan.l"
 { return find_symbol();   }
 	YY_BREAK
 case 91:
 YY_RULE_SETUP
-#line 619 "slghscan.l"
+#line 621 "slghscan.l"
 { return scan_number(yytext,&yylval,true); }
 	YY_BREAK
 case 92:
 YY_RULE_SETUP
-#line 620 "slghscan.l"
+#line 622 "slghscan.l"
 { return scan_number(yytext,&yylval,true); }
 	YY_BREAK
 case 93:
 YY_RULE_SETUP
-#line 621 "slghscan.l"
+#line 623 "slghscan.l"
 { return scan_number(yytext,&yylval,true); }
 	YY_BREAK
 case 94:
 YY_RULE_SETUP
-#line 622 "slghscan.l"
+#line 624 "slghscan.l"
 
 	YY_BREAK
 case 95:
 YY_RULE_SETUP
-#line 623 "slghscan.l"
+#line 625 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case 96:
 YY_RULE_SETUP
-#line 624 "slghscan.l"
+#line 626 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 97:
 YY_RULE_SETUP
-#line 626 "slghscan.l"
+#line 628 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(sem,preproc) ); }
 	YY_BREAK
 case 98:
 YY_RULE_SETUP
-#line 627 "slghscan.l"
+#line 629 "slghscan.l"
 { preproc_macroexpand(); }
 	YY_BREAK
 case 99:
 YY_RULE_SETUP
-#line 628 "slghscan.l"
+#line 630 "slghscan.l"
 { BEGIN(INITIAL); yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 100:
 YY_RULE_SETUP
-#line 629 "slghscan.l"
+#line 631 "slghscan.l"
 { return OP_BOOL_OR; }
 	YY_BREAK
 case 101:
 YY_RULE_SETUP
-#line 630 "slghscan.l"
+#line 632 "slghscan.l"
 { return OP_BOOL_AND; }
 	YY_BREAK
 case 102:
 YY_RULE_SETUP
-#line 631 "slghscan.l"
+#line 633 "slghscan.l"
 { return OP_BOOL_XOR; }
 	YY_BREAK
 case 103:
 YY_RULE_SETUP
-#line 632 "slghscan.l"
+#line 634 "slghscan.l"
 { return OP_RIGHT; }
 	YY_BREAK
 case 104:
 YY_RULE_SETUP
-#line 633 "slghscan.l"
+#line 635 "slghscan.l"
 { return OP_LEFT; }
 	YY_BREAK
 case 105:
 YY_RULE_SETUP
-#line 634 "slghscan.l"
+#line 636 "slghscan.l"
 { return OP_EQUAL; }
 	YY_BREAK
 case 106:
 YY_RULE_SETUP
-#line 635 "slghscan.l"
+#line 637 "slghscan.l"
 { return OP_NOTEQUAL; }
 	YY_BREAK
 case 107:
 YY_RULE_SETUP
-#line 636 "slghscan.l"
+#line 638 "slghscan.l"
 { return OP_LESSEQUAL; }
 	YY_BREAK
 case 108:
 YY_RULE_SETUP
-#line 637 "slghscan.l"
+#line 639 "slghscan.l"
 { return OP_GREATEQUAL; }
 	YY_BREAK
 case 109:
 YY_RULE_SETUP
-#line 638 "slghscan.l"
+#line 640 "slghscan.l"
 { return OP_SDIV; }
 	YY_BREAK
 case 110:
 YY_RULE_SETUP
-#line 639 "slghscan.l"
+#line 641 "slghscan.l"
 { return OP_SREM; }
 	YY_BREAK
 case 111:
 YY_RULE_SETUP
-#line 640 "slghscan.l"
+#line 642 "slghscan.l"
 { return OP_SRIGHT; }
 	YY_BREAK
 case 112:
 YY_RULE_SETUP
-#line 641 "slghscan.l"
+#line 643 "slghscan.l"
 { return OP_SLESS; }
 	YY_BREAK
 case 113:
 YY_RULE_SETUP
-#line 642 "slghscan.l"
+#line 644 "slghscan.l"
 { return OP_SGREAT; }
 	YY_BREAK
 case 114:
 YY_RULE_SETUP
-#line 643 "slghscan.l"
+#line 645 "slghscan.l"
 { return OP_SLESSEQUAL; }
 	YY_BREAK
 case 115:
 YY_RULE_SETUP
-#line 644 "slghscan.l"
+#line 646 "slghscan.l"
 { return OP_SGREATEQUAL; }
 	YY_BREAK
 case 116:
 YY_RULE_SETUP
-#line 645 "slghscan.l"
+#line 647 "slghscan.l"
 { return OP_FADD; }
 	YY_BREAK
 case 117:
 YY_RULE_SETUP
-#line 646 "slghscan.l"
+#line 648 "slghscan.l"
 { return OP_FSUB; }
 	YY_BREAK
 case 118:
 YY_RULE_SETUP
-#line 647 "slghscan.l"
+#line 649 "slghscan.l"
 { return OP_FMULT; }
 	YY_BREAK
 case 119:
 YY_RULE_SETUP
-#line 648 "slghscan.l"
+#line 650 "slghscan.l"
 { return OP_FDIV; }
 	YY_BREAK
 case 120:
 YY_RULE_SETUP
-#line 649 "slghscan.l"
+#line 651 "slghscan.l"
 { return OP_FEQUAL; }
 	YY_BREAK
 case 121:
 YY_RULE_SETUP
-#line 650 "slghscan.l"
+#line 652 "slghscan.l"
 { return OP_FNOTEQUAL; }
 	YY_BREAK
 case 122:
 YY_RULE_SETUP
-#line 651 "slghscan.l"
+#line 653 "slghscan.l"
 { return OP_FLESS; }
 	YY_BREAK
 case 123:
 YY_RULE_SETUP
-#line 652 "slghscan.l"
+#line 654 "slghscan.l"
 { return OP_FGREAT; }
 	YY_BREAK
 case 124:
 YY_RULE_SETUP
-#line 653 "slghscan.l"
+#line 655 "slghscan.l"
 { return OP_FLESSEQUAL; }
 	YY_BREAK
 case 125:
 YY_RULE_SETUP
-#line 654 "slghscan.l"
+#line 656 "slghscan.l"
 { return OP_FGREATEQUAL; }
 	YY_BREAK
 case 126:
 YY_RULE_SETUP
-#line 655 "slghscan.l"
+#line 657 "slghscan.l"
 { return OP_ZEXT; }
 	YY_BREAK
 case 127:
 YY_RULE_SETUP
-#line 656 "slghscan.l"
+#line 658 "slghscan.l"
 { return OP_CARRY; }
 	YY_BREAK
 case 128:
 YY_RULE_SETUP
-#line 657 "slghscan.l"
+#line 659 "slghscan.l"
 { return OP_BORROW; }
 	YY_BREAK
 case 129:
 YY_RULE_SETUP
-#line 658 "slghscan.l"
+#line 660 "slghscan.l"
 { return OP_SEXT; }
 	YY_BREAK
 case 130:
 YY_RULE_SETUP
-#line 659 "slghscan.l"
+#line 661 "slghscan.l"
 { return OP_SCARRY; }
 	YY_BREAK
 case 131:
 YY_RULE_SETUP
-#line 660 "slghscan.l"
+#line 662 "slghscan.l"
 { return OP_SBORROW; }
 	YY_BREAK
 case 132:
 YY_RULE_SETUP
-#line 661 "slghscan.l"
+#line 663 "slghscan.l"
 { return OP_NAN; }
 	YY_BREAK
 case 133:
 YY_RULE_SETUP
-#line 662 "slghscan.l"
+#line 664 "slghscan.l"
 { return OP_ABS; }
 	YY_BREAK
 case 134:
 YY_RULE_SETUP
-#line 663 "slghscan.l"
+#line 665 "slghscan.l"
 { return OP_SQRT; }
 	YY_BREAK
 case 135:
 YY_RULE_SETUP
-#line 664 "slghscan.l"
+#line 666 "slghscan.l"
 { return OP_CEIL; }
 	YY_BREAK
 case 136:
 YY_RULE_SETUP
-#line 665 "slghscan.l"
+#line 667 "slghscan.l"
 { return OP_FLOOR; }
 	YY_BREAK
 case 137:
 YY_RULE_SETUP
-#line 666 "slghscan.l"
+#line 668 "slghscan.l"
 { return OP_ROUND; }
 	YY_BREAK
 case 138:
 YY_RULE_SETUP
-#line 667 "slghscan.l"
+#line 669 "slghscan.l"
 { return OP_INT2FLOAT; }
 	YY_BREAK
 case 139:
 YY_RULE_SETUP
-#line 668 "slghscan.l"
+#line 670 "slghscan.l"
 { return OP_FLOAT2FLOAT; }
 	YY_BREAK
 case 140:
 YY_RULE_SETUP
-#line 669 "slghscan.l"
+#line 671 "slghscan.l"
 { return OP_TRUNC; }
 	YY_BREAK
 case 141:
 YY_RULE_SETUP
-#line 670 "slghscan.l"
+#line 672 "slghscan.l"
 { return OP_CPOOLREF; }
 	YY_BREAK
 case 142:
 YY_RULE_SETUP
-#line 671 "slghscan.l"
+#line 673 "slghscan.l"
 { return OP_NEW; }
 	YY_BREAK
 case 143:
 YY_RULE_SETUP
-#line 672 "slghscan.l"
+#line 674 "slghscan.l"
 { return OP_POPCOUNT; }
 	YY_BREAK
 case 144:
 YY_RULE_SETUP
-#line 673 "slghscan.l"
+#line 675 "slghscan.l"
 { return IF_KEY; }
 	YY_BREAK
 case 145:
 YY_RULE_SETUP
-#line 674 "slghscan.l"
+#line 676 "slghscan.l"
 { return GOTO_KEY; }
 	YY_BREAK
 case 146:
 YY_RULE_SETUP
-#line 675 "slghscan.l"
+#line 677 "slghscan.l"
 { return CALL_KEY; }
 	YY_BREAK
 case 147:
 YY_RULE_SETUP
-#line 676 "slghscan.l"
+#line 678 "slghscan.l"
 { return RETURN_KEY; }
 	YY_BREAK
 case 148:
 YY_RULE_SETUP
-#line 677 "slghscan.l"
+#line 679 "slghscan.l"
 { return DELAYSLOT_KEY; }
 	YY_BREAK
 case 149:
 YY_RULE_SETUP
-#line 678 "slghscan.l"
+#line 680 "slghscan.l"
 { return CROSSBUILD_KEY; }
 	YY_BREAK
 case 150:
 YY_RULE_SETUP
-#line 679 "slghscan.l"
+#line 681 "slghscan.l"
 { return EXPORT_KEY; }
 	YY_BREAK
 case 151:
 YY_RULE_SETUP
-#line 680 "slghscan.l"
+#line 682 "slghscan.l"
 { return BUILD_KEY; }
 	YY_BREAK
 case 152:
 YY_RULE_SETUP
-#line 681 "slghscan.l"
+#line 683 "slghscan.l"
 { return LOCAL_KEY; }
 	YY_BREAK
 case 153:
 YY_RULE_SETUP
-#line 682 "slghscan.l"
+#line 684 "slghscan.l"
 { yylval.ch = yytext[0]; return yytext[0]; }
 	YY_BREAK
 case 154:
@@ -2304,52 +2306,52 @@ case 154:
 yy_c_buf_p = yy_cp -= 1;
 YY_DO_BEFORE_ACTION; /* set up yytext again */
 YY_RULE_SETUP
-#line 683 "slghscan.l"
+#line 685 "slghscan.l"
 
 	YY_BREAK
 case 155:
 YY_RULE_SETUP
-#line 684 "slghscan.l"
+#line 686 "slghscan.l"
 { return find_symbol();   }
 	YY_BREAK
 case 156:
 YY_RULE_SETUP
-#line 685 "slghscan.l"
+#line 687 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 157:
 YY_RULE_SETUP
-#line 686 "slghscan.l"
+#line 688 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 158:
 YY_RULE_SETUP
-#line 687 "slghscan.l"
+#line 689 "slghscan.l"
 { return scan_number(yytext,&yylval,false); }
 	YY_BREAK
 case 159:
 YY_RULE_SETUP
-#line 688 "slghscan.l"
+#line 690 "slghscan.l"
 
 	YY_BREAK
 case 160:
 YY_RULE_SETUP
-#line 689 "slghscan.l"
+#line 691 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case 161:
 YY_RULE_SETUP
-#line 690 "slghscan.l"
+#line 692 "slghscan.l"
 { return yytext[0]; }
 	YY_BREAK
 case 162:
 YY_RULE_SETUP
-#line 692 "slghscan.l"
+#line 694 "slghscan.l"
 { SleighCompile_nextLine(slgh); BEGIN( preprocess(preproc,preproc) ); }
 	YY_BREAK
 case 163:
 YY_RULE_SETUP
-#line 693 "slghscan.l"
+#line 695 "slghscan.l"
 { SleighCompile_nextLine(slgh); }
 	YY_BREAK
 case YY_STATE_EOF(INITIAL):
@@ -2359,7 +2361,7 @@ case YY_STATE_EOF(print):
 case YY_STATE_EOF(pattern):
 case YY_STATE_EOF(sem):
 case YY_STATE_EOF(preproc):
-#line 695 "slghscan.l"
+#line 697 "slghscan.l"
 { yy_delete_buffer( YY_CURRENT_BUFFER );
           if (!filebuffers.len)
             yyterminate(); 
@@ -2374,10 +2376,10 @@ case YY_STATE_EOF(preproc):
 	YY_BREAK
 case 164:
 YY_RULE_SETUP
-#line 706 "slghscan.l"
+#line 708 "slghscan.l"
 ECHO;
 	YY_BREAK
-#line 2381 "slghscan.yy.c"
+#line 2383 "slghscan.yy.c"
 
 	case YY_END_OF_BUFFER:
 		{
@@ -3263,4 +3265,4 @@ int main()
 	return 0;
 	}
 #endif
-#line 706 "slghscan.l"
+#line 708 "slghscan.l"

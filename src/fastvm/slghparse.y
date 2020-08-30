@@ -222,7 +222,7 @@ spaceprop: DEFINE_KEY SPACE_KEY STRING	{ $$ = SpaceQuality_new($3->data); cstr_d
   | spaceprop DEFAULT_KEY               { $$ = $1; $$->isdefault = true; }
   ;
 varnodedef: DEFINE_KEY SPACESYM OFFSET_KEY '=' INTEGER SIZE_KEY '=' INTEGER stringlist ';' {
-               SleighCompile_defineVarnodes(slgh, $2, $5, $8, $9); }
+               SleighCompile_defineVarnodes(slgh, $2, $5, $8, $9); dynarray_delete($9); }
   | DEFINE_KEY SPACESYM OFFSET_KEY '=' BADINTEGER { yyerror("Parsed integer is too big (overflow)"); YYERROR; }
   ;
 bitrangedef: DEFINE_KEY BITRANGE_KEY bitrangelist ';'
@@ -488,7 +488,7 @@ jumpdest: STARTSYM		{ VarnodeTpl *sym = SleighSymbol_getVarnode($1);
   ;
 varnode: specificsymbol		{ $$ = SleighSymbol_getVarnode($1); }
   | integervarnode		{ $$ = $1; }
-  | STRING			{ yyerror("Unknown varnode parameter: %s", *$1); cstr_delete($1); ; YYERROR; }
+  | STRING			{ yyerror("Unknown varnode parameter: %s", $1->data); cstr_delete($1); ; YYERROR; }
   | SUBTABLESYM                 { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName($1)); ; YYERROR; }
   ;
 integervarnode: INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
@@ -544,17 +544,17 @@ intbpart: INTEGER		{ $$ = dynarray_new(int64_cmp, int64_delete); dynarray_add($$
                                   $$ = $1; dynarray_add($1, int64_new((intb)0xBADBEEF)); cstr_delete($2); }
   ;
 stringlist: '[' stringpart ']'	{ $$ = $2; }
-  | STRING			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); }
+  | STRING			{ $$ = dynarray_new(NULL, cstr_delete); dynarray_add($$, $1); }
   ;
-stringpart: STRING		{ $$ = dynarray_new(NULL, str_free); dynarray_add($$, $1 ); }
-  | stringpart STRING		{ $$ = $1; dynarray_add($$, $2); vm_free($2); }
+stringpart: STRING		{ $$ = dynarray_new(NULL, cstr_delete); dynarray_add($$, $1 ); }
+  | stringpart STRING		{ $$ = $1; dynarray_add($$, $2);  }
   | stringpart anysymbol	{ yyerror( "%s redefined", SleighSymbol_getName($2)); YYERROR; }
   ;
 anystringlist: '[' anystringpart ']' { $$ = $2; }
   ;
 anystringpart: STRING           { $$ = dynarray_new(NULL, str_free); dynarray_add($$, $1); }
   | anysymbol                   { $$ = dynarray_new(NULL, NULL); dynarray_add($$, SleighSymbol_getName($1)); }
-  | anystringpart STRING        { $$ = $1; dynarray_add($$, $2); vm_free($2); }
+  | anystringpart STRING        { $$ = $1; dynarray_add($$, $2); }
   | anystringpart anysymbol     { $$ = $1; dynarray_add($$, SleighSymbol_getName($2)); }
   ;
 valuelist: '[' valuepart ']'	{ $$ = $2; }

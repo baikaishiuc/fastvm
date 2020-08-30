@@ -31,6 +31,7 @@ struct StarQuality {
 StarQuality*        StarQuality_new();
 void                StarQuality_delete(StarQuality *sq);
 
+/* 在原始的ghidra代码中，outvn是值复制的，这里我改成了引用 */
 struct ExpTree {
     struct dynarray *ops;
     VarnodeTpl *outvn;
@@ -43,6 +44,8 @@ void                ExpTree_delete(ExpTree *);
 
 void                ExpTree_setOutput(ExpTree *e, VarnodeTpl *newout);
 struct dynarray*    ExpTree_toVector(ExpTree *e);
+ConstTpl*           ExpTree_getSize(ExpTree *e);
+#define ExpTree_getSize(e)      e->outvn->size
 
 typedef struct PcodeCompile {
     AddrSpace *defaultspace;
@@ -50,9 +53,15 @@ typedef struct PcodeCompile {
     AddrSpace *uniqspace;
     uint32_t local_labelcount;
     bool enforceLocalKey;
+
+    void *slgh;
+    uintb (*allocateTemp)(void *slgh);
+    void  (*addSymbol)(void *slgh, SleighSymbol *sym);
 } PcodeCompile;
 
-PcodeCompile*       PcodeCompile_new();
+PcodeCompile*       PcodeCompile_new(void *slgh, 
+                                    uintb (* allocateTemp)(void *slgh),
+                                    void  (* addSymbol)(void *slgh, SleighSymbol *sym));
 void                PcodeCompile_delete(PcodeCompile *n);
 
 #define PcodeCompile_resetLabelCount(p)         (p)->local_labelcount = 0

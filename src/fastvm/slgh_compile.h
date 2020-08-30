@@ -36,14 +36,15 @@ SpaceQuality*   SpaceQuality_new(char *name);
 void            SpaceQuality_delete(SpaceQuality *sp);
 
 struct FieldQuality {
-    const char *name;
-    unsigned int low, high;
+    uintb low, high;
     bool signext;
     bool flow;
     bool hex;
+    char name[1];
 };
 
 FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h);
+void            FieldQuality_delete(FieldQuality *f);
 
 typedef struct SectionVector {
     int4 nextindex;
@@ -190,6 +191,8 @@ void                SleighCompile_addRegister(SleighCompile *s, const char *name
 const char*         SleighCompile_getRegisterName(SleighCompile *s, AddrSpace *base, uintb off, int size);
 void                SleighCompile_getAllRegister(SleighCompile *s, struct dynarray *d);
 void                SleighCompile_getUserOpNames(SleighCompile *s, struct dynarray *d);
+uintb               SleighCompile_getUniqueAddr(SleighCompile *s);
+void            SleighCompile_addSymbol(SleighCompile *s, SleighSymbol *sym);
 
 ConstructTpl*       SleighCompile_setResultVarnode(SleighCompile *s, ConstructTpl *ct, VarnodeTpl *vn);
 ConstructTpl*       SleighCompile_setResultStarVarnode(SleighCompile *s, ConstructTpl *ct, StarQuality *star, VarnodeTpl *vn);

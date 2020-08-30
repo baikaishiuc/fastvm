@@ -2736,7 +2736,7 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 224 "slghparse.y"
     {
-               SleighCompile_defineVarnodes(slgh, (yyvsp[(2) - (10)].spacesym), (yyvsp[(5) - (10)].i), (yyvsp[(8) - (10)].i), (yyvsp[(9) - (10)].strlist)); ;}
+               SleighCompile_defineVarnodes(slgh, (yyvsp[(2) - (10)].spacesym), (yyvsp[(5) - (10)].i), (yyvsp[(8) - (10)].i), (yyvsp[(9) - (10)].strlist)); dynarray_delete((yyvsp[(9) - (10)].strlist)); ;}
     break;
 
   case 50:
@@ -4109,7 +4109,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 491 "slghparse.y"
-    { yyerror("Unknown varnode parameter: %s", *(yyvsp[(1) - (1)].str)); cstr_delete((yyvsp[(1) - (1)].str)); ; YYERROR; ;}
+    { yyerror("Unknown varnode parameter: %s", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str)); ; YYERROR; ;}
     break;
 
   case 253:
@@ -4395,21 +4395,21 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 547 "slghparse.y"
-    { (yyval.strlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
+    { (yyval.strlist) = dynarray_new(NULL, cstr_delete); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
     break;
 
   case 293:
 
 /* Line 1455 of yacc.c  */
 #line 549 "slghparse.y"
-    { (yyval.strlist) = dynarray_new(NULL, str_free); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str) ); ;}
+    { (yyval.strlist) = dynarray_new(NULL, cstr_delete); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str) ); ;}
     break;
 
   case 294:
 
 /* Line 1455 of yacc.c  */
 #line 550 "slghparse.y"
-    { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str)); vm_free((yyvsp[(2) - (2)].str)); ;}
+    { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str));  ;}
     break;
 
   case 295:
@@ -4444,7 +4444,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 557 "slghparse.y"
-    { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str)); vm_free((yyvsp[(2) - (2)].str)); ;}
+    { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str)); ;}
     break;
 
   case 300:

@@ -60,11 +60,12 @@ void            SleighSymbol_delete(SleighSymbol *sym)
 {
 }
 
-SleighSymbol *SleighSymbol_new(int type)
+SleighSymbol *SleighSymbol_new(int type, const char *name)
 {
-    SleighSymbol *sym = vm_mallocz(sizeof(sym[0]));
+    SleighSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(name));
 
     sym->type = type;
+    strcpy(sym->name, name);
 
     return sym;
 }
@@ -133,21 +134,69 @@ EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc)
     return sym;
 }
 
+VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size)
+{
+    VarnodeSymbol *sym = SleighSymbol_new(varnode_symbol, name);
+
+    sym->varnode.fix.space = base;
+    sym->varnode.fix.offset = offset;
+    sym->varnode.fix.size = size;
+
+    return sym;
+}
+
+#define sym_is_spec(sym)                (pattern(sym)->type)
+
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)
 {
-    switch (sym->type) {
+    VarnodeTpl *res;
 
+    switch (sym->type) {
     case operand_symbol:
+        if (sym->operand.defexp)
+            return VarnodeTpl_new2(sym->operand.hand, true);
+        else {
+            SleighSymbol *triple = sym->operand.triple;
+            res = SleighSymbol_getVarnode(triple);
+            if (res)
+                return res;
+
+            if (triple->type == valuemap_symbol || triple->type == name_symbol)
+                return VarnodeTpl_new2(sym->operand.hand, true);
+            else
+                return VarnodeTpl_new2(sym->operand.hand, false);
+        }
         break;
 
     case varnode_symbol:
-        break;
+        return VarnodeTpl_new3(ConstTpl_newA(sym->varnode.fix.space),
+                               ConstTpl_new2(real, sym->varnode.fix.offset),
+                               ConstTpl_new2(real, sym->varnode.fix.size));
 
     case start_symbol:
-        break;
+        return VarnodeTpl_new3(ConstTpl_newA(sym->start.const_space),
+                               ConstTpl_new1(j_start),
+                               ConstTpl_new0());
 
     case end_symbol:
-        break;
+        return VarnodeTpl_new3(ConstTpl_newA(sym->start.const_space),
+                               ConstTpl_new1(j_next),
+                               ConstTpl_new0());
+
+    case flow_dest_symbol:
+        return VarnodeTpl_new3(ConstTpl_newA(sym->start.const_space),
+                               ConstTpl_new1(j_flowdest),
+                               ConstTpl_new0());
+
+    case flow_ref_symbol:
+        return VarnodeTpl_new3(ConstTpl_newA(sym->start.const_space),
+                               ConstTpl_new1(j_flowref),
+                               ConstTpl_new0());
+
+    case epsilon_symbol:
+        return VarnodeTpl_new3(ConstTpl_newA(sym->start.const_space),
+                               ConstTpl_new2(real, 0),
+                               ConstTpl_new2(real, 0));
 
     default:
         break;

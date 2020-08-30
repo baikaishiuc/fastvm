@@ -128,6 +128,7 @@ SleighSymbol*   SubtableSymbol_new(const char *name);
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
 EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
 EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
+VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);

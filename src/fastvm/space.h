@@ -95,7 +95,7 @@ UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl);
 
 typedef struct VarnodeData {
     AddrSpace *space;
-    uint8_t offset;
+    u8 offset;
     uint32_t size;
 } VarnodeData;
 
