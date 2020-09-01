@@ -45,8 +45,11 @@ void                ExpTree_delete(ExpTree *);
 void                ExpTree_setOutput(ExpTree *e, VarnodeTpl *newout);
 struct dynarray*    ExpTree_toVector(ExpTree *e);
 ConstTpl*           ExpTree_getSize(ExpTree *e);
+struct dynarray*    ExpTree_appendParams(OpTpl *op, struct dynarray *params);
 #define ExpTree_getSize(e)      e->outvn->size
 
+/* pcodecompil 模块是用来生成pcode的，而不是用来生成语法树的，所以虽然他里面有很多看起来语法树的代码
+但是都是为了辅助生成pcode，一旦生成了pcode，就会删除ExpTree */
 typedef struct PcodeCompile {
     AddrSpace *defaultspace;
     AddrSpace *constantspace;
@@ -75,13 +78,16 @@ void                PcodeCompile_delete(PcodeCompile *n);
 struct dynarray*    PcodeCompile_placeLabel(PcodeCompile *p, LabelSymbol *sym);
 struct dynarray*    PcodeCompile_newOutput(PcodeCompile *p, bool usesLocalKey, ExpTree *rhs, char *varname, uint32_t size);
 
-ExpTree*    PcodeCompile_createOp(PcodeCompile *p, OpCode opc, ExpTree *vn);
-ExpTree*    PcodeCompile_createOp2(PcodeCompile *p,  OpCode opc, ExpTree *vn1, ExpTree *vn2);
-ExpTree*    PcodeCompile_createOpOut(PcodeCompile *p, VarnodeTpl *outvn, OpCode opc, ExpTree *vn1, ExpTree *vn2);
-ExpTree*    PcodeCompile_createOpOutUnary(PcodeCompile *p, VarnodeTpl *outvn, OpCode opc, ExpTree *vn1, ExpTree *vn2);
+//ExpTree*    PcodeCompile_createOp(PcodeCompile *p, OpCode opc, ExpTree *vn);
+//ExpTree*    PcodeCompile_createOp2(PcodeCompile *p,  OpCode opc, ExpTree *vn1, ExpTree *vn2);
+
+ExpTree*    PcodeCompile_createOpOut(PcodeCompile *p, VarnodeTpl *outvn, OpCode opc, ExpTree *vn);
+ExpTree*    PcodeCompile_createOp2Out(PcodeCompile *p, VarnodeTpl *outvn, OpCode opc, ExpTree *vn1, ExpTree *vn2);
+#define PcodeCompile_createOp(p, o, v)   PcodeCompile_createOpOut(p, NULL, o, v)
+#define PcodeCompile_createOp2(p, o, v1, v2)   PcodeCompile_createOp2Out(p, NULL, o, v1, v2)
 
 struct dynarray*    PcodeCompile_createOpNoOut(PcodeCompile *p, OpCode opc, ExpTree *vn);
-struct dynarray*    PcodeCompile_createOpNoOut4(PcodeCompile *p, OpCode opc, ExpTree *vn1, ExpTree *vn2);
+struct dynarray*    PcodeCompile_createOpNoOut2(PcodeCompile *p, OpCode opc, ExpTree *vn1, ExpTree *vn2);
 struct dynarray*    PcodeCompile_createOpConst(PcodeCompile *p, OpCode opc, uintb val);
 
 ExpTree*            PcodeCompile_createLoad(PcodeCompile *p,StarQuality *qual, ExpTree *ptr);

@@ -374,7 +374,7 @@ statement: lhsvarnode '=' expr ';'	{ ExpTree_setOutput($3, $1); $$ = ExpTree_toV
   | LOCAL_KEY STRING ':' INTEGER '=' expr ';'	{ $$ = PcodeCompile_newOutput(slgh->pcode, true,$6, $2->data, (u4)$4); cstr_delete($2); }
   | STRING ':' INTEGER '=' expr ';'	{ $$ = PcodeCompile_newOutput(slgh->pcode, true,$5,$1->data,(u4)$3); }
   | LOCAL_KEY specificsymbol '=' { $$ = (struct dynarray *)0; yyerror("Redefinition of symbol: %s", SleighSymbol_getName($2)); YYERROR; }
-  | sizedstar expr '=' expr ';'		{ $$ = PcodeCompile_createStore(slgh->pcode, $1,$2,$4); }
+  | sizedstar expr '=' expr ';'		{ $$ = PcodeCompile_createStore(slgh->pcode, $1,$2,$4); StarQuality_delete($1); }
   | USEROPSYM '(' paramlist ')' ';'	{ $$ = PcodeCompile_createUserOpNoOut(slgh->pcode, $1,$3); }
   | lhsvarnode '[' INTEGER ',' INTEGER ']' '=' expr ';' { $$ = PcodeCompile_assignBitRange(slgh->pcode, $1,(uint4)$3,(uint4)$5,$8); }
   | BITSYM '=' expr ';'                 { $$= PcodeCompile_assignBitRange(slgh->pcode, 
@@ -388,7 +388,7 @@ statement: lhsvarnode '=' expr ';'	{ ExpTree_setOutput($3, $1); $$ = ExpTree_toV
   | CROSSBUILD_KEY varnode ',' STRING ';'   { $$ = SleighCompile_createCrossBuild(slgh, $2, SleighCompile_newSectionSymbol(slgh, $4->data)); cstr_delete($4); }
   | DELAYSLOT_KEY '(' INTEGER ')' ';'	{ $$ = PcodeCompile_createOpConst(slgh->pcode, DELAY_SLOT,$3); }
   | GOTO_KEY jumpdest ';'		{ $$ = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_BRANCH,ExpTree_newV($2)); }
-  | IF_KEY expr GOTO_KEY jumpdest ';'	{ $$ = PcodeCompile_createOpNoOut4(slgh->pcode, CPUI_CBRANCH,ExpTree_newV($4),$2); }
+  | IF_KEY expr GOTO_KEY jumpdest ';'	{ $$ = PcodeCompile_createOpNoOut2(slgh->pcode, CPUI_CBRANCH,ExpTree_newV($4),$2); }
   | GOTO_KEY '[' expr ']' ';'		{ $$ = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_BRANCHIND,$3); }
   | CALL_KEY jumpdest ';'		{ $$ = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_CALL,ExpTree_newV($2)); }
   | CALL_KEY '[' expr ']' ';'		{ $$ = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_CALLIND,$3); }
@@ -398,7 +398,7 @@ statement: lhsvarnode '=' expr ';'	{ ExpTree_setOutput($3, $1); $$ = ExpTree_toV
   | label                               { $$ = PcodeCompile_placeLabel(slgh->pcode, $1); }
   ;
 expr: varnode { $$ = ExpTree_newV($1); }
-  | sizedstar expr %prec '!'	{ $$ = PcodeCompile_createLoad(slgh->pcode, $1,$2); }
+  | sizedstar expr %prec '!'	{ $$ = PcodeCompile_createLoad(slgh->pcode, $1,$2); StarQuality_delete($1); }
   | '(' expr ')'		{ $$ = $2; }
   | expr '+' expr		{ $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_ADD,$1,$3); }
   | expr '-' expr		{ $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SUB,$1,$3); }

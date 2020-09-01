@@ -117,6 +117,15 @@ int dynarray_exist(struct dynarray *d, int k)
     return 0;
 }
 
+void dynarray_insert(struct dynarray *d, struct dynarray *s)
+{
+    int i;
+
+    for (i = 0; i < s->len; i++) {
+        dynarray_add(d, s->ptab[i]);
+    }
+}
+
 struct dynarray*    dynarray_new(cmp_fn cmp, free_fn free1)
 {
     struct dynarray *d = (struct dynarray *)calloc(1, sizeof (d[0]));

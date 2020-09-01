@@ -33,6 +33,7 @@ extern "C" {
 	int dynarray_cmp(struct dynarray *lhs, struct dynarray *rhs);
     void* dynarray_find(struct dynarray *arr, void *a);
     int dynarray_exist(struct dynarray *d, int i);
+    void dynarray_insert(struct dynarray *d, struct dynarray *s);
 
 #define dynarray_is_empty(_a)		((_a)->len == 0)
 #define dynarray_push               dynarray_add

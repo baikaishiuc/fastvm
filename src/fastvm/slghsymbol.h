@@ -21,6 +21,20 @@ BitrangeSymbol, SpecificSymbol;
 
 typedef struct SymbolTable  SymbolTable;
 typedef struct SymbolScope  SymbolScope;
+typedef struct DecisionNode DecisionNode;
+
+struct DecisionNode {
+    struct dynarray list;
+    struct dynarray children;
+    int num;
+    bool contextdecision;
+    int startbit;
+    int bitsize;
+    DecisionNode *parent;
+};
+
+DecisionNode*   DecisionNode_new(DecisionNode *d);
+void            DecisionNode_delete(DecisionNode *d);
 
 struct SleighSymbol {
     enum {
@@ -114,6 +128,18 @@ struct SleighSymbol {
             ConstructTpl *construct;
             struct dynarray operands;
         } macro;
+
+        struct {
+            int index;
+        } userop;
+
+        struct {
+            TokenPattern *pattern;
+            bool beingbuild;
+            bool erros;
+            struct dynarray construct;
+            DecisionNode *decisiontree;
+        } subtable;
     };
 
     int id;
@@ -129,7 +155,10 @@ struct SleighSymbol {
 void            SleighSymbol_delete(SleighSymbol *sym);
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
+
 SleighSymbol*   SubtableSymbol_new(const char *name);
+void            SubtableSymbol_addConstructor(SubtableSymbol *sym, Constructor *ct);
+
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
 EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
 EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
@@ -138,6 +167,9 @@ MacroSymbol*    MacroSymbol_new(const char *name, int i);
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
 
 void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
+#define MacroSymbol_getOperand(sym, ind)        sym->macro.operands.ptab[ind]
+#define MacroSymbol_getNumOperands(sym)     sym->macro.operands.len
+#define OperandSymbol_isCodeAddress(sym)      (sym->operand.flags&CODE_ADDRESS)
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
@@ -193,9 +225,9 @@ SymbolTable*    SymbolTable_new();
 void            SymbolTable_delete(SymbolTable *s);
 
 SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scope, const char *name);
-#define SymbolTable_getCurrentScope(s)  s->curscope
-#define SymbolTable_getGlobalScope(s)   s->table[0]
-#define SymbolTable_setCurrentScope(s, sc)  s->curscope = scope
+#define SymbolTable_getCurrentScope(s)  (s)->curscope
+#define SymbolTable_getGlobalScope(s)   (s)->table.ptab[0]
+#define SymbolTable_setCurrentScope(s, sc)  (s)->curscope = sc 
 
 void            SymbolTable_addScope(SymbolTable *s);
 void            SymbolTable_popScope(SymbolTable *s);
@@ -222,7 +254,7 @@ struct Constructor {
     uintm id;
     int firstwhitespace;
     int flowthruindex;
-    int fileno;
+    int lineno;
     bool inerror;
 };
 

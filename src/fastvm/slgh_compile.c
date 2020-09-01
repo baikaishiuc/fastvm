@@ -9,6 +9,10 @@ int yylex_destroy(void) {
     return 0;
 }
 
+
+#define slgh_lineno(s)                  ((struct slgh_preproc *)dynarray_back(&s->preproc))->lineno
+#define slgh_filename(s)                ((struct slgh_preproc *)dynarray_back(&s->preproc))->fullpath.data
+
 struct slgh_macro* slgh_get_macro1(SleighCompile *slgh, const char *sym)
 {
     struct slgh_macro *macro;
@@ -426,9 +430,51 @@ void            SleighCompile_newOperand(SleighCompile *s, Constructor *c, const
 
 }
 
+WithBlock*      WithBlock_new()
+{
+    WithBlock*  wb = vm_mallocz(sizeof (wb[0]));
+
+    return  wb;
+}
+
+void            WithBlock_delete(WithBlock *w)
+{
+    vm_free(w);
+}
+
+SubtableSymbol*     WithBlock_getCurrentSubtable(SleighCompile *s)
+{
+    int i;
+    for (i = 0; i < s->withstack.len; i++) {
+        WithBlock *w = s->withstack.ptab[i];
+        if (w->ss)
+            return w->ss;
+    }
+
+    return NULL;
+}
+
 Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSymbol *sym)
 {
-    return NULL;
+    if (!sym)
+        sym = WithBlock_getCurrentSubtable(s);
+    if (!sym)
+        sym = s->root;
+
+    s->curmacro = NULL;
+    s->curct = Constructor_new();
+    s->curct->lineno = slgh_lineno(s);
+    // ctorLocationMap[curct] = *getCurrentLocation();
+    SubtableSymbol_addConstructor(sym, s->curct);
+    SymbolTable_addScope(s->symtab);
+    s->pcode->local_labelcount = 0;
+
+    return s->curct;
+}
+
+void        SleighCompile_resetConstructors(SleighCompile *s)
+{
+    SymbolTable_setCurrentScope(s->symtab, SymbolTable_getGlobalScope(s->symtab));
 }
 
 PatternEquation*    SleighCompile_constrainOperand(SleighCompile *s, OperandSymbol *sym, PatternExpression *patexp)
@@ -508,9 +554,46 @@ struct dynarray*    SleighCompile_createCrossBuild(SleighCompile *s, VarnodeTpl 
     return NULL;
 }
 
-struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *sym, struct dynarray *param)
+void slgh_cmp_macro_params(SleighCompile *s, MacroSymbol *sym, struct dynarray *params)
 {
-    return NULL;
+    int i;
+    ExpTree *e;
+    VarnodeTpl *vn;
+
+    for (i = 0; i < params->len; i++) {
+        e = params->ptab[i];
+        vn = e->outvn;
+        if (vn == 0) continue;
+
+        int hand = vn->offset->value.handle_index;
+
+        OperandSymbol *macrop = MacroSymbol_getOperand(sym, hand);
+        OperandSymbol *parentop;
+        if (s->curct == NULL)
+            parentop = MacroSymbol_getOperand(s->curmacro, hand);
+        else
+            parentop = s->curct->operands.ptab[hand];
+
+        if (OperandSymbol_isCodeAddress(macrop))
+            parentop->operand.flags |= CODE_ADDRESS;
+    }
+}
+
+struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *sym, struct dynarray *params)
+{
+    struct slgh_preproc *last = dynarray_back(&s->preproc);
+    if (sym->macro.operands.len != params->len) {
+        vm_error("%s:%d Macro(%s) params number mismatch", last->fullpath.data, last->lineno, sym->name);
+    }
+
+    slgh_cmp_macro_params(s, sym, params);
+    OpTpl *op = OpTpl_new(MACROBUILD);
+    VarnodeTpl *idvn = VarnodeTpl_new3(ConstTpl_newA(s->constantspace),
+                                        ConstTpl_new2(real, sym->macro.index),
+                                        ConstTpl_new2(real, 4));
+    OpTpl_addInput(op, idvn);
+
+    return ExpTree_appendParams(op, params);
 }
 
 bool                SleighCompile_getPreprocValue(SleighCompile *s, char *name, char **value)

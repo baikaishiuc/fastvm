@@ -67,6 +67,7 @@ ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus);
 void        ConstTpl_delete(ConstTpl *);
 void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
 v_field     ConstTpl_readHandleSelector(const char *name);
+bool        ConstTpl_isEqual(ConstTpl *lhs, ConstTpl *rhs);
 #define ConstTpl_getSpace(ct)       (ct)->value.spaceid
 #define ConstTpl_getReal(ct)        (ct)->value_real
 
@@ -81,11 +82,12 @@ struct VarnodeTpl {
 #define VarnodeTpl_getOffset(v)             &v->offset
 
 VarnodeTpl*     VarnodeTpl_new();
-VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn);
+VarnodeTpl*     VarnodeTpl_clone(VarnodeTpl *vn);
 VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
 void            VarnodeTpl_delete(VarnodeTpl *vn);
-#define VarnodeTpl_setSize(c, sz)         c->size->value_real = sz
+bool            VarnodeTpl_isLocalTemp(VarnodeTpl *vn);
+#define VarnodeTpl_setSize(c, sz)         c->size = sz
 
 struct HandleTpl {
   ConstTpl space;
@@ -109,6 +111,7 @@ void        OpTpl_delete(OpTpl *);
 
 void        OpTpl_clearOutput(OpTpl *o);
 void        OpTpl_addInput(OpTpl *o, VarnodeTpl *vt);
+#define OpTpl_getOut(o)                 o->output
 #define OpTpl_setOutput(o, out)         o->output = out
 
 

@@ -76,12 +76,23 @@ bool            ConstructTpl_addOp(ConstructTpl *t, OpTpl *ot)
 
 ConstTpl*   ConstTpl_clone(ConstTpl *a)
 {
-    return NULL;
+    ConstTpl *c = vm_mallocz(sizeof (c[0]));
+
+    c->type = a->type;
+    c->value = a->value;
+    c->value_real = a->value_real;
+    c->select = a->select;
+
+    return c;
 }
 
 ConstTpl*   ConstTpl_newA(AddrSpace *space)
 {
-    return NULL;
+    ConstTpl *c = vm_mallocz(sizeof(c[0]));
+
+    c->type = spaceid;
+    c->value.spaceid = space;
+    return c;
 }
 
 ConstTpl*   ConstTpl_new0(void)
@@ -123,18 +134,74 @@ ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus)
     return NULL;
 }
 
-void        ConstTpl_delete(ConstTpl *);
-void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
-v_field     ConstTpl_readHandleSelector(const char *name);
+void        ConstTpl_delete(ConstTpl *c)
+{
+    vm_free(c);
+}
+
+void        ConstTpl_printHandleSelector(FILE *fout, v_field val)
+{
+
+}
+v_field     ConstTpl_readHandleSelector(const char *name)
+{
+    return v_space;
+}
+
+bool        ConstTpl_isEqual(ConstTpl *lhs, ConstTpl *rhs)
+{
+    if (lhs->type != rhs->type) return false;
+
+    switch (lhs->type) {
+    case real:
+        return (lhs->value_real == rhs->value_real);
+
+    case handle:
+        return (lhs->value.handle_index == rhs->value.handle_index) && (lhs->select == rhs->select);
+
+    case spaceid:
+        return (lhs->value.spaceid == rhs->value.spaceid);
+    }
+
+    return false;
+}
+
+bool    ConstTpl_lessThan(ConstTpl *lhs, ConstTpl *rhs)
+{
+    if (lhs->type != rhs->type) return (lhs->type < rhs->type);
+
+    switch (lhs->type) {
+    case real:
+        return (lhs->value_real < rhs->value_real);
+
+    case handle:
+        if (lhs->value.handle_index != rhs->value.handle_index)
+            return (lhs->value.handle_index < rhs->value.handle_index);
+
+        if (lhs->select != rhs->select) return (lhs->select < rhs->select);
+        break;
+
+    case spaceid:
+        return (lhs->value.spaceid < rhs->value.spaceid);
+    }
+
+    return false;
+}
 
 VarnodeTpl*     VarnodeTpl_new()
 {
     return NULL;
 }
 
-VarnodeTpl*     VarnodeTpl_new1(VarnodeTpl *vn)
+VarnodeTpl*     VarnodeTpl_clone(VarnodeTpl *vn)
 {
-    return NULL;
+    VarnodeTpl *v = vm_mallocz(sizeof (v[0]));
+
+    v->space = ConstTpl_clone(vn->space);
+    v->size = ConstTpl_clone(vn->size);
+    v->offset = ConstTpl_clone(vn->offset);
+
+    return v;
 }
 
 VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize)
@@ -168,4 +235,13 @@ VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz)
 void            VarnodeTpl_delete(VarnodeTpl *vn)
 {
     vm_free(vn);
+}
+
+bool     VarnodeTpl_isLocalTemp(VarnodeTpl *vn)
+{
+    if (vn->space->type != spaceid)   return false;
+    /* unique space */
+    if (vn->space->value.spaceid->type != IPTR_INTERNAL) return false;
+
+    return true;
 }

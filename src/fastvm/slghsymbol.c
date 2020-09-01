@@ -45,11 +45,17 @@ PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
 
 Constructor*    Constructor_new()
 {
-    return NULL;
+    Constructor *c = vm_mallocz(sizeof(c[0]));
+
+    c->firstwhitespace = -1;
+    c->flowthruindex = -1;
+
+    return c;
 }
 
 void            Constructor_delete(Constructor *c)
 {
+    vm_free(c);
 }
 
 void            Constructor_addSyntax(Constructor *c, const char *syn)
@@ -94,6 +100,12 @@ SleighSymbol*   SubtableSymbol_new(const char *name)
     strcpy(sym->name, name);
 
     return sym;
+}
+
+void            SubtableSymbol_addConstructor(SubtableSymbol *sym, Constructor *ct)
+{
+    ct->id = sym->subtable.construct.len;
+    dynarray_add(&sym->subtable.construct, ct);
 }
 
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc)

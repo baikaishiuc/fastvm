@@ -66,6 +66,17 @@ struct slgh_macro {
     char name[1];
 };
 
+typedef struct WithBlock    WithBlock;
+
+struct WithBlock {
+    SubtableSymbol *ss;
+    PatternEquation *pateq;
+    struct dynarray contvec;
+};
+
+WithBlock*      WithBlock_new();
+void            WithBlock_delete(WithBlock *w);
+
 struct slgh_preproc
 {
     CString fullpath;
@@ -126,6 +137,7 @@ struct SleighCompile {
 
     int errors;
     struct dynarray     preproc;
+    struct dynarray     withstack;
     Constructor*        curct;
     MacroSymbol*        curmacro;
     bool                contextlock;

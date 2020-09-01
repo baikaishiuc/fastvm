@@ -3405,7 +3405,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 377 "slghparse.y"
-    { (yyval.stmt) = PcodeCompile_createStore(slgh->pcode, (yyvsp[(1) - (5)].starqual),(yyvsp[(2) - (5)].tree),(yyvsp[(4) - (5)].tree)); ;}
+    { (yyval.stmt) = PcodeCompile_createStore(slgh->pcode, (yyvsp[(1) - (5)].starqual),(yyvsp[(2) - (5)].tree),(yyvsp[(4) - (5)].tree)); StarQuality_delete((yyvsp[(1) - (5)].starqual)); ;}
     break;
 
   case 154:
@@ -3485,7 +3485,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 391 "slghparse.y"
-    { (yyval.stmt) = PcodeCompile_createOpNoOut4(slgh->pcode, CPUI_CBRANCH,ExpTree_newV((yyvsp[(4) - (5)].varnode)),(yyvsp[(2) - (5)].tree)); ;}
+    { (yyval.stmt) = PcodeCompile_createOpNoOut2(slgh->pcode, CPUI_CBRANCH,ExpTree_newV((yyvsp[(4) - (5)].varnode)),(yyvsp[(2) - (5)].tree)); ;}
     break;
 
   case 165:
@@ -3548,7 +3548,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 401 "slghparse.y"
-    { (yyval.tree) = PcodeCompile_createLoad(slgh->pcode, (yyvsp[(1) - (2)].starqual),(yyvsp[(2) - (2)].tree)); ;}
+    { (yyval.tree) = PcodeCompile_createLoad(slgh->pcode, (yyvsp[(1) - (2)].starqual),(yyvsp[(2) - (2)].tree)); StarQuality_delete((yyvsp[(1) - (2)].starqual)); ;}
     break;
 
   case 174:
