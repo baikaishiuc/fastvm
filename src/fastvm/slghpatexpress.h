@@ -31,7 +31,7 @@ TokenPattern*   TokenPattern_doCat(const TokenPattern *op1, const TokenPattern *
 TokenPattern*   TokenPattern_commobSubPattern(const TokenPattern *pat, const TokenPattern *subpat);
 
 typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
-            StartInstructionValue, EndInstructionValue;
+            StartInstructionValue, EndInstructionValue, ContextField;
 
 struct PatternExpression {
     int refcount;
@@ -71,7 +71,7 @@ struct PatternExpression {
         struct {
             Token *tok;
             bool bigendian;
-            bool sighbit;
+            bool signbit;
             int bitstart;   // Bits within the token, 0 bit is LEAST significant
             int bitend;
             int bytestart;  // Bytes to read to get value
@@ -80,11 +80,11 @@ struct PatternExpression {
         } tokenField;
 
         struct {
-            bool sighbit;
-            int bitstart;   // Bits within the token, 0 bit is LEAST significant
-            int bitend;
-            int bytestart;  // Bytes to read to get value
-            int byteend;
+            bool signbit;
+            int startbit;   // Bits within the token, 0 bit is LEAST significant
+            int endbit;
+            int startbyte;  // Bytes to read to get value
+            int endbyte;
             int shift;      // Amount to shift to align value (bitstart % 8)
         } contextField;
 
@@ -108,6 +108,9 @@ void                PatternExpression_delete(PatternExpression *p);
 
 ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
+
+ContextField*       ContextField_new(bool s, int sbit, int ebit);
+
 
 StartInstructionValue*  StartInstructionValue_new();
 EndInstructionValue*    EndInstructionValue_new();
@@ -158,7 +161,7 @@ typedef struct PatternEquation {
         struct {
             PatternEquation *left;
             PatternEquation *right;
-        } and, or, add, cat;
+        } and, or, cat;
 
         struct {
             PatternValue *lhs;

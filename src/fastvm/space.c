@@ -96,5 +96,5 @@ bool VarnodeData_less(const VarnodeData *op1, const VarnodeData *op2) {
 
 void                AddrSpace_delete(AddrSpace *a)
 {
-    free(a);
+    vm_free(a);
 }

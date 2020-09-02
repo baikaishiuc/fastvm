@@ -36,7 +36,7 @@ SpaceQuality*   SpaceQuality_new(char *name);
 void            SpaceQuality_delete(SpaceQuality *sp);
 
 struct FieldQuality {
-    uintb low, high;
+    int low, high;
     bool signext;
     bool flow;
     bool hex;
@@ -45,6 +45,17 @@ struct FieldQuality {
 
 FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h);
 void            FieldQuality_delete(FieldQuality *f);
+
+typedef struct FieldContext     FieldContext;
+
+struct FieldContext {
+    VarnodeSymbol *sym;
+    FieldQuality *qual;
+};
+
+FieldContext*           FieldContext_new(VarnodeSymbol *v, FieldQuality *qual);
+void                    FieldContext_delete(FieldContext *fc);
+int                     FieldContext_cmp(void const *a, void const *b);
 
 typedef struct SectionVector {
     int4 nextindex;

@@ -28,14 +28,8 @@ PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
         case value_symbol:
             return s->value.patval;
 
-        case operand_symbol:
-            return s->operand.localexp;
-
-        case start_symbol:
-            return s->start.patexp;
-
-        case end_symbol:
-            return s->end.patexp;
+        case context_symbol:
+            return s->context.patval;
 
         default:
             vm_error("Cannot get value in symbol:%d", s->type);
@@ -78,7 +72,7 @@ SleighSymbol *SleighSymbol_new(int type, const char *name)
 
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc)
 {
-    SleighSymbol *sym = vm_mallocz(sizeof(spc[0]) + strlen(spc->name));
+    SleighSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(spc->name));
 
     sym->type = space_symbol;
     sym->space.space = spc;
@@ -180,6 +174,20 @@ OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct)
     sym->operand.hand = index;
     sym->operand.localexp = OperandValue_new(index, ct);
     PatternExpression_layClaim(sym->operand.localexp);
+
+    return sym;
+}
+
+ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl)
+{
+    ContextSymbol *sym = SleighSymbol_new(context_symbol, name);
+
+    sym->context.vn = v;
+    sym->context.low = l;
+    sym->context.high = h;
+    sym->context.flow = fl;
+    sym->context.patval = pate;
+    pate->refcount++;
 
     return sym;
 }

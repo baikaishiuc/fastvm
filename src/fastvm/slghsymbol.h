@@ -114,7 +114,6 @@ struct SleighSymbol {
         struct {
             u4 index;
             bool ispaced;
-            u4 refcount;
         } label;
 
         struct {
@@ -140,11 +139,20 @@ struct SleighSymbol {
             struct dynarray construct;
             DecisionNode *decisiontree;
         } subtable;
+
+        struct {
+            VarnodeSymbol *vn;
+            int low;
+            int high;
+            bool flow;
+            PatternValue *patval;
+        } context;
     };
 
     int id;
     int scopeid;
     struct rb_node in_scope;
+    int refcount;
 
     /* 在源文件中的位置，方便调试 */
     int lineno;
@@ -165,6 +173,7 @@ EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
 MacroSymbol*    MacroSymbol_new(const char *name, int i);
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
+ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl);
 
 void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
 #define MacroSymbol_getOperand(sym, ind)        sym->macro.operands.ptab[ind]

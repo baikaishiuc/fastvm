@@ -76,7 +76,7 @@ bool                slgh_del_macro(SleighCompile *s, char *name)
 
 SpaceQuality*   SpaceQuality_new(char *name)
 {
-    SpaceQuality *sq = vm_mallocz(sizeof (sq[0]) + strlen(name) + 1);
+    SpaceQuality *sq = vm_mallocz(sizeof (sq[0]) + strlen(name));
 
     strcpy(sq->name, name);
     sq->wordsize = 1;
@@ -275,6 +275,10 @@ void            SleighCompile_addTokenField(SleighCompile *s, TokenSymbol *sym, 
 
 bool            SleighCompile_addContextField(SleighCompile *s, VarnodeSymbol *sym, FieldQuality *qual)
 {
+    if (s->contextlock)
+        return false;
+
+    dynarray_add(&s->contexttable, FieldContext_new(sym, qual));
     return TRUE;
 }
 
@@ -381,7 +385,11 @@ void            SleighCompile_popWith(SleighCompile *s)
 
 SubtableSymbol* SleighCompile_newTable(SleighCompile *s, const char *name)
 {
-    return NULL;
+    SubtableSymbol *sym = SubtableSymbol_new(name);
+
+    SleighCompile_addSymbol(s, sym);
+    dynarray_add(&s->tables, sym);
+    return sym;
 }
 
 MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, struct dynarray *params)
@@ -668,16 +676,95 @@ void                SleighCompile_nextLine(SleighCompile *s)
     printf("*****scan %s line %d\n", basename(proc->fullpath.data), proc->lineno);
 }
 
+int                 SleighCompile_calcContextVarLayout(SleighCompile *s, int start, int sz, int numbits)
+{
+    VarnodeSymbol *sym = ((FieldContext *)s->contexttable.ptab[start])->sym;
+    FieldQuality *qual;
+    int i, j;
+    int maxbits;
+
+    if (sym->varnode.fix.size % 4) {
+        vm_error("Invalid size of context register %s:%d", sym->name, sym->varnode.fix.size);
+    }
+
+    maxbits = sym->varnode.fix.size * 8 - 1;
+    i = 0;
+    while(i < sz) {
+        qual = ((FieldContext *)s->contexttable.ptab[i])->qual;
+        int min = qual->low;
+        int max = qual->high;
+        if ((max - min) > (8 * sizeof(uintm))) 
+            vm_error("Sizeof of bitfield %s larger than %d bits", qual->name, 8 * sizeof(uintm));
+        if (max > maxbits)
+            vm_error("Scope of bitfield %s extends beyond the size of context register", qual->name);
+
+        j = i + 1;
+        while (j < sz) {
+            qual = ((FieldContext *)s->contexttable.ptab[j])->qual;
+            if (qual->low <= max) {
+                if (qual->high > max)
+                    max = qual->high;
+            }
+            else
+                break;
+            j = j + 1;
+        }
+
+        int alloc = max - min + 1;
+        int startword = numbits / (8 * sizeof(uintm));
+        int endword = (numbits + alloc - 1) / (8 * sizeof(uintm));
+        if (startword != endword)
+            numbits = endword * 8 * sizeof(uintm);
+
+        int low = numbits;
+        numbits += alloc;
+
+        for (; i < j; i++) {
+            qual = ((FieldContext *)s->contexttable.ptab[i])->qual;
+            int l = qual->low - min + low;
+            int h = numbits - 1 - (max - qual->high);
+            ContextField *field = ContextField_new(qual->signext, l, h);
+            SleighCompile_addSymbol(s, ContextSymbol_new(qual->name, field, sym, qual->low, qual->high, qual->flow));
+        }
+    }
+
+    sym->varnode.context_bits = 1;
+    return numbits;
+}
+
 void                SleighCompile_calcContextLayout(SleighCompile *s)
 {
+    if (s->contextlock) return;
+
+    int context_offset = 0;
+    int begin, sz, i;
+
+    qsort(s->contexttable.ptab, s->contexttable.len, sizeof (FieldContext *), FieldContext_cmp);
+
+    /* 计算context寄存器的时候，判断地址是否有冲突，这个分析不是在define了context寄存器后面的域后立即进行的
+    是碰到第一个 : 时开始计算的，他是动态的 */
+    begin = 0;
+    while (begin < s->contexttable.len) {
+        sz = 1;
+        while (((begin + sz) < s->contexttable.len) && ((FieldContext *)s->contexttable.ptab[begin + sz])->sym == ((FieldContext *)s->contexttable.ptab[begin])->sym)
+            sz += 1;
+
+        context_offset = SleighCompile_calcContextVarLayout(s, begin, sz, context_offset);
+        begin += sz;
+    }
+
+    for (i = 0; i < s->contexttable.len; i++) {
+        FieldQuality_delete(s->contexttable.ptab[i]);
+    }
+    dynarray_reset(&s->contexttable);
 }
 
 FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h)
 {
     FieldQuality *f = vm_mallocz(sizeof (f[0]) + strlen(name));
 
-    f->low = l;
-    f->high = h;
+    f->low = (int)l;
+    f->high = (int)h;
     f->signext = true;
     f->flow = true;
     f->hex = true;
@@ -689,6 +776,31 @@ FieldQuality*   FieldQuality_new(const char *name, uintb l, uintb h)
 void            FieldQuality_delete(FieldQuality *f)
 {
     vm_free(f);
+}
+
+FieldContext*           FieldContext_new(VarnodeSymbol *v, FieldQuality *qual)
+{
+    FieldContext*   fc = vm_mallocz(sizeof(fc[0]));
+
+    fc->qual = qual;
+    fc->sym = v;
+
+    return fc;
+}
+
+void                    FieldContext_delete(FieldContext *fc)
+{
+    vm_free(fc);
+}
+
+int                     FieldContext_cmp(void const *a, void const *b)
+{
+    FieldContext *lhs = *(FieldContext **)a;
+    FieldContext *rhs = *(FieldContext **)b;
+    int ret = strcmp(lhs->sym->name, rhs->sym->name);
+    if (ret)    return ret;
+
+    return (int)(lhs->qual->low - rhs->qual->low);
 }
 
 SectionVector*  SleighCompile_finalNamedSection(SleighCompile *s, SectionVector *vec, ConstructTpl *section)
