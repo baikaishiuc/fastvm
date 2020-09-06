@@ -56,6 +56,42 @@ void            Constructor_addSyntax(Constructor *c, const char *syn)
 {
 }
 
+void            Constructor_markSubtableOperands(Constructor *c, struct dynarray *check)
+{
+    int i;
+
+    for (i = 0; i < c->operands.len; i++) {
+        SleighSymbol *s = c->operands.ptab[i];
+        TripleSymbol *sym = OperandSymbol_getDefiningSymbol(s);
+        check->ptab[i] = (sym && (s->type == subtable_symbol)) ? 0 : (void *)2;
+    }
+}
+
+void            Constructor_setNamedSection(Constructor *c, ConstructTpl *tpl, int id)
+{
+    while (c->namedtempl.len < id) 
+        dynarray_add(&c->namedtempl, NULL);
+
+    c->namedtempl.ptab[id] = tpl;
+}
+
+void            Constructor_addEquation(Constructor *c, PatternEquation *pe)
+{
+    c->pateq = pe;
+    c->pateq->refcount++;
+}
+
+void            Constructor_removeTrailingSpace(Constructor *c)
+{
+    if (c->printpiece.len) {
+        CString *cs = dynarray_back(&c->printpiece);
+        if (!strcmp(cs->data, " ")) {
+            dynarray_pop(&c->printpiece);
+            cstr_delete(cs);
+        }
+    }
+}
+
 void            SleighSymbol_delete(SleighSymbol *sym)
 {
 }
@@ -435,3 +471,61 @@ void            SymbolTable_replaceSymbol(SymbolTable *s, SleighSymbol *a, Sleig
         }
     }
 }
+
+static void calc_maskword(int sbit, int ebit, int *num, int *shift, uintm *mask)
+{
+    int msize = 8 * sizeof(uintm);
+
+    num[0] = sbit / msize;
+    if (num[0] != ebit / msize)
+        vm_error("Contxt field not contained within one machine int");
+
+    sbit -= num[0] * msize;
+    ebit -= num[0] * msize;
+    shift[0] = msize - ebit - 1;
+    mask[0] = (~((uintm)0)) >> (sbit + shift[0]);
+    mask[0] <<= shift[0];
+}
+
+ContextOp*      ContextOp_new(int sbit, int ebit, PatternExpression *pe)
+{
+    ContextOp *co = vm_mallocz(sizeof(co[0]));
+
+    co->type = context_op;
+    calc_maskword(sbit, ebit, &co->op.num, &co->op.shift, &co->op.mask);
+    co->op.patexp = pe;
+    pe->refcount++;
+    return co;
+}
+
+ContextCommit*  ContextCommit_new(TripleSymbol *s, int sbit, int ebit, bool fl)
+{
+    ContextCommit *cc = vm_mallocz(sizeof(cc[0]));
+
+    cc->type = context_commit;
+    cc->commit.sym = s;
+    cc->commit.flow = fl;
+
+    int shift;
+
+    calc_maskword(sbit, ebit, &cc->commit.num, &shift, &cc->commit.mask);
+
+    return cc;
+}
+
+ContextChange*  ContextChange_clone(ContextChange *cc)
+{
+    ContextChange *clone = vm_mallocz(sizeof(cc[0]));
+
+    *clone = *cc;
+    if (clone->type == context_op)
+        clone->op.patexp->refcount++;
+
+    return clone;
+}
+
+void            ContextChange_delete(ContextChange *cc)
+{
+    vm_free(cc);
+}
+

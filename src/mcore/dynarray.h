@@ -34,6 +34,10 @@ extern "C" {
     void* dynarray_find(struct dynarray *arr, void *a);
     int dynarray_exist(struct dynarray *d, int i);
     void dynarray_insert(struct dynarray *d, struct dynarray *s);
+    /* insert Before,
+    after insert element before [before], now the element index is [before]
+    */
+    void dynarray_insertB(struct dynarray *d, int before, void *elm);
 
 #define dynarray_is_empty(_a)		((_a)->len == 0)
 #define dynarray_push               dynarray_add

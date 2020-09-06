@@ -14,6 +14,11 @@ extern "C" {
 #define BUILD       CPUI_MULTIEQUAL
 #define DELAY_SLOT  CPUI_INDIRECT
 #define CROSSBUILD  CPUI_PTRSUB
+    // zhengxianwei
+    // 这个地方虽然叫macrobuild，但是其实他是macro call
+    // 我们定义一个macro的时候不会产生pcode，只有在构造constructor或者subtable的时候
+    // 在rtlbody内使用macro的时候，这个macro会像c语言里面的宏一样进行展开，展开的过程
+    // 被叫做macrobuild
 #define MACROBUILD  CPUI_CAST
 #define LABELBUILD  CPUI_PTRADD
 
@@ -68,8 +73,12 @@ void        ConstTpl_delete(ConstTpl *);
 void        ConstTpl_printHandleSelector(FILE *fout, v_field val);
 v_field     ConstTpl_readHandleSelector(const char *name);
 bool        ConstTpl_isEqual(ConstTpl *lhs, ConstTpl *rhs);
+void        ConstTpl_transfer(ConstTpl *c, struct dynarray *params);
+bool        ConstTpl_isUniqueSpace(ConstTpl *c);
+
 #define ConstTpl_getSpace(ct)       (ct)->value.spaceid
 #define ConstTpl_getReal(ct)        (ct)->value_real
+#define ConstTpl_isZero(ct)         (((ct)->type == real) && ((ct)->value_real == 0))
 
 
 struct VarnodeTpl {
@@ -87,17 +96,11 @@ VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
 void            VarnodeTpl_delete(VarnodeTpl *vn);
 bool            VarnodeTpl_isLocalTemp(VarnodeTpl *vn);
-#define VarnodeTpl_setSize(c, sz)         c->size = sz
-
-struct HandleTpl {
-  ConstTpl space;
-  ConstTpl size;
-  ConstTpl ptrspace;
-  ConstTpl ptroffset;
-  ConstTpl ptrsize;
-  ConstTpl temp_space;
-  ConstTpl temp_offset;
-};
+void            VarnodeTpl_setOffset(VarnodeTpl *vn, uintb val);
+int             VarnodeTpl_transfer(VarnodeTpl *vn, struct dynarray *params);
+#define VarnodeTpl_setSize(c, sz)           c->size = sz
+#define VarnodeTpl_isRelative(v)            ((v)->offset->type == j_relative)
+#define VarnodeTpl_isZeroSize(v)            ConstTpl_isZero((v)->size)
 
 struct OpTpl {
   VarnodeTpl *output;
@@ -111,8 +114,10 @@ void        OpTpl_delete(OpTpl *);
 
 void        OpTpl_clearOutput(OpTpl *o);
 void        OpTpl_addInput(OpTpl *o, VarnodeTpl *vt);
+bool        OpTpl_isZeroSize(OpTpl *o);
 #define OpTpl_getOut(o)                 o->output
 #define OpTpl_setOutput(o, out)         o->output = out
+#define OpTpl_getIn(o, i)               ((VarnodeTpl *)o->input.ptab[i])
 
 
 struct ConstructTpl {
@@ -131,11 +136,51 @@ void            ConstructTpl_delete(ConstructTpl *c);
 
 bool            ConstructTpl_addOpList(ConstructTpl *t, struct dynarray *oplist);
 bool            ConstructTpl_addOp(ConstructTpl *t, OpTpl *ot);
+int             ConstructTpl_fillinBuild(ConstructTpl *c, struct dynarray *check, AddrSpace *space);
 
-typedef struct PcodeBuilder { // SLEIGH specific pcode generator
+typedef struct PcodeBuilder     PcodeBuilder;
+
+struct PcodeBuilder { // SLEIGH specific pcode generator
   uint4 labelbase;
   uint4 labelcount;
-} PcodeBuilder;
+  void *ref;
+
+  void(* dump)(void *ref, OpTpl *bld);
+  void(* appendBuild)(void *ref, OpTpl *bld, int secnum);
+  void(* delaySlot)(void *ref, OpTpl *op);
+  void(* setLabel)(void *ref, OpTpl *op);
+  void(* appendCrossBuild)(void *ref, OpTpl *op, int secnum);
+};
+
+PcodeBuilder*       PcodeBuilder_new(void *ref);
+void                PcodeBuilder_delete(PcodeBuilder *p);
+/* 使用这个函数前，必须得注册
+dump
+appendBuild
+delaySlot
+setLabel
+appendCrossBuild
+5个函数
+*/
+void                PcodeBuilder_build(PcodeBuilder *pb, ConstructTpl *construct, int secnum);
+
+typedef struct HandleTpl        HandleTpl;
+
+/* 函数的参数 */
+struct HandleTpl {
+    ConstTpl *space;
+    ConstTpl *size;
+    ConstTpl *ptrspace;
+    ConstTpl *ptroffset;
+    ConstTpl *ptrsize;
+    ConstTpl *temp_space;
+    ConstTpl *temp_offset;
+};
+
+HandleTpl*          HandleTpl_new();
+HandleTpl*          HandleTpl_newV(VarnodeTpl *vn);
+HandleTpl*          HandleTpl_new5(ConstTpl *spc, ConstTpl *sz, VarnodeTpl *vn, AddrSpace *sp, uintb offset);
+void                HandleTpl_delete(HandleTpl *h);
 
 #ifdef __cplusplus
 }

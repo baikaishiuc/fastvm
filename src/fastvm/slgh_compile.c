@@ -90,6 +90,22 @@ void            SpaceQuality_delete(SpaceQuality *sp)
     vm_free(sp);
 }
 
+SectionVector*  SectionVector_new(ConstructTpl *rtl, SymbolScope *scope)
+{
+    SectionVector *sv = vm_mallocz(sizeof(sv[0]));
+
+    sv->nextindex = -1;
+    sv->main.section = rtl;
+    sv->main.scope = scope;
+
+    return sv;
+}
+
+void            SectionVector_delete(SectionVector *sv)
+{
+    vm_free(sv);
+}
+
 SleighCompile*  SleighCompile_new()
 {
     SleighCompile *slgh = vm_mallocz(sizeof (slgh[0]));
@@ -415,7 +431,8 @@ MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, st
 
 SectionVector*  SleighCompile_standaloneSection(SleighCompile *s, ConstructTpl *main)
 {
-    return NULL;
+    SectionVector *res = SectionVector_new(main, SymbolTable_getCurrentScope(s->symtab));
+    return res;
 }
 
 SectionVector*  SleighCompile_firstNamedSection(SleighCompile *s, ConstructTpl *main, SectionSymbol *sym)
@@ -428,9 +445,291 @@ SectionVector*  SleighCompile_nextNamedSection(SleighCompile *s, SectionVector *
     return NULL;
 }
 
+#define sym_container_of(_node)    (SleighSymbol *)((char *)(_node) - offsetof(SleighSymbol, in_scope))
+
+/* 一般的编译器把错误信息统一收集起来，最后在结束时，统一打印出来，方便写程序人统一修改
+ 我这里为了方便，有了错误，直接打印 */
+void            SleighCompile_checkSymbols(SleighCompile *s, SymbolScope *scope)
+{
+    struct rb_node *node;
+
+    for (node = rb_first(&scope->tree); node; node = rb_next(node)) {
+        SleighSymbol *sym = sym_container_of(node);
+        if (sym->type != label_symbol) continue;
+        if (!sym->label.refcount)
+            vm_error("%s:%d Label %s was placed but not used", slgh_filename(s), slgh_lineno(s), sym->name);
+        else if (sym->label.isplaced)
+            vm_error("%s:%d Label %s was referenced but never placed", slgh_filename(s), slgh_lineno(s), sym->name);
+    }
+}
+
+bool MacroBuilder_transferOp(MacroBuilder *m, OpTpl *op, struct dynarray *params)
+{
+    /* 这个好像是把macro inline时*/
+    VarnodeTpl *outvn = OpTpl_getOut(op);
+    int handleIndex = 0;
+    int i, plus;
+    bool hasrealsize = false;
+    uintb realsize = 0;
+
+    if (outvn) {
+        plus = VarnodeTpl_transfer(outvn, params);
+        if (plus > 0)
+            vm_error("Cannot currently assign to bitrange of macro parameter that is a temporary");
+    }
+
+    for (i = 0; i < op->input.len; i++) {
+        VarnodeTpl *vn = OpTpl_getIn(op, i);
+        if (vn->offset->type == handle) {
+            handleIndex = vn->offset->value.handle_index;
+            hasrealsize = (vn->size->type == real);
+            realsize = vn->size->value_real;
+        }
+
+        plus = VarnodeTpl_transfer(vn, params);
+        if (plus > 0) {
+            if (hasrealsize)
+                vm_error("Problem with bit range operator in macro");
+        }
+
+        uintb newtemp = SleighCompile_getUniqueAddr(slgh);
+        OpTpl *subpieceop = OpTpl_new(CPUI_SUBPIECE);
+        VarnodeTpl *newvn = VarnodeTpl_new(ConstTpl_newA(slgh->uniqspace), ConstTpl_new2(real, newtemp),
+                                        ConstTpl_new2(real, realsize));
+        OpTpl_setOutput(subpieceop, newvn);
+        HandleTpl *hand = params->ptab[handleIndex];
+        VarnodeTpl *origvn = VarnodeTpl_new3(hand->space, hand->ptroffset, hand->size);
+        OpTpl_addInput(subpieceop, origvn);
+        VarnodeTpl *plusvn = VarnodeTpl_new3(ConstTpl_newA(slgh->constantspace), ConstTpl_new2(real, plus),
+                                            ConstTpl_new2(real, 4));
+        OpTpl_addInput(subpieceop, plusvn);
+        dynarray_add(m->outvec, subpieceop);
+
+        VarnodeTpl_delete(vn);
+        op->input.ptab[i] = newvn;
+    }
+    dynarray_add(m->outvec, op);
+    return true;
+}
+
+void            MacroBuilder_dump(MacroBuilder *m, OpTpl *o)
+{
+    OpTpl *clone;
+    VarnodeTpl *v_clone, *vn;
+    int i;
+
+    clone = OpTpl_new1(o->opc);
+    vn = o->output;
+    if (vn) {
+        v_clone = VarnodeTpl_clone(vn);
+        OpTpl_setOutput(clone, v_clone);
+    }
+
+    for (i = 0; i < o->input.len; i++) {
+        vn = OpTpl_getIn(o, i);
+        v_clone = VarnodeTpl_clone(vn);
+        if (VarnodeTpl_isRelative(v_clone)) {
+            uintb val = v_clone->offset->value_real + m->pb->labelbase;
+            v_clone->offset->value_real = val;
+        }
+        OpTpl_addInput(clone, v_clone);
+    }
+
+    if (!MacroBuilder_transferOp(m, clone, &m->params))
+        OpTpl_delete(clone);
+}
+
+void            MacroBuilder_appendBuild(MacroBuilder *m, OpTpl *bld, int secnum)
+{
+    MacroBuilder_dump(m, bld);
+}
+
+void            MacroBuilder_delaySlot(MacroBuilder *m, OpTpl *bld)
+{
+    MacroBuilder_dump(m, bld);
+}
+
+void            MacroBuilder_setLabel(MacroBuilder *m, OpTpl *op)
+{
+    // 当我们调用Macro的时候，实际上是一个inline的过程，这个inline以后
+    // 跳转的Label实际位置都会发生变化，比如原代码
+    // 
+    // macroA 123
+    // label1: 
+    //       goto label1
+    // 
+    // 假如macroA 123 这个宏内部也有label，当他被展开以后，假如有2个label，那么
+    // 原先的label1的位置会变成label3
+
+    OpTpl *clone;
+    VarnodeTpl *v_clone;
+
+    clone = OpTpl_new(op->opc);
+    v_clone = VarnodeTpl_clone(OpTpl_getIn(op, 0));
+    uintb val = v_clone->offset->value_real + m->pb->labelbase;
+    VarnodeTpl_setOffset(v_clone, val);
+    OpTpl_addInput(clone, v_clone);
+    dynarray_add(m->outvec, clone);
+}
+
+bool            SleighCompile_expandMacros(SleighCompile *s, ConstructTpl *ctpl, struct dynarray *macrotable)
+{
+    struct dynarray newvec = { 0 };
+    OpTpl *op;
+    int i;
+
+    for (i = 0; i < ctpl->vec.len; i++) {
+        op = ctpl->vec.ptab[i];
+        if (op->opc == MACROBUILD) {
+            MacroBuilder *m = MacroBuilder_new(s, &newvec, ctpl->numlabels);
+
+            int index = (int)(OpTpl_getIn(op, 0)->offset->value_real);
+            if (index >= macrotable->len)
+                return false;
+
+            MacroBuilder_setMacroOp(m, op);
+        }
+    }
+
+    return true;
+}
+
+/* 这明明是find_offset，为什么会是find_size?*/
+static  VarnodeTpl *find_size(ConstTpl *offset, ConstructTpl *ct)
+{
+    struct dynarray *ops = &ct->vec;
+    VarnodeTpl *vn;
+    OpTpl *op;
+    int i, j;
+
+    for (i = 0; i < ops->len; i++) {
+        op = ops->ptab[i];
+        vn = op->output;
+        if (vn && VarnodeTpl_isLocalTemp(vn)) {
+            if (ConstTpl_isEqual(vn->offset, offset))
+                return vn;
+        }
+
+        for (j = 0; j < op->input.len; j++) {
+            vn = op->input.ptab[j];
+            if (VarnodeTpl_isLocalTemp(vn) && ConstTpl_isEqual(vn->offset, offset))
+                return vn;
+        }
+    }
+
+    return NULL;
+}
+
+static bool force_exportsize(ConstructTpl *ct)
+{
+    HandleTpl *result = ct->result;
+    if (!result) return true;
+
+    VarnodeTpl *vt;
+
+    if (ConstTpl_isUniqueSpace(result->ptrspace) && ConstTpl_isZero(result->ptrsize)) {
+        vt =find_size(result->ptroffset, ct);
+        if (!vt) return false;
+        result->ptrsize = vt->size;
+    }
+    else if (ConstTpl_isUniqueSpace(result->space) && ConstTpl_isZero(result->size)) {
+        vt = find_size(result->ptroffset, ct);
+        if (!vt) return false;
+        result->size = vt->size;
+    }
+
+    return true;
+}
+
+/* 当一个Constructor结束时，做最后的收尾工作，符号检查，符号扩展，链接pcode */
+bool            SleighCompile_finalizeSections(SleighCompile *s, Constructor *big, SectionVector *vec)
+{
+    RtlPair *cur = &vec->main;
+    int i = -1;
+    int max = vec->named.len;
+    struct dynarray check = { 0 };
+    while (1) {
+        SleighCompile_checkSymbols(s, cur->scope);
+
+        if (!SleighCompile_expandMacros(s, cur->section, &s->macrotable))
+            vm_error("    Maion Section: could not expand macros");
+
+        dynarray_reset(&check);
+        Constructor_markSubtableOperands(big, &check);
+        int res = ConstructTpl_fillinBuild(cur->section, &check, s->constantspace);
+        /* BUILD 指令貌似一个semain section内只能有一条，因为BUILD会干扰 pcode的解析顺序
+        它一定是第一个解析的，只有一个第一 */
+        if (res == 1)
+            vm_error("    Main Section: Duplicate Build statement");
+        /*这里可能是因为当执行BUILD指令时，后面只能接 subtable 符号，它必须是可以展开的  */
+        else if (res == 2)
+            vm_error("    Main Section: Unnecessary BUILD statement");
+
+        PcodeCompile_propagateSize(s->pcode, cur->section);
+
+        if (i < 0) {
+            if (cur->section->result) {
+                if (big->parent == s->root)
+                    vm_error("    Main Section Cannot have export statment in root constructor");
+                else if (!force_exportsize(cur->section))
+                    vm_error("    Main Section Size of export is unknown");
+            }
+        }
+
+        if (cur->section->delayslot) {
+            if (s->root != big->parent) {
+                vm_error(" Delay slot used in non-root constructor");
+            }
+
+            if (cur->section->delayslot > s->maxdelayslotbytes)
+                s->maxdelayslotbytes = cur->section->delayslot;
+        }
+
+        do {
+            i += 1;
+            if (i >= max)
+                break;
+            cur = vec->named.ptab[i];
+        } while (!cur->section);
+
+        if (i >= max)
+            break;
+    } 
+
+    return true;
+}
+
 void            SleighCompile_buildConstructor(SleighCompile *s, Constructor *big, PatternEquation *pateq, struct dynarray *contvec, SectionVector *vec)
 {
+    bool noerros = true;
+    PatternEquation *pateq1;
+    struct dynarray *contvec1;
+    int i;
+    if (vec) {
+        noerros = SleighCompile_finalizeSections(s, big, vec);
+        if (noerros) {
+            Constructor_setMainSection(big, vec->main.section);
+            int max = vec->named.len;
+            for (i = 0; i < max; ++i) {
+                ConstructTpl *section = vec->named.ptab[i];
+                if (section)
+                    Constructor_setNamedSection(big, section, i);
+            }
+        }
+    }
+    
+    if (noerros) {
+        pateq1 = WithBlock_collectAndPrependPattern(&s->withstack, pateq);
+        contvec1 = WithBlock_collectAndPrependContext(&s->withstack, contvec);
 
+        Constructor_addEquation(big, pateq1);
+        Constructor_removeTrailingSpace(big);
+        if (contvec1) {
+            big->context = contvec1;
+        }
+    }
+
+    SymbolTable_popScope(s->symtab);
 }
 
 void            SleighCompile_newOperand(SleighCompile *s, Constructor *c, const char *name)
@@ -449,6 +748,50 @@ void            WithBlock_delete(WithBlock *w)
 {
     vm_free(w);
 }
+PatternEquation*    WithBlock_collectAndPrependPattern(struct dynarray *stack, PatternEquation *pateq)
+{
+    int i;
+
+    for (i = 0; i < stack->len; i++) {
+        PatternEquation *witheq = stack->ptab[i];
+        if (witheq)
+            pateq = EquationAnd_new(witheq, pateq);
+    }
+
+    return pateq;
+}
+
+struct dynarray*    WithBlock_collectAndPrependContext(struct dynarray *stack, struct dynarray *contvec)
+{
+    struct dynarray *res = dynarray_new(NULL, NULL);
+    WithBlock *w;
+    struct dynarray *changelist;
+    int i, j;
+
+    for (i = 0; i < stack->len; i++) {
+        w = stack->ptab[i];
+        changelist = &w->contvec;
+        if (changelist->len == 0) continue;
+        if (!res) 
+            res = dynarray_new(NULL, NULL);
+
+        for (j = 0; j < changelist->len; j++) {
+            dynarray_add(res, ContextChange_clone(changelist->ptab[j]));
+        }
+    }
+
+    if (contvec) {
+        if (contvec->len) {
+            if (!res) res = dynarray_new(NULL, NULL);
+
+            for (i = 0; i < contvec->len; i++) {
+                dynarray_add(res, contvec->ptab[i]);
+            }
+        }
+    }
+
+    return res;
+}
 
 SubtableSymbol*     WithBlock_getCurrentSubtable(SleighCompile *s)
 {
@@ -460,6 +803,51 @@ SubtableSymbol*     WithBlock_getCurrentSubtable(SleighCompile *s)
     }
 
     return NULL;
+}
+
+MacroBuilder*       MacroBuilder_new(SleighCompile *s, struct dynarray *ovec, int labelcount)
+{
+    MacroBuilder *m = vm_mallocz(sizeof(m[0]));
+
+    m->slgh = s;
+    m->pb = PcodeBuilder_new(m);
+    m->pb->dump = MacroBuilder_dump;
+    m->pb->appendBuild = MacroBuilder_appendBuild;
+    m->pb->appendCrossBuild = MacroBuilder_appendBuild;
+    m->pb->setLabel = MacroBuilder_setLabel;
+    m->pb->delaySlot = MacroBuilder_delaySlot;
+
+    return m;
+}
+
+void                MacroBuilder_delete(MacroBuilder *m)
+{
+    PcodeBuilder_delete(m->pb);
+    vm_free(m);
+}
+
+void                MacroBuilder_free(MacroBuilder *m)
+{
+    int i;
+
+    for (i = 0; i < m->params.len; i++) {
+        HandleTpl_delete(m->params.ptab[i]);
+    }
+
+    dynarray_reset(&m->params);
+}
+
+void                MacroBuilder_setMacroOp(MacroBuilder *m, OpTpl *op)
+{
+    VarnodeTpl *vn;
+    HandleTpl *hand;
+    int i;
+
+    for (i = 1; i < op->input.len; i++) {
+        vn = OpTpl_getIn(op, i);
+        hand = HandleTpl_newV(vn);
+        dynarray_add(&m->params, hand);
+    }
 }
 
 Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSymbol *sym)

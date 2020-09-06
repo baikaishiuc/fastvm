@@ -268,8 +268,12 @@ rtlbody: '{' rtl '}' { $$ = SleighCompile_standaloneSection(slgh, $2); }
   | '{' rtlcontinue rtlmid '}' { $$ = SleighCompile_finalNamedSection(slgh, $2, $3); }
   | OP_UNIMPL        { $$ = (SectionVector *)0; }
   ;
-constructor: constructprint IS_KEY pequation contextblock rtlbody { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); }
-  | subtablestart IS_KEY pequation contextblock rtlbody           { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); }
+constructor: constructprint IS_KEY pequation contextblock rtlbody { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); 
+                                                                      dynarray_delete($4);
+                                                                      SectionVector_delete($5); }
+  | subtablestart IS_KEY pequation contextblock rtlbody           { SleighCompile_buildConstructor(slgh, $1, $3, $4, $5); 
+                                                                      dynarray_delete($4);
+                                                                      SectionVector_delete($5); }
   ;
 constructprint: subtablestart STRING	{ $$ = $1; Constructor_addSyntax($$, $2->data); cstr_delete($2); }
   | subtablestart charstring		{ $$ = $1; Constructor_addSyntax($$, $2->data); cstr_delete($2); }
@@ -311,7 +315,7 @@ pexpression: INTB			{ $$ = ConstantValue_newB($1);  }
   | '~' pexpression			{ $$ = PatternExpression_new(a_notExp, $2); }
   ;
 pequation: elleq
-  | pequation '&' pequation		{ $$ = PatternEquation_new(a_andEq, $1,$3); }
+  | pequation '&' pequation		{ $$ = EquationAnd_new($1,$3); }
   | pequation '|' pequation		{ $$ = PatternEquation_new(a_orEq, $1,$3); }
   | pequation ';' pequation		{ $$ = PatternEquation_new(a_catEq, $1,$3); }
   ;

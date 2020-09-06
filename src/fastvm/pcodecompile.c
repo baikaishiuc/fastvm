@@ -15,7 +15,7 @@ ExpTree*            ExpTree_new()
 {
     ExpTree *e = vm_mallocz(sizeof(e[0]));
 
-    e->ops = dynarray_new(NULL, OpTpl_delete);
+    e->ops = dynarray_new(NULL, NULL);
 
     return e;
 }
@@ -25,7 +25,7 @@ ExpTree*            ExpTree_newV(VarnodeTpl *vn)
     ExpTree *e = vm_mallocz(sizeof(e[0]));
 
     e->outvn = vn;
-    e->ops = dynarray_new(NULL, OpTpl_delete);
+    e->ops = dynarray_new(NULL, NULL);
 
     return e;
 }
@@ -34,7 +34,7 @@ ExpTree*            ExpTree_newO(OpTpl *op)
 {
     ExpTree *e = vm_mallocz(sizeof(e[0]));
 
-    e->ops = dynarray_new(NULL, OpTpl_delete);
+    e->ops = dynarray_new(NULL, NULL);
 
     dynarray_add(e->ops, op);
     if (op->output)
@@ -371,4 +371,174 @@ ExpTree*            PcodeCompile_createVariadic(PcodeCompile *p, OpCode opc, str
 VarnodeTpl*         PcodeCompile_addressOf(PcodeCompile *p, VarnodeTpl *var, u4 size)
 {
     return NULL;
+}
+
+/* 
+@j      <0      output 
+        >=0     input index
+*/
+void                PcodeCompile_matchSize(PcodeCompile *p, int j, OpTpl *op, bool inputonly, struct dynarray *ops)
+{
+    // 当op的某个input或output size为0时，从这个op的其他input和Output中找到
+    // 一个非0的进行填充 
+    VarnodeTpl *match = 0;
+    VarnodeTpl *vt, *in;
+    int i;
+
+    vt = (j == -1) ? op->output : op->input.ptab[j];
+    if (!inputonly) {
+        if (op->output && !VarnodeTpl_isZeroSize(op->output))
+            match = op->output;
+    }
+    for (i = 0; i < op->input.len; i++) {
+        if (match)
+            break;
+        in = op->input.ptab[i];
+        if (VarnodeTpl_isZeroSize(in))
+            continue;
+        match = in;
+    }
+
+    if (match)
+        PcodeCompile_forceSize(vt, match->size, ops);
+}
+
+void                PcodeCompile_filleinZero(PcodeCompile *p, OpTpl *op, struct dynarray *ops)
+{
+    VarnodeTpl *in, *v;
+    int i, inputsize;
+    /* */
+    switch (op->opc) {
+        case CPUI_COPY: // 这部分的指令input和output都是一样size的
+        case CPUI_INT_ADD:
+        case CPUI_INT_SUB:
+        case CPUI_INT_2COMP:
+        case CPUI_INT_NEGATE:
+        case CPUI_INT_XOR:
+        case CPUI_INT_AND:
+        case CPUI_INT_OR:
+        case CPUI_INT_MULT:
+        case CPUI_INT_DIV:
+        case CPUI_INT_SDIV:
+        case CPUI_INT_REM:
+        case CPUI_INT_SREM:
+        case CPUI_FLOAT_ADD:
+        case CPUI_FLOAT_DIV:
+        case CPUI_FLOAT_MULT:
+        case CPUI_FLOAT_SUB:
+        case CPUI_FLOAT_NEG:
+        case CPUI_FLOAT_ABS:
+        case CPUI_FLOAT_SQRT:
+        case CPUI_FLOAT_CEIL:
+        case CPUI_FLOAT_FLOOR:
+        case CPUI_FLOAT_ROUND:
+            if (op->output && VarnodeTpl_isZeroSize(op->output))
+                PcodeCompile_matchSize(p, -1, op, false, ops);
+            inputsize = op->input.len;
+            for (i = 0; i < inputsize; i++) {
+                in = op->input.ptab[i];
+                if (VarnodeTpl_isZeroSize(in))
+                    PcodeCompile_matchSize(p, i, op, false, ops);
+            }
+            break;
+
+        case CPUI_INT_EQUAL: // Instructions with bool output
+        case CPUI_INT_NOTEQUAL:
+        case CPUI_INT_SLESS:
+        case CPUI_INT_SLESSEQUAL:
+        case CPUI_INT_LESS:
+        case CPUI_INT_LESSEQUAL:
+        case CPUI_INT_CARRY:
+        case CPUI_INT_SCARRY:
+        case CPUI_INT_SBORROW:
+        case CPUI_FLOAT_EQUAL:
+        case CPUI_FLOAT_NOTEQUAL:
+        case CPUI_FLOAT_LESS:
+        case CPUI_FLOAT_LESSEQUAL:
+        case CPUI_FLOAT_NAN:
+        case CPUI_BOOL_NEGATE:
+        case CPUI_BOOL_XOR:
+        case CPUI_BOOL_AND:
+        case CPUI_BOOL_OR:
+            if (VarnodeTpl_isZeroSize(op->output))
+                PcodeCompile_forceSize(op->output, ConstTpl_new2(real, 1), ops);
+            inputsize = op->input.len;
+            for (i = 0; i < inputsize; i++) {
+                in = op->input.ptab[i];
+                /* 这里我没看懂，为什么inputonly是true?*/
+                if (VarnodeTpl_isZeroSize(in))
+                    PcodeCompile_matchSize(p, i, op, true, ops);
+            }
+            break;
+
+            // The shift amount does not necessarily have to be the same size
+            // But if no size is specified, assume it is the same size
+        case CPUI_INT_LEFT:
+        case CPUI_INT_RIGHT:
+        case CPUI_INT_SRIGHT:
+            in = op->input.ptab[0];
+            if (VarnodeTpl_isZeroSize(op->output)) {
+                if (!VarnodeTpl_isZeroSize(in))
+                    PcodeCompile_forceSize(op->output, in->size, ops);
+            }
+            else if (VarnodeTpl_isZeroSize(in)) {
+                PcodeCompile_forceSize(in, op->output->size, ops);
+            }
+            // fallthru to subpiece constant check
+
+        case CPUI_SUBPIECE:
+            in = op->input.ptab[1];
+            if (VarnodeTpl_isZeroSize(in))
+                PcodeCompile_forceSize(in, ConstTpl_new2(real, 4), ops);
+            break;
+        case CPUI_CPOOLREF:
+            in = op->input.ptab[0];
+            if (VarnodeTpl_isZeroSize(op->output) && !VarnodeTpl_isZeroSize(in))
+                PcodeCompile_forceSize(op->output, in->size, ops);
+            if (VarnodeTpl_isZeroSize(in) && !VarnodeTpl_isZeroSize(op->output))
+                PcodeCompile_forceSize(in, op->output->size, ops);
+
+            for (i = 1; i < op->input.len; i++) {
+                v = op->input.ptab[i];
+                if (VarnodeTpl_isZeroSize(v))
+                    PcodeCompile_forceSize(v, ConstTpl_new2(real, sizeof(uintb)), ops);
+            }
+        default:
+            break;
+    }
+}
+
+bool                PcodeCompile_propagateSize(PcodeCompile *p, ConstructTpl *ct)
+{
+    struct dynarray zerovec = { 0 }, zerovec2 = { 0 };
+    int i, lastsize;
+    OpTpl *op;
+
+    for (i = 0; i < ct->vec.len; i++) {
+        op = ct->vec.ptab[i];
+        if (OpTpl_isZeroSize(op)) {
+            PcodeCompile_filleinZero(p, op, &ct->vec);
+            if (OpTpl_isZeroSize(op))
+                dynarray_add(&zerovec, op);
+        }
+    }
+    lastsize = zerovec.len + 1;
+    while (zerovec.len < lastsize) {
+        lastsize = zerovec.len;
+        dynarray_reset(&zerovec2);
+        for (i = 0; i < zerovec.len; i++) {
+            op = zerovec.ptab[i];
+            PcodeCompile_filleinZero(p, op, &ct->vec);
+            if (OpTpl_isZeroSize(op))
+                dynarray_add(&zerovec2, op);
+        }
+        dynarray_reset(&zerovec);
+        dynarray_insert(&zerovec, &zerovec2);
+    }
+
+    dynarray_reset(&zerovec);
+    dynarray_reset(&zerovec2);
+    if (lastsize)
+        return false;
+    return true;
 }

@@ -88,6 +88,16 @@ void                PatternEquation_delete(PatternEquation *p)
     vm_free(p);
 }
 
+EquationAnd*        EquationAnd_new(PatternEquation *l, PatternEquation *r)
+{
+    EquationAnd *e = PatternEquation_new(a_andEq, l, r);
+
+    e->and.left->refcount++;
+    e->and.right->refcount++;
+
+    return e;
+}
+
 ConstantValue*      ConstantValue_new(void)
 {
     return NULL;

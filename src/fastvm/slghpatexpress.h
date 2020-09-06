@@ -126,7 +126,7 @@ typedef struct OperandResolve {
     int     size;
 } OperandResolve;
 
-typedef struct PatternEquation  PatternEquation, LogicalExpression;
+typedef struct PatternEquation  PatternEquation, LogicalExpression, EquationAnd;
 
 typedef struct PatternEquation {
     int refcount;
@@ -177,6 +177,8 @@ typedef struct PatternEquation {
 
 PatternEquation*    PatternEquation_new(int type, ...);
 void                PatternEquation_delete(PatternEquation *p);
+
+EquationAnd*        EquationAnd_new(PatternEquation *l, PatternEquation *r);
 
 
 #ifdef __cplusplus

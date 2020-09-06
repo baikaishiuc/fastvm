@@ -100,6 +100,7 @@ struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn,
 ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol *sym, u4 bitoffset, u4 numbits);
 ExpTree*            PcodeCompile_createVariadic(PcodeCompile *p, OpCode opc, struct dynarray *param);
 VarnodeTpl*         PcodeCompile_addressOf(PcodeCompile *p, VarnodeTpl *var, u4 size);
+bool                PcodeCompile_propagateSize(PcodeCompile *p, ConstructTpl *ct);
 
 #ifdef __cplusplus
 }

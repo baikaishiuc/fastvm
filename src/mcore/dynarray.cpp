@@ -126,6 +126,17 @@ void dynarray_insert(struct dynarray *d, struct dynarray *s)
     }
 }
 
+void dynarray_insertB(struct dynarray *d, int before, void *elm)
+{
+    int i;
+    dynarray_add(d, NULL);
+
+    for (i = d->len - 1; i > before; i++) {
+        d->ptab[i] = d->ptab[i - 1];
+    }
+    d->ptab[before] = elm;
+}
+
 struct dynarray*    dynarray_new(cmp_fn cmp, free_fn free1)
 {
     struct dynarray *d = (struct dynarray *)calloc(1, sizeof (d[0]));
@@ -141,6 +152,8 @@ struct dynarray*    dynarray_new(cmp_fn cmp, free_fn free1)
 void                dynarray_delete(struct dynarray *d)
 {
     int i;
+    if (!d) return;
+
     if (d->free1) {
         for (i = 0; i < d->len; i++) {
             d->free1(d->ptab[i]);

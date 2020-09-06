@@ -22,6 +22,7 @@ BitrangeSymbol, SpecificSymbol;
 typedef struct SymbolTable  SymbolTable;
 typedef struct SymbolScope  SymbolScope;
 typedef struct DecisionNode DecisionNode;
+typedef struct ContextChange ContextChange, ContextOp, ContextCommit;
 
 struct DecisionNode {
     struct dynarray list;
@@ -113,7 +114,8 @@ struct SleighSymbol {
 
         struct {
             u4 index;
-            bool ispaced;
+            bool isplaced;
+            int refcount;
         } label;
 
         struct {
@@ -152,7 +154,6 @@ struct SleighSymbol {
     int id;
     int scopeid;
     struct rb_node in_scope;
-    int refcount;
 
     /* 在源文件中的位置，方便调试 */
     int lineno;
@@ -188,6 +189,9 @@ VarnodeTpl*     VarnodeSymbol_getVarnode(SleighSymbol *sym);
 VarnodeTpl*     StartSymbol_getVarnode(StartSymbol *sym);
 VarnodeTpl*     EndSymbol_getVarnode(EndSymbol *sym);
 VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
+
+#define OperandSymbol_getDefiningSymbol(s) (((s)->type == operand_symbol) ? s->operand.triple:NULL)
+
 
 #define BitrangeSymbol_getParentSymbol(sym)             sym->bitrange.varsym
 #define BitrangeSymbol_getBitOffset(sym)                sym->bitrange.bitoffset
@@ -256,7 +260,7 @@ struct Constructor {
     PatternEquation *pateq;
     struct dynarray operands;
     struct dynarray printpiece;
-    struct dynarray context;
+    struct dynarray *context;
     ConstructTpl *templ;
     struct dynarray namedtempl;
     int minimumlength;
@@ -270,7 +274,44 @@ struct Constructor {
 Constructor*    Constructor_new();
 void            Constructor_delete(Constructor *c);
 void            Constructor_addSyntax(Constructor *c, const char *syn);
-#define Constructor_getParent(ct)       (ct)->parent
+void            Constructor_markSubtableOperands(Constructor *c, struct dynarray *check);
+void            Constructor_setNamedSection(Constructor *c, ConstructTpl *tpl, int id);
+void            Constructor_addEquation(Constructor *c, PatternEquation *pe);
+void            Constructor_removeTrailingSpace(Constructor *c);
+#define Constructor_getParent(ct)           (ct)->parent
+#define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
+
+struct ContextChange {
+    enum {
+        context_op,
+        context_commit
+    } type;
+
+    union {
+        struct {
+            PatternExpression *patexp;
+            int num;
+            uintm mask;
+            int shift;
+        } op;
+
+        struct {
+            TripleSymbol *sym;
+            int num;
+            uintm mask;
+            bool flow;
+        } commit;
+    };
+};
+
+ContextOp*      ContextOp_new(int sratbit, int endbit, PatternExpression *pe);
+
+ContextCommit*  ContextCommit_new(TripleSymbol *s, int sbit, int ebit, bool fl);
+
+ContextChange*  ContextChange_clone(ContextChange *cc);
+
+
+void            ContextChange_delete(ContextChange *cc);
 
 
 

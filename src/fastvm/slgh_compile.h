@@ -16,7 +16,7 @@ typedef struct FieldQuality FieldQuality;
 typedef struct SleighCompile SleighCompile, AddrSpaceManager, Translator;
 
 struct RtlPair {
-    //ConstructTpl *section;
+    ConstructTpl *section;
     SymbolScope     *scope;
 };
 
@@ -77,7 +77,8 @@ struct slgh_macro {
     char name[1];
 };
 
-typedef struct WithBlock    WithBlock;
+typedef struct WithBlock        WithBlock;
+typedef struct MacroBuilder     MacroBuilder;
 
 struct WithBlock {
     SubtableSymbol *ss;
@@ -85,8 +86,24 @@ struct WithBlock {
     struct dynarray contvec;
 };
 
-WithBlock*      WithBlock_new();
-void            WithBlock_delete(WithBlock *w);
+WithBlock*          WithBlock_new();
+void                WithBlock_delete(WithBlock *w);
+PatternEquation*    WithBlock_collectAndPrependPattern(struct dynarray *stack, PatternEquation *pateq);
+struct dynarray*    WithBlock_collectAndPrependContext(struct dynarray *stack, struct dynarray *contvec);
+
+struct MacroBuilder {
+    SleighCompile *slgh;
+    PcodeBuilder *pb;
+    bool haserror;
+    struct dynarray *outvec;
+    struct dynarray params;
+};
+
+MacroBuilder*       MacroBuilder_new(SleighCompile *s, struct dynarray *ovec, int labelcount);
+void                MacroBuilder_delete(MacroBuilder *m);
+void                MacroBuilder_setMacroOp(MacroBuilder *m, OpTpl *op);
+void                MacroBuilder_dump(MacroBuilder *m, OpTpl *o);
+
 
 struct slgh_preproc
 {
