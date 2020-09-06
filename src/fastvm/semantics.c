@@ -280,6 +280,7 @@ bool    ConstTpl_lessThan(ConstTpl *lhs, ConstTpl *rhs)
 
 VarnodeTpl*     VarnodeTpl_new()
 {
+    assert(0);
     return NULL;
 }
 

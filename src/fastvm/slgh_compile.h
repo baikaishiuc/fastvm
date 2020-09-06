@@ -20,6 +20,9 @@ struct RtlPair {
     SymbolScope     *scope;
 };
 
+RtlPair*        RtlPair_newV();
+RtlPair*        RtlPair_new(ConstructTpl *ct, SymbolScope *scope);
+void            RtlPair_delete(RtlPair *rp);
 
 #define RAMTYPE             0
 #define REGISTERTYPE        1
@@ -65,6 +68,7 @@ typedef struct SectionVector {
 
 SectionVector*  SectionVector_new(ConstructTpl *rtl, SymbolScope *scope);
 void            SectionVector_delete(SectionVector *sv);
+void            SectionVector_append(SectionVector *sv, ConstructTpl *rtl, SymbolScope *scope);
 
 struct slgh_macro;
 struct slgh_macro {
@@ -258,6 +262,8 @@ char*               SleighCompile_grabCurrentFilePath(SleighCompile *s);
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name);
 void                SleighCompile_nextLine(SleighCompile *s);
 void                SleighCompile_calcContextLayout(SleighCompile *s);
+void                SleighCompile_checkSymbols(SleighCompile *s, SymbolScope *scope);
+bool                SleighCompile_expandMacros(SleighCompile *s, ConstructTpl *ctpl, struct dynarray *macrotable);
 
 #define SleighCompile_isInRoot(s, ct)           (s->root == Constructor_getParent(ct))
 #define SleighCompile_getDefaultCodeSpace(s)    s->defaultcodespace

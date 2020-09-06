@@ -13,6 +13,29 @@ int yylex_destroy(void) {
 #define slgh_lineno(s)                  ((struct slgh_preproc *)dynarray_back(&s->preproc))->lineno
 #define slgh_filename(s)                ((struct slgh_preproc *)dynarray_back(&s->preproc))->fullpath.data
 
+
+RtlPair*        RtlPair_newV()
+{
+    RtlPair *rp = vm_mallocz(sizeof(rp[0]));
+
+    return rp;
+}
+
+RtlPair*        RtlPair_new(ConstructTpl *ct, SymbolScope *scope)
+{
+    RtlPair* rp = vm_mallocz(sizeof(rp[0]));
+
+    rp->section = ct;
+    rp->scope = scope;
+
+    return rp;
+}
+
+void            RtlPair_delete(RtlPair *rp)
+{
+    vm_free(rp);
+}
+
 struct slgh_macro* slgh_get_macro1(SleighCompile *slgh, const char *sym)
 {
     struct slgh_macro *macro;
@@ -104,6 +127,19 @@ SectionVector*  SectionVector_new(ConstructTpl *rtl, SymbolScope *scope)
 void            SectionVector_delete(SectionVector *sv)
 {
     vm_free(sv);
+}
+
+void            SectionVector_append(SectionVector *sv, ConstructTpl *rtl, SymbolScope *scope)
+{
+    RtlPair *rp;
+
+    while (sv->named.len <= sv->nextindex)
+        dynarray_push(&sv->named, RtlPair_newV());
+
+    rp = dynarray_back(&sv->named);
+    rp->scope = scope;
+    rp->section = rtl;
+
 }
 
 SleighCompile*  SleighCompile_new()
@@ -384,9 +420,17 @@ void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *
 
 }
 
-void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *tpl)
+void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *rtl)
 {
+    SleighCompile_checkSymbols(s, s->symtab->curscope);
 
+    if (!SleighCompile_expandMacros(s, rtl, &s->macrotable))
+        vm_error("%s:%d Could not expand submacro in defintion of macro %s", slgh_filename(s), slgh_lineno(s), sym->name);
+
+    PcodeCompile_propagateSize(s->pcode, rtl);
+    sym->macro.construct = rtl;
+    SymbolTable_popScope(s->symtab);
+    dynarray_add(&s->macrotable, rtl);
 }
 
 void            SleighCompile_pushWith(SleighCompile *s, SubtableSymbol *sym, PatternEquation *pateq, struct dynarray *contvec)
@@ -937,7 +981,11 @@ uintb               SleighCompile_getUniqueAddr(SleighCompile *s)
 
 ConstructTpl*       SleighCompile_setResultVarnode(SleighCompile *s, ConstructTpl *ct, VarnodeTpl *vn)
 {
-    return NULL;
+    HandleTpl *res = HandleTpl_newV(vn);
+
+    ct->result = res;
+
+    return ct;
 }
 
 ConstructTpl*       SleighCompile_setResultStarVarnode(SleighCompile *s, ConstructTpl *ct, StarQuality *star, VarnodeTpl *vn)
@@ -1052,7 +1100,11 @@ char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
 
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
-    return SymbolTable_findSymbol(s->symtab, name);
+    SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
+
+    if (sym)
+        printf("%s:%d sym->name = %s\n", basename(sym->filename), sym->lineno, sym->name);
+    return sym;
 }
 
 void                SleighCompile_nextLine(SleighCompile *s)
@@ -1193,7 +1245,9 @@ int                     FieldContext_cmp(void const *a, void const *b)
 
 SectionVector*  SleighCompile_finalNamedSection(SleighCompile *s, SectionVector *vec, ConstructTpl *section)
 {
-    return NULL;
+    SectionVector_append(vec, section, s->symtab->curscope);
+    SymbolTable_popScope(s->symtab);
+    return vec;
 }
 
 void    SleighCompile_checkNops(SleighCompile *s)

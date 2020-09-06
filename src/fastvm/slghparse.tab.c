@@ -3311,7 +3311,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 365 "slghparse.y"
-    { (yyval.sem) = SleighCompile_setResultVarnode(slgh, (yyvsp[(1) - (4)].sem),(yyvsp[(3) - (4)].varnode)); ;}
+    { (yyval.sem) = SleighCompile_setResultVarnode(slgh, (yyvsp[(1) - (4)].sem),(yyvsp[(3) - (4)].varnode)); VarnodeTpl_delete((yyvsp[(3) - (4)].varnode)); ;}
     break;
 
   case 140:
@@ -4127,7 +4127,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 498 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                               ConstTpl_new2(real,(yyvsp[(1) - (1)].i)),ConstTpl_new2(real,0)); ;}
     break;
 
@@ -4135,7 +4135,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 500 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
                                   yyerror("Parsed integer is too big (overflow)"); ;}
     break;
 
@@ -4143,7 +4143,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 502 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                       ConstTpl_new2(real,(yyvsp[(1) - (3)].i)),ConstTpl_new2(real,(yyvsp[(3) - (3)].i))); ;}
     break;
 

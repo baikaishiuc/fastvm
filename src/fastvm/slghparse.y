@@ -362,7 +362,7 @@ rtlcontinue: rtlfirstsection { $$ = $1; }
   | rtlcontinue rtlmid section_def      { $$ = SleighCompile_nextNamedSection(slgh, $1,$2,$3); }
   ;
 rtl: rtlmid { $$ = $1; if (!ConstructTpl_getOpvec($1)->len && (ConstructTpl_getResult($$) == (HandleTpl *)0)) SleighCompile_recordNop(slgh); }
-  | rtlmid EXPORT_KEY exportvarnode ';' { $$ = SleighCompile_setResultVarnode(slgh, $1,$3); }
+  | rtlmid EXPORT_KEY exportvarnode ';' { $$ = SleighCompile_setResultVarnode(slgh, $1,$3); VarnodeTpl_delete($3); }
   | rtlmid EXPORT_KEY sizedstar lhsvarnode ';' { $$ = SleighCompile_setResultStarVarnode(slgh, $1,$3,$4); }
   | rtlmid EXPORT_KEY STRING		{ yyerror("Unknown export varnode: %s", *$3); YYERROR; }
   | rtlmid EXPORT_KEY sizedstar STRING	{ yyerror("Unknown pointer varnode: %s", *$4); vm_free($3); vm_free($4); YYERROR; }
@@ -495,11 +495,11 @@ varnode: specificsymbol		{ $$ = SleighSymbol_getVarnode($1); }
   | STRING			{ yyerror("Unknown varnode parameter: %s", $1->data); cstr_delete($1); ; YYERROR; }
   | SUBTABLESYM                 { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName($1)); ; YYERROR; }
   ;
-integervarnode: INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+integervarnode: INTEGER		{ $$ = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                               ConstTpl_new2(real,$1),ConstTpl_new2(real,0)); }
-  | BADINTEGER                  { $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
+  | BADINTEGER                  { $$ = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
                                   yyerror("Parsed integer is too big (overflow)"); }
-  | INTEGER ':' INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+  | INTEGER ':' INTEGER		{ $$ = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                       ConstTpl_new2(real,$1),ConstTpl_new2(real,$3)); }
   | '&' varnode                 { $$ = PcodeCompile_addressOf(slgh->pcode, $2,0); }
   | '&' ':' INTEGER varnode     { $$ = PcodeCompile_addressOf(slgh->pcode, $4,(u4)$3); }
