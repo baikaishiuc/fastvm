@@ -151,7 +151,11 @@ ConstTpl*   ConstTpl_new0(void)
 
 ConstTpl*   ConstTpl_new1(const_type tp)
 {
-    return NULL;
+    ConstTpl *c = vm_malloc(sizeof(c[0]));
+
+    c->type = tp;
+
+    return c;
 }
 
 ConstTpl*   ConstTpl_new2(const_type tp, uintb val)
@@ -178,6 +182,7 @@ ConstTpl*   ConstTpl_new3(const_type tp, int4 ht, v_field vf)
 
 ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus)
 {
+    assert(NULL);
     return NULL;
 }
 

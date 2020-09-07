@@ -12,6 +12,14 @@ PatternExpression*  PatternExpression_new(int type, ...)
     pat->type = type;
     switch (type) {
         case a_plusExp:
+        case a_subExp:
+        case a_multExp:
+        case a_leftShiftExp:
+        case a_rightShiftExp:
+        case a_andExp:
+        case a_orEq:
+        case a_xorExp:
+        case a_divExp:
             pat->and.left = va_arg(ap, PatternExpression *);
             pat->and.right = va_arg(ap, PatternExpression *);
             break;

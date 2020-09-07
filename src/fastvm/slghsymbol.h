@@ -277,7 +277,9 @@ struct Constructor {
 };
 
 Constructor*    Constructor_new();
+Constructor*    Constructor_newS(SubtableSymbol *sym);
 void            Constructor_delete(Constructor *c);
+
 void            Constructor_addSyntax(Constructor *c, const char *syn);
 void            Constructor_markSubtableOperands(Constructor *c, struct dynarray *check);
 void            Constructor_setNamedSection(Constructor *c, ConstructTpl *tpl, int id);

@@ -160,7 +160,8 @@ void                dynarray_delete(struct dynarray *d)
         }
     }
 
-    free(d->ptab);
+    if (d->ptab)
+        free(d->ptab);
     free(d);
 }
 

@@ -194,10 +194,11 @@ struct dynarray*    PcodeCompile_createOpNoOut(PcodeCompile *p, OpCode opc, ExpT
 {
     OpTpl *op = OpTpl_new(opc);
     OpTpl_addInput(op, vn->outvn);
-    vn->outvn = NULL;
 
     struct dynarray *res = vn->ops;
-    dynarray_reset(vn->ops);
+
+    vn->outvn = NULL;
+    vn->ops = NULL;
     ExpTree_delete(vn);
 
     dynarray_push(res, op);
@@ -213,9 +214,10 @@ struct dynarray*    PcodeCompile_createOpNoOut2(PcodeCompile *p, OpCode opc, Exp
 
     OpTpl_addInput(op, vn1->outvn);
     OpTpl_addInput(op, vn2->outvn);
-    vn2->outvn = NULL;
 
-    dynarray_reset(vn1->ops);
+    vn1->outvn = NULL;
+    vn1->ops = NULL;
+    vn2->outvn = NULL;
     dynarray_reset(vn2->ops);
     ExpTree_delete(vn1);
     ExpTree_delete(vn2);

@@ -50,6 +50,16 @@ Constructor*    Constructor_new()
     return c;
 }
 
+Constructor*    Constructor_newS(SubtableSymbol *sym)
+{
+    Constructor *c = vm_mallocz(sizeof(c[0]));
+
+    c->parent = sym;
+    c->firstwhitespace = -1;
+
+    return c;
+}
+
 void            Constructor_delete(Constructor *c)
 {
     vm_free(c);
@@ -62,6 +72,9 @@ void            Constructor_addSyntax(Constructor *c, const char *syn)
 void            Constructor_markSubtableOperands(Constructor *c, struct dynarray *check)
 {
     int i;
+
+    while (check->len < c->operands.len)
+        dynarray_add(check, NULL);
 
     for (i = 0; i < c->operands.len; i++) {
         SleighSymbol *s = c->operands.ptab[i];

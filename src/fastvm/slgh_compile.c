@@ -902,7 +902,7 @@ Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSy
         sym = s->root;
 
     s->curmacro = NULL;
-    s->curct = Constructor_new();
+    s->curct = Constructor_newS(sym);
     s->curct->lineno = slgh_lineno(s);
     // ctorLocationMap[curct] = *getCurrentLocation();
     SubtableSymbol_addConstructor(sym, s->curct);
