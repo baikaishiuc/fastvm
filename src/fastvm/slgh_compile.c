@@ -66,7 +66,9 @@ void                slgh_set_macro(SleighCompile *s, char *name, char *val)
     int len1, len2;
     struct slgh_macro *macro;
     if ((macro = slgh_get_macro1(slgh, name))) {
-        vm_error("redefine macro %s\n", name);
+        printf("redefine macro %s, before defined in %s:%d, now in %s:%d\n", 
+            name, basename(macro->filename), macro->lineno, basename(slgh_filename(s)), slgh_lineno(s));
+        slgh_del_macro(s, name);
     }
 
     val = val ? val : "\0";
@@ -78,6 +80,9 @@ void                slgh_set_macro(SleighCompile *s, char *name, char *val)
     strcpy(macro->name, name);
     macro->value = macro->name + len1 + 1;
     strcpy(macro->value, val);
+
+    macro->filename = slgh_filename(s);
+    macro->lineno = slgh_lineno(s);
 
     mlist_add(slgh->defines, macro, in_list);
 }

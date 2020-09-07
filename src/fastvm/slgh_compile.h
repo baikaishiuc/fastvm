@@ -77,6 +77,9 @@ struct slgh_macro {
         struct slgh_macro *prev;
     } in_list;
 
+    char *filename;
+    int lineno;
+
     char *value;
     char name[1];
 };
