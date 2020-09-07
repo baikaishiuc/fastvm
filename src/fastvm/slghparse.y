@@ -477,16 +477,16 @@ sizedstar: '*' '[' SPACESYM ']' ':' INTEGER { $$ = StarQuality_new(); $$->size =
   | '*'				{ $$ = StarQuality_new(); $$->size = 0; $$->id=ConstTpl_newA(SleighCompile_getDefaultCodeSpace(slgh)); }
   ;
 jumpdest: STARTSYM		{ VarnodeTpl *sym = SleighSymbol_getVarnode($1); 
-                      $$ = VarnodeTpl_new(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1) }
+                      $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1) }
   | ENDSYM			{ VarnodeTpl *sym = SleighSymbol_getVarnode($1); 
-                    $$ = VarnodeTpl_new(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1); }
-  | INTEGER			{ $$ = VarnodeTpl_new(ConstTpl_new1(j_curspace),ConstTpl_new2(real,$1),ConstTpl_new1(j_curspace_size));  }
-  | BADINTEGER    { $$ = VarnodeTpl_new(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
+                    $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1); }
+  | INTEGER			{ $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,$1),ConstTpl_new1(j_curspace_size));  }
+  | BADINTEGER    { $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
                     yyerror("Parsed integer is too big (overflow)"); }
   | OPERANDSYM			{ $$ = SleighSymbol_getVarnode($1); SleighSymbol_setCodeAddress($1); }
   | INTEGER '[' SPACESYM ']'	{ AddrSpace *spc = SleighSymbol_getSpace($3); 
-                                $$ = VarnodeTpl_new(ConstTpl_newA(spc),ConstTpl_new2(real,$1),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); }
-  | label                       { $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+                                $$ = VarnodeTpl_new3(ConstTpl_newA(spc),ConstTpl_new2(real,$1),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); }
+  | label                       { $$ = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                     ConstTpl_new2(j_relative, LabelSymbol_getIndex($1)),ConstTpl_new2(real,sizeof(uintm))); SleighSymbol_incrementRefCount($1); }
   | STRING			{ yyerror("Unknown jump destination: %s", *$1); cstr_delete($1); YYERROR; }
   ;
@@ -514,7 +514,7 @@ label: '<' LABELSYM '>'         { $$ = $2; }
 exportvarnode: specificsymbol	{ $$ = SleighSymbol_getVarnode($1); }
   | '&' varnode                 { $$ = PcodeCompile_addressOf(slgh->pcode, $2,0); }
   | '&' ':' INTEGER varnode     { $$ = PcodeCompile_addressOf(slgh->pcode, $4,(u4)$3); }
-  | INTEGER ':' INTEGER		{ $$ = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+  | INTEGER ':' INTEGER		{ $$ = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                             ConstTpl_new2(real,$1),ConstTpl_new2(real,$3)); }
   | STRING			{ yyerror("Unknown export varnode: %s", $1->data); cstr_delete($1);  YYERROR; }
   | SUBTABLESYM                 { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName($1)); YYERROR; }

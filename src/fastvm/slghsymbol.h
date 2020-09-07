@@ -85,6 +85,7 @@ struct SleighSymbol {
             uint32_t    reloffset;
             int32_t     offsetbase;     
             int32_t     minimumlength;
+            /* 不理解为什么NASA的人要把参数的索引叫hand，不叫index，这个地方第一次看很头晕，感觉很多地方他们都自己发明了一套术语 */
             int32_t     hand;
             OperandValue *localexp;
             TripleSymbol *triple;
@@ -173,7 +174,11 @@ EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
 EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
 MacroSymbol*    MacroSymbol_new(const char *name, int i);
+
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
+void            OperandSymbol_defineOperand(OperandSymbol *sym, PatternExpression *pe);
+void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *dsym);
+
 ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl);
 
 void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
@@ -278,6 +283,8 @@ void            Constructor_markSubtableOperands(Constructor *c, struct dynarray
 void            Constructor_setNamedSection(Constructor *c, ConstructTpl *tpl, int id);
 void            Constructor_addEquation(Constructor *c, PatternEquation *pe);
 void            Constructor_removeTrailingSpace(Constructor *c);
+void            Constructor_addInvisibleOperand(Constructor *c, OperandSymbol *sym);
+void            Constructor_addOperand(Constructor *c, OperandSymbol *sym);
 #define Constructor_getParent(ct)           (ct)->parent
 #define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
 

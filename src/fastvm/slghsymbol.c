@@ -16,6 +16,9 @@ PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
         case end_symbol:
             return s->end.patexp;
 
+        case context_symbol:
+            return s->context.patval;
+
         default:
             vm_error("Cannot use symbol in pattern");
             return NULL;
@@ -90,6 +93,20 @@ void            Constructor_removeTrailingSpace(Constructor *c)
             cstr_delete(cs);
         }
     }
+}
+
+void            Constructor_addInvisibleOperand(Constructor *c, OperandSymbol *sym)
+{
+    dynarray_add(&c->operands, sym);
+}
+
+void            Constructor_addOperand(Constructor *c, OperandSymbol *sym)
+{
+    CString *cstr = cstr_new("\n ", 2);
+    cstr_ccat(cstr, 'A' + c->operands.len);
+
+    dynarray_add(&c->operands, sym);
+    dynarray_add(&c->printpiece, cstr);
 }
 
 void            SleighSymbol_delete(SleighSymbol *sym)
@@ -212,6 +229,27 @@ OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct)
     PatternExpression_layClaim(sym->operand.localexp);
 
     return sym;
+}
+
+void            OperandSymbol_defineOperand(OperandSymbol *sym, PatternExpression *pe)
+{
+    if (sym->operand.defexp || sym->operand.triple)
+        vm_error("Redefining operand:%s %s:%d", sym->name, basename(sym->filename), sym->lineno);
+
+    sym->operand.defexp = pe;
+    pe->refcount++;
+}
+
+void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *dsym)
+{
+    if (sym->operand.defexp || sym->operand.triple)
+        vm_error("Redefining operand:%s %s:%d", sym->name, basename(sym->filename), sym->lineno);
+
+    sym->operand.triple = dsym;
+}
+
+void            OperandSymbol_delete(OperandSymbol *sym)
+{
 }
 
 ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl)

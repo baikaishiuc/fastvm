@@ -136,3 +136,13 @@ ContextField*       ContextField_new(bool s, int sbit, int ebit)
     
     return c;
 }
+
+OperandEquation*    OperandEquation_new(int index)
+{
+    OperandEquation *eq = vm_mallocz(sizeof(eq[0]));
+
+    eq->type = a_operandEq;
+    eq->operand.index = index;
+
+    return eq;
+}

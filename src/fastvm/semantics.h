@@ -88,7 +88,7 @@ struct VarnodeTpl {
   bool unnamed_flag;
 };
 
-#define VarnodeTpl_getOffset(v)             &v->offset
+#define VarnodeTpl_getOffset(v)             v->offset
 
 VarnodeTpl*     VarnodeTpl_new();
 VarnodeTpl*     VarnodeTpl_clone(VarnodeTpl *vn);

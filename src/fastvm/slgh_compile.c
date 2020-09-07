@@ -929,7 +929,22 @@ void                SleighCompile_selfDefine(SleighCompile *s, OperandSymbol *sy
 
 PatternEquation*    SleighCompile_defineInvisibleOperand(SleighCompile *s, TripleSymbol *sym)
 {
-    return NULL;
+    int index = s->curct->operands.len;
+    OperandSymbol *opsym = OperandSymbol_new(sym->name, index, s->curct);
+
+    SleighCompile_addSymbol(s, opsym);
+    Constructor_addInvisibleOperand(s->curct, opsym);
+    OperandEquation *res = OperandEquation_new(opsym->operand.hand);
+    int tp = sym->type;
+
+    if ((tp == value_symbol) || (tp == context_symbol)) {
+        OperandSymbol_defineOperand(opsym, SleighSymbol_getPatternExpression(sym));
+    }
+    else {
+        OperandSymbol_defineOperandS(opsym, sym);
+    }
+
+    return res;
 }
 
 bool                SleighCompile_contextMod(SleighCompile *s, struct dynarray *vec, ContextSymbol *sym, PatternExpression *pe)
@@ -1102,7 +1117,7 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
     SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
 
-    if (sym)
+    if (sym && sym->filename)
         printf("%s:%d sym->name = %s\n", basename(sym->filename), sym->lineno, sym->name);
     return sym;
 }

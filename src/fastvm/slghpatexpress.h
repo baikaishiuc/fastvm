@@ -30,6 +30,11 @@ TokenPattern*   TokenPattern_doOr(const TokenPattern *op1, const TokenPattern *o
 TokenPattern*   TokenPattern_doCat(const TokenPattern *op1, const TokenPattern *op2);
 TokenPattern*   TokenPattern_commobSubPattern(const TokenPattern *pat, const TokenPattern *subpat);
 
+/* PatternExpression 是 算术表达式，叫 arithmetic expression 更合适 
+
+PatternEquation 是 逻辑表达式，叫 logical expression 更合适，它现在的命名其实我是晕的
+*/
+
 typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
             StartInstructionValue, EndInstructionValue, ContextField;
 
@@ -126,7 +131,7 @@ typedef struct OperandResolve {
     int     size;
 } OperandResolve;
 
-typedef struct PatternEquation  PatternEquation, LogicalExpression, EquationAnd;
+typedef struct PatternEquation  PatternEquation, LogicalExpression, EquationAnd, OperandEquation;
 
 typedef struct PatternEquation {
     int refcount;
@@ -179,6 +184,7 @@ PatternEquation*    PatternEquation_new(int type, ...);
 void                PatternEquation_delete(PatternEquation *p);
 
 EquationAnd*        EquationAnd_new(PatternEquation *l, PatternEquation *r);
+OperandEquation*    OperandEquation_new(int index);
 
 
 #ifdef __cplusplus

@@ -4039,7 +4039,7 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 479 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].startsym)); 
-                      (yyval.varnode) = VarnodeTpl_new(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].startsym)) ;}
+                      (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].startsym)) ;}
     break;
 
   case 243:
@@ -4047,21 +4047,21 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 481 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].endsym)); 
-                    (yyval.varnode) = VarnodeTpl_new(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].endsym)); ;}
+                    (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].endsym)); ;}
     break;
 
   case 244:
 
 /* Line 1455 of yacc.c  */
 #line 483 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_new1(j_curspace),ConstTpl_new2(real,(yyvsp[(1) - (1)].i)),ConstTpl_new1(j_curspace_size));  ;}
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,(yyvsp[(1) - (1)].i)),ConstTpl_new1(j_curspace_size));  ;}
     break;
 
   case 245:
 
 /* Line 1455 of yacc.c  */
 #line 484 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
                     yyerror("Parsed integer is too big (overflow)"); ;}
     break;
 
@@ -4077,14 +4077,14 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 487 "slghparse.y"
     { AddrSpace *spc = SleighSymbol_getSpace((yyvsp[(3) - (4)].spacesym)); 
-                                (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(spc),ConstTpl_new2(real,(yyvsp[(1) - (4)].i)),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); ;}
+                                (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(spc),ConstTpl_new2(real,(yyvsp[(1) - (4)].i)),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); ;}
     break;
 
   case 248:
 
 /* Line 1455 of yacc.c  */
 #line 489 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                     ConstTpl_new2(j_relative, LabelSymbol_getIndex((yyvsp[(1) - (1)].labelsym))),ConstTpl_new2(real,sizeof(uintm))); SleighSymbol_incrementRefCount((yyvsp[(1) - (1)].labelsym)); ;}
     break;
 
@@ -4221,7 +4221,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 517 "slghparse.y"
-    { (yyval.varnode) = VarnodeTpl_new(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
+    { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                             ConstTpl_new2(real,(yyvsp[(1) - (3)].i)),ConstTpl_new2(real,(yyvsp[(3) - (3)].i))); ;}
     break;
 
