@@ -9,10 +9,10 @@ extern "C" {
 #include "space.h"
 
 typedef struct Token {
-    const char *name;
     int size;
     int index;
     int bigendian;
+    char name[1];
 } Token;
 
 Token*          Token_new(const char *name, int be, int index);

@@ -1210,7 +1210,7 @@ void                SleighCompile_calcContextLayout(SleighCompile *s)
             sz += 1;
 
         context_offset = SleighCompile_calcContextVarLayout(s, begin, sz, context_offset);
-        begin += sz;
+        begin += sz; 
     }
 
     for (i = 0; i < s->contexttable.len; i++) {

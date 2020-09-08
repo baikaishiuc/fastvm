@@ -34,6 +34,7 @@ PatternExpression*  PatternExpression_new(int type, ...)
             break;
 
         case a_contextField:
+        case a_tokenField:
             break;
 
         default:
@@ -143,6 +144,28 @@ ContextField*       ContextField_new(bool s, int sbit, int ebit)
     c->contextField.shift = 7 - ebit % 8;
     
     return c;
+}
+
+TokenField*         TokenField_new(Token *tk, bool s, int bstart, int bend)
+{
+    TokenField*     t = PatternExpression_new(a_tokenField);
+
+    t->tokenField.tok = tk;
+    t->tokenField.bigendian = tk->bigendian;
+    t->tokenField.signbit = s;
+    t->tokenField.bitstart = bstart;
+    t->tokenField.bitend = bend;
+    if (t->tokenField.bigendian) {
+        t->tokenField.byteend = (tk->size * 8 - bstart - 1) / 8;
+        t->tokenField.bytestart = (tk->size * 8 - bend - 1) / 8;
+    }
+    else {
+        t->tokenField.bytestart = bstart / 8;
+        t->tokenField.byteend = bend / 8;
+    }
+    t->tokenField.shift = bstart % 8;
+
+    return t;
 }
 
 OperandEquation*    OperandEquation_new(int index)

@@ -36,7 +36,7 @@ PatternEquation 是 逻辑表达式，叫 logical expression 更合适，它现�
 */
 
 typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
-            StartInstructionValue, EndInstructionValue, ContextField;
+            StartInstructionValue, EndInstructionValue, ContextField, TokenField;
 
 struct PatternExpression {
     int refcount;
@@ -115,6 +115,8 @@ ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
 
 ContextField*       ContextField_new(bool s, int sbit, int ebit);
+
+TokenField*         TokenField_new(Token *tk, bool s, int bstart, int bend);
 
 
 StartInstructionValue*  StartInstructionValue_new();
