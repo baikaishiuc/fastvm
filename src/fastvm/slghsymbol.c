@@ -1,6 +1,37 @@
 ﻿#include "vm.h"
 #include "slghsymbol.h"
 
+char*           SymbolTypeStr(int type)
+{
+    switch (type) {
+    case empty:                 return "empty";
+    case space_symbol:          return "space_symbol";
+    case token_symbol:          return "token_symbol";
+    case userop_symbol:         return "usreop_symbol";
+    case value_symbol:          return "value_symbol";
+    case valuemap_symbol:       return "valuemap_symbol";
+    case name_symbol:           return "name_symbol";
+    case varnode_symbol:        return "varnode_symbol";
+    case varnodelist_symbol:    return "varnodelist_symbol";
+    case operand_symbol:        return "operand_symbol";
+    case start_symbol:          return "start_symbol";
+    case end_symbol:            return "end_symbol";
+    case subtable_symbol:       return "subtable_symbol";
+    case macro_symbol:          return "macro_symbol";
+    case section_symbol:        return "section_symbol";
+    case bitrange_symbol:       return "bitrange_symbol";
+    case context_symbol:        return "context_symbol";
+    case epsilon_symbol:        return "epsilon_symbol";
+    case label_symbol:          return "label_symbol";
+    case dummy_symbol:          return "dummy_symbol";
+    case flow_dest_symbol:      return "flow_dest_symbol";
+    case flow_ref_symbol:       return "flow_ref_symbol";
+    default:
+        vm_error("unsupport symboltype %d", type);
+        return NULL;
+    }
+}
+
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
 {
     switch (s->type) { 
@@ -259,6 +290,33 @@ void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *d
         vm_error("Redefining operand:%s %s:%d", sym->name, basename(sym->filename), sym->lineno);
 
     sym->operand.triple = dsym;
+}
+
+void            NameSymbol_checkTableFill(NameSymbol *sym)
+{
+    intb min = PatternValue_minValue(sym->nameS.patval);
+    intb max = PatternValue_maxValue(sym->nameS.patval);
+    sym->nameS.tableisfilled = (min >= 0) && (max < sym->nameS.nametable->len);
+    int i;
+    for (i = 0; i < sym->nameS.nametable->len; i++) {
+        CString *cstr = sym->nameS.nametable->ptab[i];
+        if (!strcmp(cstr->data, "_") || !strcmp(cstr->data, "\t")) {
+            cstr->data[0] = '\t';
+            sym->nameS.tableisfilled = false;
+            break;
+        }
+    }
+}
+
+NameSymbol*     NameSymbol_new(const char *name, PatternValue *pv, struct dynarray *nt)
+{
+    NameSymbol* sym = SleighSymbol_new(name_symbol, name);
+
+    sym->nameS.patval = pv;
+    pv->refcount++;
+    sym->nameS.nametable = nt;
+    NameSymbol_checkTableFill(sym);
+    return sym;
 }
 
 TokenSymbol*    TokenSymbol_new(Token *t)

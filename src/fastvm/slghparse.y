@@ -278,9 +278,10 @@ constructor: constructprint IS_KEY pequation contextblock rtlbody { SleighCompil
 constructprint: subtablestart STRING	{ $$ = $1; Constructor_addSyntax($$, $2->data); cstr_delete($2); }
   | subtablestart charstring		{ $$ = $1; Constructor_addSyntax($$, $2->data); cstr_delete($2); }
   | subtablestart SYMBOLSTRING		{ $$ = $1; if (SleighCompile_isInRoot(slgh, $1)) { 
-                                        Constructor_addSyntax($$, $2->data); cstr_delete($2); } 
+                                        Constructor_addSyntax($$, $2->data);  } 
                                       else SleighCompile_newOperand(slgh, $1,$2->data); 
-                                      }
+                                    cstr_delete($2);
+                                 }
   | subtablestart '^'				{ $$ = $1; if (!SleighCompile_isInRoot(slgh, $1)) { yyerror("Unexpected '^' at start of print pieces");  YYERROR; } }
   | constructprint '^'				{ $$ = $1; }
   | constructprint STRING			{ $$ = $1; Constructor_addSyntax($$, $2->data); cstr_delete($2); }

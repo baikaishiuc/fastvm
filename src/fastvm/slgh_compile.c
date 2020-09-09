@@ -449,14 +449,27 @@ void            SleighCompile_attachValues(SleighCompile *s, struct dynarray *sy
 
 void            SleighCompile_attachNames(SleighCompile *s, struct dynarray *symlist, struct dynarray *names)
 {
+    SleighSymbol *dup = SleighCompile_dedupSymbolList(s, symlist);
+    if (dup)
+        vm_error("%s:%d attach names list contain duplicate entries[%s]", slgh_filename(s), slgh_lineno(s), dup->name);
 
+    int i;
+    for (i = 0; i < symlist->len; i++) {
+        ValueSymbol *sym = symlist->ptab[i];
+        if (!sym)
+            continue;
+        PatternValue *patval = SleighSymbol_getPatternValue(sym);
+        if ((PatternValue_maxValue(patval) + 1) != names->len) 
+            vm_error("%s:%d Attach name %s is wrong size for list", slgh_filename(s), slgh_lineno(s), sym->name);
+
+    }
 }
 
 void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *symlist, struct dynarray *varlist)
 {
     SleighSymbol *dup = SleighCompile_dedupSymbolList(s, symlist);
     if (dup)
-        vm_error("%s:%d attach value list contain duplicate entries[%s]", slgh_filename(s), slgh_lineno(s), dup->name);
+        vm_error("%s:%d attach variables list contain duplicate entries[%s]", slgh_filename(s), slgh_lineno(s), dup->name);
     int i, sz = 0, j;
 
     for (i = 0; i < symlist->len; i++) {
@@ -840,7 +853,10 @@ void            SleighCompile_buildConstructor(SleighCompile *s, Constructor *bi
 
 void            SleighCompile_newOperand(SleighCompile *s, Constructor *c, const char *name)
 {
-
+    int index = c->operands.len;
+    OperandSymbol *sym = OperandSymbol_new(name, index, c);
+    SleighCompile_addSymbol(s, sym);
+    Constructor_addOperand(c, sym);
 }
 
 WithBlock*      WithBlock_new()
@@ -1180,7 +1196,7 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
     SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
 
     if (sym && sym->filename)
-        printf("%s:%d sym->name = %s\n", basename(sym->filename), sym->lineno, sym->name);
+        printf("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
     return sym;
 }
 

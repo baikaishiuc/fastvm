@@ -73,6 +73,12 @@ struct SleighSymbol {
         } token;
 
         struct {
+            struct dynarray *nametable;
+            bool tableisfilled;
+            PatternValue *patval;
+        } nameS;
+
+        struct {
             int templateid;     // Index into the constructTpl array
             int define_count;   // Number of definitions of this named section
             int ref_count;      // Number of references to this named section
@@ -171,6 +177,7 @@ struct SleighSymbol {
     char name[1];
 };
 
+char*           SymbolTypeStr(int type);
 void            SleighSymbol_delete(SleighSymbol *sym);
 SleighSymbol*   SpaceSymbol_new(AddrSpace *spc);
 SleighSymbol*   SectionSymbol_new(const char *name, int id);
@@ -188,6 +195,7 @@ OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
 void            OperandSymbol_defineOperand(OperandSymbol *sym, PatternExpression *pe);
 void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *dsym);
 
+NameSymbol*     NameSymbol_new(const char *name, PatternValue *pv, struct dynarray *nt);
 TokenSymbol*    TokenSymbol_new(Token *t);
 ValueSymbol*    ValueSymbol_new(const char *name, PatternValue *pv);
 

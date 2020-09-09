@@ -751,33 +751,33 @@ static const yytype_uint16 yyrline[] =
      212,   214,   216,   217,   218,   219,   220,   221,   222,   224,
      226,   228,   230,   231,   233,   237,   239,   241,   243,   245,
      248,   250,   251,   252,   254,   256,   257,   258,   261,   262,
-     265,   267,   268,   269,   271,   274,   278,   279,   280,   284,
-     285,   286,   287,   288,   289,   291,   292,   294,   295,   297,
-     299,   303,   304,   305,   306,   307,   308,   309,   310,   311,
-     312,   313,   314,   315,   317,   318,   319,   320,   322,   323,
-     325,   326,   328,   329,   331,   332,   333,   334,   335,   336,
-     337,   340,   341,   342,   343,   345,   346,   348,   349,   351,
-     352,   353,   354,   356,   357,   359,   361,   362,   364,   365,
-     366,   367,   368,   370,   371,   372,   373,   375,   376,   377,
-     378,   379,   380,   381,   382,   383,   384,   388,   389,   390,
-     391,   392,   393,   394,   395,   396,   397,   398,   399,   400,
-     401,   402,   404,   405,   406,   407,   408,   409,   410,   411,
-     412,   413,   414,   415,   416,   417,   418,   419,   420,   421,
-     422,   423,   424,   425,   426,   427,   428,   429,   430,   431,
-     432,   433,   434,   435,   436,   437,   438,   439,   440,   441,
-     442,   443,   444,   445,   446,   447,   448,   449,   450,   451,
-     452,   453,   454,   455,   456,   457,   458,   459,   460,   461,
-     462,   463,   464,   465,   466,   467,   471,   472,   474,   475,
-     476,   477,   479,   481,   483,   484,   486,   487,   489,   491,
-     493,   494,   495,   496,   498,   500,   502,   504,   505,   507,
-     508,   509,   511,   512,   514,   515,   516,   517,   519,   520,
-     522,   523,   524,   525,   526,   528,   529,   530,   531,   532,
-     534,   535,   537,   538,   539,   541,   542,   543,   545,   546,
-     547,   550,   551,   553,   554,   555,   557,   559,   560,   561,
-     562,   564,   565,   566,   568,   569,   570,   571,   572,   574,
-     575,   577,   578,   580,   581,   584,   585,   586,   588,   589,
-     590,   592,   593,   594,   595,   596,   597,   598,   599,   600,
-     601,   602,   603,   604,   605,   606,   607
+     265,   267,   268,   269,   271,   274,   278,   279,   280,   285,
+     286,   287,   288,   289,   290,   292,   293,   295,   296,   298,
+     300,   304,   305,   306,   307,   308,   309,   310,   311,   312,
+     313,   314,   315,   316,   318,   319,   320,   321,   323,   324,
+     326,   327,   329,   330,   332,   333,   334,   335,   336,   337,
+     338,   341,   342,   343,   344,   346,   347,   349,   350,   352,
+     353,   354,   355,   357,   358,   360,   362,   363,   365,   366,
+     367,   368,   369,   371,   372,   373,   374,   376,   377,   378,
+     379,   380,   381,   382,   383,   384,   385,   389,   390,   391,
+     392,   393,   394,   395,   396,   397,   398,   399,   400,   401,
+     402,   403,   405,   406,   407,   408,   409,   410,   411,   412,
+     413,   414,   415,   416,   417,   418,   419,   420,   421,   422,
+     423,   424,   425,   426,   427,   428,   429,   430,   431,   432,
+     433,   434,   435,   436,   437,   438,   439,   440,   441,   442,
+     443,   444,   445,   446,   447,   448,   449,   450,   451,   452,
+     453,   454,   455,   456,   457,   458,   459,   460,   461,   462,
+     463,   464,   465,   466,   467,   468,   472,   473,   475,   476,
+     477,   478,   480,   482,   484,   485,   487,   488,   490,   492,
+     494,   495,   496,   497,   499,   501,   503,   505,   506,   508,
+     509,   510,   512,   513,   515,   516,   517,   518,   520,   521,
+     523,   524,   525,   526,   527,   529,   530,   531,   532,   533,
+     535,   536,   538,   539,   540,   542,   543,   544,   546,   547,
+     548,   551,   552,   554,   555,   556,   558,   560,   561,   562,
+     563,   565,   566,   567,   569,   570,   571,   572,   573,   575,
+     576,   578,   579,   581,   582,   585,   586,   587,   589,   590,
+     591,   593,   594,   595,   596,   597,   598,   599,   600,   601,
+     602,   603,   604,   605,   606,   607,   608
 };
 #endif
 
@@ -2904,64 +2904,65 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 280 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); if (SleighCompile_isInRoot(slgh, (yyvsp[(1) - (2)].construct))) { 
-                                        Constructor_addSyntax((yyval.construct), (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str)); } 
+                                        Constructor_addSyntax((yyval.construct), (yyvsp[(2) - (2)].str)->data);  } 
                                       else SleighCompile_newOperand(slgh, (yyvsp[(1) - (2)].construct),(yyvsp[(2) - (2)].str)->data); 
-                                      ;}
+                                    cstr_delete((yyvsp[(2) - (2)].str));
+                                 ;}
     break;
 
   case 79:
 
 /* Line 1455 of yacc.c  */
-#line 284 "slghparse.y"
+#line 285 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); if (!SleighCompile_isInRoot(slgh, (yyvsp[(1) - (2)].construct))) { yyerror("Unexpected '^' at start of print pieces");  YYERROR; } ;}
     break;
 
   case 80:
 
 /* Line 1455 of yacc.c  */
-#line 285 "slghparse.y"
+#line 286 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); ;}
     break;
 
   case 81:
 
 /* Line 1455 of yacc.c  */
-#line 286 "slghparse.y"
+#line 287 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); Constructor_addSyntax((yyval.construct), (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str)); ;}
     break;
 
   case 82:
 
 /* Line 1455 of yacc.c  */
-#line 287 "slghparse.y"
+#line 288 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); Constructor_addSyntax((yyval.construct), (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str)); ;}
     break;
 
   case 83:
 
 /* Line 1455 of yacc.c  */
-#line 288 "slghparse.y"
+#line 289 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); Constructor_addSyntax((yyval.construct), " "); ;}
     break;
 
   case 84:
 
 /* Line 1455 of yacc.c  */
-#line 289 "slghparse.y"
+#line 290 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); SleighCompile_newOperand(slgh, (yyvsp[(1) - (2)].construct), (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str)); ;}
     break;
 
   case 85:
 
 /* Line 1455 of yacc.c  */
-#line 291 "slghparse.y"
+#line 292 "slghparse.y"
     { (yyval.construct) = SleighCompile_createConstructor(slgh, (yyvsp[(1) - (2)].subtablesym)); ;}
     break;
 
   case 86:
 
 /* Line 1455 of yacc.c  */
-#line 292 "slghparse.y"
+#line 293 "slghparse.y"
     { SubtableSymbol *sym= SleighCompile_newTable(slgh, (yyvsp[(1) - (2)].str)->data); 
                           (yyval.construct) = SleighCompile_createConstructor(slgh, sym);  cstr_delete((yyvsp[(1) - (2)].str)); ;}
     break;
@@ -2969,28 +2970,28 @@ yyreduce:
   case 87:
 
 /* Line 1455 of yacc.c  */
-#line 294 "slghparse.y"
+#line 295 "slghparse.y"
     { (yyval.construct) = SleighCompile_createConstructor(slgh, (SubtableSymbol *)0); ;}
     break;
 
   case 88:
 
 /* Line 1455 of yacc.c  */
-#line 295 "slghparse.y"
+#line 296 "slghparse.y"
     { (yyval.construct) = (yyvsp[(1) - (2)].construct); ;}
     break;
 
   case 89:
 
 /* Line 1455 of yacc.c  */
-#line 297 "slghparse.y"
+#line 298 "slghparse.y"
     { (yyval.patexp) = ConstantValue_newB((yyvsp[(1) - (1)].big));  ;}
     break;
 
   case 90:
 
 /* Line 1455 of yacc.c  */
-#line 299 "slghparse.y"
+#line 300 "slghparse.y"
     { if ((actionon==1)&&((yyvsp[(1) - (1)].famsym)->type != context_symbol))
                                              { yyerror("Global symbol %s is not allowed in action expression", (yyvsp[(1) - (1)].famsym)->name); } 
                                              (yyval.patexp) = (yyvsp[(1) - (1)].famsym)->value.patval; ;}
@@ -2999,182 +3000,182 @@ yyreduce:
   case 91:
 
 /* Line 1455 of yacc.c  */
-#line 303 "slghparse.y"
+#line 304 "slghparse.y"
     { (yyval.patexp) = SleighSymbol_getPatternExpression((yyvsp[(1) - (1)].specsym)); ;}
     break;
 
   case 92:
 
 /* Line 1455 of yacc.c  */
-#line 304 "slghparse.y"
+#line 305 "slghparse.y"
     { (yyval.patexp) = (yyvsp[(2) - (3)].patexp); ;}
     break;
 
   case 93:
 
 /* Line 1455 of yacc.c  */
-#line 305 "slghparse.y"
+#line 306 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_plusExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 94:
 
 /* Line 1455 of yacc.c  */
-#line 306 "slghparse.y"
+#line 307 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_subExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 95:
 
 /* Line 1455 of yacc.c  */
-#line 307 "slghparse.y"
+#line 308 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_multExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 96:
 
 /* Line 1455 of yacc.c  */
-#line 308 "slghparse.y"
+#line 309 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_leftShiftExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 97:
 
 /* Line 1455 of yacc.c  */
-#line 309 "slghparse.y"
+#line 310 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_rightShiftExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 98:
 
 /* Line 1455 of yacc.c  */
-#line 310 "slghparse.y"
+#line 311 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_andExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 99:
 
 /* Line 1455 of yacc.c  */
-#line 311 "slghparse.y"
+#line 312 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_orExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 100:
 
 /* Line 1455 of yacc.c  */
-#line 312 "slghparse.y"
+#line 313 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_xorExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 101:
 
 /* Line 1455 of yacc.c  */
-#line 313 "slghparse.y"
+#line 314 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_divExp, (yyvsp[(1) - (3)].patexp),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 102:
 
 /* Line 1455 of yacc.c  */
-#line 314 "slghparse.y"
+#line 315 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_minusExp, (yyvsp[(2) - (2)].patexp)); ;}
     break;
 
   case 103:
 
 /* Line 1455 of yacc.c  */
-#line 315 "slghparse.y"
+#line 316 "slghparse.y"
     { (yyval.patexp) = PatternExpression_new(a_notExp, (yyvsp[(2) - (2)].patexp)); ;}
     break;
 
   case 105:
 
 /* Line 1455 of yacc.c  */
-#line 318 "slghparse.y"
+#line 319 "slghparse.y"
     { (yyval.pateq) = EquationAnd_new((yyvsp[(1) - (3)].pateq),(yyvsp[(3) - (3)].pateq)); ;}
     break;
 
   case 106:
 
 /* Line 1455 of yacc.c  */
-#line 319 "slghparse.y"
+#line 320 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_orEq, (yyvsp[(1) - (3)].pateq),(yyvsp[(3) - (3)].pateq)); ;}
     break;
 
   case 107:
 
 /* Line 1455 of yacc.c  */
-#line 320 "slghparse.y"
+#line 321 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_catEq, (yyvsp[(1) - (3)].pateq),(yyvsp[(3) - (3)].pateq)); ;}
     break;
 
   case 108:
 
 /* Line 1455 of yacc.c  */
-#line 322 "slghparse.y"
+#line 323 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_leftEllipsisEq, (yyvsp[(2) - (2)].pateq)); ;}
     break;
 
   case 110:
 
 /* Line 1455 of yacc.c  */
-#line 325 "slghparse.y"
+#line 326 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_rightEllipsisEq, (yyvsp[(1) - (2)].pateq)); ;}
     break;
 
   case 113:
 
 /* Line 1455 of yacc.c  */
-#line 329 "slghparse.y"
+#line 330 "slghparse.y"
     { (yyval.pateq) = (yyvsp[(2) - (3)].pateq); ;}
     break;
 
   case 114:
 
 /* Line 1455 of yacc.c  */
-#line 331 "slghparse.y"
+#line 332 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_equalEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)), (yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 115:
 
 /* Line 1455 of yacc.c  */
-#line 332 "slghparse.y"
+#line 333 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_notEqualEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 116:
 
 /* Line 1455 of yacc.c  */
-#line 333 "slghparse.y"
+#line 334 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_lessEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 117:
 
 /* Line 1455 of yacc.c  */
-#line 334 "slghparse.y"
+#line 335 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_lessEqualEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 118:
 
 /* Line 1455 of yacc.c  */
-#line 335 "slghparse.y"
+#line 336 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_greaterEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 119:
 
 /* Line 1455 of yacc.c  */
-#line 336 "slghparse.y"
+#line 337 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_greaterEqualEq, SleighSymbol_getPatternValue((yyvsp[(1) - (3)].famsym)),(yyvsp[(3) - (3)].patexp)); ;}
     break;
 
   case 120:
 
 /* Line 1455 of yacc.c  */
-#line 337 "slghparse.y"
+#line 338 "slghparse.y"
     { (yyval.pateq) = SleighCompile_constrainOperand(slgh, (yyvsp[(1) - (3)].operandsym), (yyvsp[(3) - (3)].patexp));
                                           if ((yyval.pateq) == (PatternEquation *)0) 
                                             { yyerror("Constraining currently undefined operand %s", SleighSymbol_getName((yyvsp[(1) - (3)].operandsym))); } ;}
@@ -3183,56 +3184,56 @@ yyreduce:
   case 121:
 
 /* Line 1455 of yacc.c  */
-#line 340 "slghparse.y"
+#line 341 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_operandEq, OperandSymbol_getIndex((yyvsp[(1) - (1)].operandsym))); SleighCompile_selfDefine(slgh, (yyvsp[(1) - (1)].operandsym)); ;}
     break;
 
   case 122:
 
 /* Line 1455 of yacc.c  */
-#line 341 "slghparse.y"
+#line 342 "slghparse.y"
     { (yyval.pateq) = PatternEquation_new(a_unconstrainedEq, SleighSymbol_getPatternExpression((yyvsp[(1) - (1)].specsym))); ;}
     break;
 
   case 123:
 
 /* Line 1455 of yacc.c  */
-#line 342 "slghparse.y"
+#line 343 "slghparse.y"
     { (yyval.pateq) = SleighCompile_defineInvisibleOperand(slgh, (yyvsp[(1) - (1)].famsym)); ;}
     break;
 
   case 124:
 
 /* Line 1455 of yacc.c  */
-#line 343 "slghparse.y"
+#line 344 "slghparse.y"
     { (yyval.pateq) = SleighCompile_defineInvisibleOperand(slgh, (yyvsp[(1) - (1)].subtablesym)); ;}
     break;
 
   case 125:
 
 /* Line 1455 of yacc.c  */
-#line 345 "slghparse.y"
+#line 346 "slghparse.y"
     { (yyval.contop) = (struct dynarray *)0; ;}
     break;
 
   case 126:
 
 /* Line 1455 of yacc.c  */
-#line 346 "slghparse.y"
+#line 347 "slghparse.y"
     { (yyval.contop) = (yyvsp[(2) - (3)].contop); ;}
     break;
 
   case 127:
 
 /* Line 1455 of yacc.c  */
-#line 348 "slghparse.y"
+#line 349 "slghparse.y"
     { (yyval.contop) = dynarray_new(NULL, NULL); ;}
     break;
 
   case 128:
 
 /* Line 1455 of yacc.c  */
-#line 349 "slghparse.y"
+#line 350 "slghparse.y"
     { (yyval.contop) = (yyvsp[(1) - (5)].contop); if (!SleighCompile_contextMod(slgh, (yyvsp[(1) - (5)].contop),(yyvsp[(2) - (5)].contextsym),(yyvsp[(4) - (5)].patexp))) {
       yyerror("Cannot use 'inst_next' to set context variable: %s", SleighSymbol_getName((yyvsp[(2) - (5)].contextsym))); YYERROR; } ;}
     break;
@@ -3240,196 +3241,196 @@ yyreduce:
   case 129:
 
 /* Line 1455 of yacc.c  */
-#line 351 "slghparse.y"
+#line 352 "slghparse.y"
     { (yyval.contop) = (yyvsp[(1) - (8)].contop); SleighCompile_contextSet(slgh, (yyvsp[(1) - (8)].contop),(yyvsp[(4) - (8)].famsym),(yyvsp[(6) - (8)].contextsym)); ;}
     break;
 
   case 130:
 
 /* Line 1455 of yacc.c  */
-#line 352 "slghparse.y"
+#line 353 "slghparse.y"
     { (yyval.contop) = (yyvsp[(1) - (8)].contop); SleighCompile_contextSet(slgh, (yyvsp[(1) - (8)].contop),(yyvsp[(4) - (8)].specsym),(yyvsp[(6) - (8)].contextsym)); ;}
     break;
 
   case 131:
 
 /* Line 1455 of yacc.c  */
-#line 353 "slghparse.y"
+#line 354 "slghparse.y"
     { (yyval.contop) = (yyvsp[(1) - (5)].contop); SleighCompile_defineOperand(slgh, (yyvsp[(2) - (5)].operandsym),(yyvsp[(4) - (5)].patexp)); ;}
     break;
 
   case 132:
 
 /* Line 1455 of yacc.c  */
-#line 354 "slghparse.y"
+#line 355 "slghparse.y"
     { yyerror("Expecting context symbol, not %s", *(yyvsp[(2) - (2)].str)); YYERROR; ;}
     break;
 
   case 133:
 
 /* Line 1455 of yacc.c  */
-#line 356 "slghparse.y"
+#line 357 "slghparse.y"
     { (yyval.sectionsym) = SleighCompile_newSectionSymbol( slgh, (yyvsp[(2) - (3)].str)->data ); cstr_delete((yyvsp[(2) - (3)].str)); ;}
     break;
 
   case 134:
 
 /* Line 1455 of yacc.c  */
-#line 357 "slghparse.y"
+#line 358 "slghparse.y"
     { (yyval.sectionsym) = (yyvsp[(2) - (3)].sectionsym); ;}
     break;
 
   case 135:
 
 /* Line 1455 of yacc.c  */
-#line 359 "slghparse.y"
+#line 360 "slghparse.y"
     { (yyval.sectionstart) = SleighCompile_firstNamedSection(slgh, (yyvsp[(1) - (2)].sem),(yyvsp[(2) - (2)].sectionsym)); ;}
     break;
 
   case 136:
 
 /* Line 1455 of yacc.c  */
-#line 361 "slghparse.y"
+#line 362 "slghparse.y"
     { (yyval.sectionstart) = (yyvsp[(1) - (1)].sectionstart); ;}
     break;
 
   case 137:
 
 /* Line 1455 of yacc.c  */
-#line 362 "slghparse.y"
+#line 363 "slghparse.y"
     { (yyval.sectionstart) = SleighCompile_nextNamedSection(slgh, (yyvsp[(1) - (3)].sectionstart),(yyvsp[(2) - (3)].sem),(yyvsp[(3) - (3)].sectionsym)); ;}
     break;
 
   case 138:
 
 /* Line 1455 of yacc.c  */
-#line 364 "slghparse.y"
+#line 365 "slghparse.y"
     { (yyval.sem) = (yyvsp[(1) - (1)].sem); if (!ConstructTpl_getOpvec((yyvsp[(1) - (1)].sem))->len && (ConstructTpl_getResult((yyval.sem)) == (HandleTpl *)0)) SleighCompile_recordNop(slgh); ;}
     break;
 
   case 139:
 
 /* Line 1455 of yacc.c  */
-#line 365 "slghparse.y"
+#line 366 "slghparse.y"
     { (yyval.sem) = SleighCompile_setResultVarnode(slgh, (yyvsp[(1) - (4)].sem),(yyvsp[(3) - (4)].varnode)); VarnodeTpl_delete((yyvsp[(3) - (4)].varnode)); ;}
     break;
 
   case 140:
 
 /* Line 1455 of yacc.c  */
-#line 366 "slghparse.y"
+#line 367 "slghparse.y"
     { (yyval.sem) = SleighCompile_setResultStarVarnode(slgh, (yyvsp[(1) - (5)].sem),(yyvsp[(3) - (5)].starqual),(yyvsp[(4) - (5)].varnode)); ;}
     break;
 
   case 141:
 
 /* Line 1455 of yacc.c  */
-#line 367 "slghparse.y"
+#line 368 "slghparse.y"
     { yyerror("Unknown export varnode: %s", *(yyvsp[(3) - (3)].str)); YYERROR; ;}
     break;
 
   case 142:
 
 /* Line 1455 of yacc.c  */
-#line 368 "slghparse.y"
+#line 369 "slghparse.y"
     { yyerror("Unknown pointer varnode: %s", *(yyvsp[(4) - (4)].str)); vm_free((yyvsp[(3) - (4)].starqual)); vm_free((yyvsp[(4) - (4)].str)); YYERROR; ;}
     break;
 
   case 143:
 
 /* Line 1455 of yacc.c  */
-#line 370 "slghparse.y"
+#line 371 "slghparse.y"
     { (yyval.sem) = ConstructTpl_new(); ;}
     break;
 
   case 144:
 
 /* Line 1455 of yacc.c  */
-#line 371 "slghparse.y"
+#line 372 "slghparse.y"
     { (yyval.sem) = (yyvsp[(1) - (2)].sem); if (!ConstructTpl_addOpList((yyval.sem), (yyvsp[(2) - (2)].stmt))) { vm_free((yyvsp[(2) - (2)].stmt)); yyerror("Multiple delayslot declarations"); YYERROR; } dynarray_delete((yyvsp[(2) - (2)].stmt)); ;}
     break;
 
   case 145:
 
 /* Line 1455 of yacc.c  */
-#line 372 "slghparse.y"
+#line 373 "slghparse.y"
     { (yyval.sem) = (yyvsp[(1) - (4)].sem); PcodeCompile_newLocalDefinition(slgh->pcode, (yyvsp[(3) - (4)].str)->data, 0); cstr_delete((yyvsp[(3) - (4)].str)); ;}
     break;
 
   case 146:
 
 /* Line 1455 of yacc.c  */
-#line 373 "slghparse.y"
+#line 374 "slghparse.y"
     { (yyval.sem) = (yyvsp[(1) - (6)].sem); PcodeCompile_newLocalDefinition(slgh->pcode, (yyvsp[(3) - (6)].str)->data, (uint32_t)(yyvsp[(5) - (6)].i));  ;}
     break;
 
   case 147:
 
 /* Line 1455 of yacc.c  */
-#line 375 "slghparse.y"
+#line 376 "slghparse.y"
     { ExpTree_setOutput((yyvsp[(3) - (4)].tree), (yyvsp[(1) - (4)].varnode)); (yyval.stmt) = ExpTree_toVector((yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 148:
 
 /* Line 1455 of yacc.c  */
-#line 376 "slghparse.y"
+#line 377 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_newOutput(slgh->pcode, true, (yyvsp[(4) - (5)].tree), (yyvsp[(2) - (5)].str)->data, 0); cstr_free((yyvsp[(2) - (5)].str)); ;}
     break;
 
   case 149:
 
 /* Line 1455 of yacc.c  */
-#line 377 "slghparse.y"
+#line 378 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_newOutput(slgh->pcode, false,(yyvsp[(3) - (4)].tree),(yyvsp[(1) - (4)].str)->data, 0); ;}
     break;
 
   case 150:
 
 /* Line 1455 of yacc.c  */
-#line 378 "slghparse.y"
+#line 379 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_newOutput(slgh->pcode, true,(yyvsp[(6) - (7)].tree), (yyvsp[(2) - (7)].str)->data, (u4)(yyvsp[(4) - (7)].i)); cstr_delete((yyvsp[(2) - (7)].str)); ;}
     break;
 
   case 151:
 
 /* Line 1455 of yacc.c  */
-#line 379 "slghparse.y"
+#line 380 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_newOutput(slgh->pcode, true,(yyvsp[(5) - (6)].tree),(yyvsp[(1) - (6)].str)->data,(u4)(yyvsp[(3) - (6)].i)); ;}
     break;
 
   case 152:
 
 /* Line 1455 of yacc.c  */
-#line 380 "slghparse.y"
+#line 381 "slghparse.y"
     { (yyval.stmt) = (struct dynarray *)0; yyerror("Redefinition of symbol: %s", SleighSymbol_getName((yyvsp[(2) - (3)].specsym))); YYERROR; ;}
     break;
 
   case 153:
 
 /* Line 1455 of yacc.c  */
-#line 381 "slghparse.y"
+#line 382 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createStore(slgh->pcode, (yyvsp[(1) - (5)].starqual),(yyvsp[(2) - (5)].tree),(yyvsp[(4) - (5)].tree)); StarQuality_delete((yyvsp[(1) - (5)].starqual)); ;}
     break;
 
   case 154:
 
 /* Line 1455 of yacc.c  */
-#line 382 "slghparse.y"
+#line 383 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createUserOpNoOut(slgh->pcode, (yyvsp[(1) - (5)].useropsym),(yyvsp[(3) - (5)].param)); ;}
     break;
 
   case 155:
 
 /* Line 1455 of yacc.c  */
-#line 383 "slghparse.y"
+#line 384 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_assignBitRange(slgh->pcode, (yyvsp[(1) - (9)].varnode),(uint4)(yyvsp[(3) - (9)].i),(uint4)(yyvsp[(5) - (9)].i),(yyvsp[(8) - (9)].tree)); ;}
     break;
 
   case 156:
 
 /* Line 1455 of yacc.c  */
-#line 384 "slghparse.y"
+#line 385 "slghparse.y"
     { (yyval.stmt)= PcodeCompile_assignBitRange(slgh->pcode, 
                                           SleighSymbol_getVarnode (BitrangeSymbol_getParentSymbol((yyvsp[(1) - (4)].bitsym))), 
                                           BitrangeSymbol_getBitOffset((yyvsp[(1) - (4)].bitsym)),
@@ -3439,553 +3440,553 @@ yyreduce:
   case 157:
 
 /* Line 1455 of yacc.c  */
-#line 388 "slghparse.y"
+#line 389 "slghparse.y"
     { VarnodeTpl_delete((yyvsp[(1) - (4)].varnode)); yyerror("Illegal truncation on left-hand side of assignment"); YYERROR; ;}
     break;
 
   case 158:
 
 /* Line 1455 of yacc.c  */
-#line 389 "slghparse.y"
+#line 390 "slghparse.y"
     { VarnodeTpl_delete((yyvsp[(1) - (4)].varnode)); yyerror("Illegal subpiece on left-hand side of assignment"); YYERROR; ;}
     break;
 
   case 159:
 
 /* Line 1455 of yacc.c  */
-#line 390 "slghparse.y"
+#line 391 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpConst(slgh->pcode, BUILD, OperandSymbol_getIndex((yyvsp[(2) - (3)].operandsym))); ;}
     break;
 
   case 160:
 
 /* Line 1455 of yacc.c  */
-#line 391 "slghparse.y"
+#line 392 "slghparse.y"
     { (yyval.stmt) = SleighCompile_createCrossBuild(slgh, (yyvsp[(2) - (5)].varnode),(yyvsp[(4) - (5)].sectionsym)); ;}
     break;
 
   case 161:
 
 /* Line 1455 of yacc.c  */
-#line 392 "slghparse.y"
+#line 393 "slghparse.y"
     { (yyval.stmt) = SleighCompile_createCrossBuild(slgh, (yyvsp[(2) - (5)].varnode), SleighCompile_newSectionSymbol(slgh, (yyvsp[(4) - (5)].str)->data)); cstr_delete((yyvsp[(4) - (5)].str)); ;}
     break;
 
   case 162:
 
 /* Line 1455 of yacc.c  */
-#line 393 "slghparse.y"
+#line 394 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpConst(slgh->pcode, DELAY_SLOT,(yyvsp[(3) - (5)].i)); ;}
     break;
 
   case 163:
 
 /* Line 1455 of yacc.c  */
-#line 394 "slghparse.y"
+#line 395 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_BRANCH,ExpTree_newV((yyvsp[(2) - (3)].varnode))); ;}
     break;
 
   case 164:
 
 /* Line 1455 of yacc.c  */
-#line 395 "slghparse.y"
+#line 396 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut2(slgh->pcode, CPUI_CBRANCH,ExpTree_newV((yyvsp[(4) - (5)].varnode)),(yyvsp[(2) - (5)].tree)); ;}
     break;
 
   case 165:
 
 /* Line 1455 of yacc.c  */
-#line 396 "slghparse.y"
+#line 397 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_BRANCHIND,(yyvsp[(3) - (5)].tree)); ;}
     break;
 
   case 166:
 
 /* Line 1455 of yacc.c  */
-#line 397 "slghparse.y"
+#line 398 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_CALL,ExpTree_newV((yyvsp[(2) - (3)].varnode))); ;}
     break;
 
   case 167:
 
 /* Line 1455 of yacc.c  */
-#line 398 "slghparse.y"
+#line 399 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_CALLIND,(yyvsp[(3) - (5)].tree)); ;}
     break;
 
   case 168:
 
 /* Line 1455 of yacc.c  */
-#line 399 "slghparse.y"
+#line 400 "slghparse.y"
     { yyerror("Must specify an indirect parameter for return"); YYERROR; ;}
     break;
 
   case 169:
 
 /* Line 1455 of yacc.c  */
-#line 400 "slghparse.y"
+#line 401 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_createOpNoOut(slgh->pcode, CPUI_RETURN,(yyvsp[(3) - (5)].tree)); ;}
     break;
 
   case 170:
 
 /* Line 1455 of yacc.c  */
-#line 401 "slghparse.y"
+#line 402 "slghparse.y"
     { (yyval.stmt) = SleighCompile_createMacroUse(slgh, (yyvsp[(1) - (5)].macrosym),(yyvsp[(3) - (5)].param)); ;}
     break;
 
   case 171:
 
 /* Line 1455 of yacc.c  */
-#line 402 "slghparse.y"
+#line 403 "slghparse.y"
     { (yyval.stmt) = PcodeCompile_placeLabel(slgh->pcode, (yyvsp[(1) - (1)].labelsym)); ;}
     break;
 
   case 172:
 
 /* Line 1455 of yacc.c  */
-#line 404 "slghparse.y"
+#line 405 "slghparse.y"
     { (yyval.tree) = ExpTree_newV((yyvsp[(1) - (1)].varnode)); ;}
     break;
 
   case 173:
 
 /* Line 1455 of yacc.c  */
-#line 405 "slghparse.y"
+#line 406 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createLoad(slgh->pcode, (yyvsp[(1) - (2)].starqual),(yyvsp[(2) - (2)].tree)); StarQuality_delete((yyvsp[(1) - (2)].starqual)); ;}
     break;
 
   case 174:
 
 /* Line 1455 of yacc.c  */
-#line 406 "slghparse.y"
+#line 407 "slghparse.y"
     { (yyval.tree) = (yyvsp[(2) - (3)].tree); ;}
     break;
 
   case 175:
 
 /* Line 1455 of yacc.c  */
-#line 407 "slghparse.y"
+#line 408 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_ADD,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 176:
 
 /* Line 1455 of yacc.c  */
-#line 408 "slghparse.y"
+#line 409 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SUB,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 177:
 
 /* Line 1455 of yacc.c  */
-#line 409 "slghparse.y"
+#line 410 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_EQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 178:
 
 /* Line 1455 of yacc.c  */
-#line 410 "slghparse.y"
+#line 411 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_NOTEQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 179:
 
 /* Line 1455 of yacc.c  */
-#line 411 "slghparse.y"
+#line 412 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_LESS,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 180:
 
 /* Line 1455 of yacc.c  */
-#line 412 "slghparse.y"
+#line 413 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_LESSEQUAL,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 181:
 
 /* Line 1455 of yacc.c  */
-#line 413 "slghparse.y"
+#line 414 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_LESSEQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 182:
 
 /* Line 1455 of yacc.c  */
-#line 414 "slghparse.y"
+#line 415 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_LESS,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 183:
 
 /* Line 1455 of yacc.c  */
-#line 415 "slghparse.y"
+#line 416 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SLESS,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 184:
 
 /* Line 1455 of yacc.c  */
-#line 416 "slghparse.y"
+#line 417 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SLESSEQUAL,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 185:
 
 /* Line 1455 of yacc.c  */
-#line 417 "slghparse.y"
+#line 418 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SLESSEQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 186:
 
 /* Line 1455 of yacc.c  */
-#line 418 "slghparse.y"
+#line 419 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SLESS,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 187:
 
 /* Line 1455 of yacc.c  */
-#line 419 "slghparse.y"
+#line 420 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_INT_2COMP,(yyvsp[(2) - (2)].tree)); ;}
     break;
 
   case 188:
 
 /* Line 1455 of yacc.c  */
-#line 420 "slghparse.y"
+#line 421 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_INT_NEGATE,(yyvsp[(2) - (2)].tree)); ;}
     break;
 
   case 189:
 
 /* Line 1455 of yacc.c  */
-#line 421 "slghparse.y"
+#line 422 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_XOR,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 190:
 
 /* Line 1455 of yacc.c  */
-#line 422 "slghparse.y"
+#line 423 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_AND,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 191:
 
 /* Line 1455 of yacc.c  */
-#line 423 "slghparse.y"
+#line 424 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_OR,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 192:
 
 /* Line 1455 of yacc.c  */
-#line 424 "slghparse.y"
+#line 425 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_LEFT,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 193:
 
 /* Line 1455 of yacc.c  */
-#line 425 "slghparse.y"
+#line 426 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_RIGHT,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 194:
 
 /* Line 1455 of yacc.c  */
-#line 426 "slghparse.y"
+#line 427 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SRIGHT,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 195:
 
 /* Line 1455 of yacc.c  */
-#line 427 "slghparse.y"
+#line 428 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_MULT,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 196:
 
 /* Line 1455 of yacc.c  */
-#line 428 "slghparse.y"
+#line 429 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_DIV,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 197:
 
 /* Line 1455 of yacc.c  */
-#line 429 "slghparse.y"
+#line 430 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SDIV,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 198:
 
 /* Line 1455 of yacc.c  */
-#line 430 "slghparse.y"
+#line 431 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_REM,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 199:
 
 /* Line 1455 of yacc.c  */
-#line 431 "slghparse.y"
+#line 432 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SREM,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 200:
 
 /* Line 1455 of yacc.c  */
-#line 432 "slghparse.y"
+#line 433 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_BOOL_NEGATE,(yyvsp[(2) - (2)].tree)); ;}
     break;
 
   case 201:
 
 /* Line 1455 of yacc.c  */
-#line 433 "slghparse.y"
+#line 434 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_BOOL_XOR,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 202:
 
 /* Line 1455 of yacc.c  */
-#line 434 "slghparse.y"
+#line 435 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_BOOL_AND,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 203:
 
 /* Line 1455 of yacc.c  */
-#line 435 "slghparse.y"
+#line 436 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_BOOL_OR,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 204:
 
 /* Line 1455 of yacc.c  */
-#line 436 "slghparse.y"
+#line 437 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_EQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 205:
 
 /* Line 1455 of yacc.c  */
-#line 437 "slghparse.y"
+#line 438 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_NOTEQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 206:
 
 /* Line 1455 of yacc.c  */
-#line 438 "slghparse.y"
+#line 439 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_LESS,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 207:
 
 /* Line 1455 of yacc.c  */
-#line 439 "slghparse.y"
+#line 440 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_LESS,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 208:
 
 /* Line 1455 of yacc.c  */
-#line 440 "slghparse.y"
+#line 441 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_LESSEQUAL,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 209:
 
 /* Line 1455 of yacc.c  */
-#line 441 "slghparse.y"
+#line 442 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_LESSEQUAL,(yyvsp[(3) - (3)].tree),(yyvsp[(1) - (3)].tree)); ;}
     break;
 
   case 210:
 
 /* Line 1455 of yacc.c  */
-#line 442 "slghparse.y"
+#line 443 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_ADD,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 211:
 
 /* Line 1455 of yacc.c  */
-#line 443 "slghparse.y"
+#line 444 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_SUB,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 212:
 
 /* Line 1455 of yacc.c  */
-#line 444 "slghparse.y"
+#line 445 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_MULT,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 213:
 
 /* Line 1455 of yacc.c  */
-#line 445 "slghparse.y"
+#line 446 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_FLOAT_DIV,(yyvsp[(1) - (3)].tree),(yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 214:
 
 /* Line 1455 of yacc.c  */
-#line 446 "slghparse.y"
+#line 447 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_NEG,(yyvsp[(2) - (2)].tree)); ;}
     break;
 
   case 215:
 
 /* Line 1455 of yacc.c  */
-#line 447 "slghparse.y"
+#line 448 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_ABS,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 216:
 
 /* Line 1455 of yacc.c  */
-#line 448 "slghparse.y"
+#line 449 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_SQRT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 217:
 
 /* Line 1455 of yacc.c  */
-#line 449 "slghparse.y"
+#line 450 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_INT_SEXT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 218:
 
 /* Line 1455 of yacc.c  */
-#line 450 "slghparse.y"
+#line 451 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_INT_ZEXT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 219:
 
 /* Line 1455 of yacc.c  */
-#line 451 "slghparse.y"
+#line 452 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_CARRY,(yyvsp[(3) - (6)].tree),(yyvsp[(5) - (6)].tree)); ;}
     break;
 
   case 220:
 
 /* Line 1455 of yacc.c  */
-#line 452 "slghparse.y"
+#line 453 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SCARRY,(yyvsp[(3) - (6)].tree),(yyvsp[(5) - (6)].tree)); ;}
     break;
 
   case 221:
 
 /* Line 1455 of yacc.c  */
-#line 453 "slghparse.y"
+#line 454 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_INT_SBORROW,(yyvsp[(3) - (6)].tree),(yyvsp[(5) - (6)].tree)); ;}
     break;
 
   case 222:
 
 /* Line 1455 of yacc.c  */
-#line 454 "slghparse.y"
+#line 455 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_FLOAT2FLOAT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 223:
 
 /* Line 1455 of yacc.c  */
-#line 455 "slghparse.y"
+#line 456 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_INT2FLOAT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 224:
 
 /* Line 1455 of yacc.c  */
-#line 456 "slghparse.y"
+#line 457 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_NAN,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 225:
 
 /* Line 1455 of yacc.c  */
-#line 457 "slghparse.y"
+#line 458 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_TRUNC,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 226:
 
 /* Line 1455 of yacc.c  */
-#line 458 "slghparse.y"
+#line 459 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_CEIL,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 227:
 
 /* Line 1455 of yacc.c  */
-#line 459 "slghparse.y"
+#line 460 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_FLOOR,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 228:
 
 /* Line 1455 of yacc.c  */
-#line 460 "slghparse.y"
+#line 461 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_FLOAT_ROUND,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 229:
 
 /* Line 1455 of yacc.c  */
-#line 461 "slghparse.y"
+#line 462 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_NEW,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 230:
 
 /* Line 1455 of yacc.c  */
-#line 462 "slghparse.y"
+#line 463 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_NEW,(yyvsp[(3) - (6)].tree),(yyvsp[(5) - (6)].tree)); ;}
     break;
 
   case 231:
 
 /* Line 1455 of yacc.c  */
-#line 463 "slghparse.y"
+#line 464 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp(slgh->pcode, CPUI_POPCOUNT,(yyvsp[(3) - (4)].tree)); ;}
     break;
 
   case 232:
 
 /* Line 1455 of yacc.c  */
-#line 464 "slghparse.y"
+#line 465 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createOp2(slgh->pcode, CPUI_SUBPIECE,ExpTree_newV(SleighSymbol_getVarnode((yyvsp[(1) - (4)].specsym))),ExpTree_newV((yyvsp[(3) - (4)].varnode))); ;}
     break;
 
   case 233:
 
 /* Line 1455 of yacc.c  */
-#line 465 "slghparse.y"
+#line 466 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createBitRange(slgh->pcode, (yyvsp[(1) - (3)].specsym),0,(u4)((yyvsp[(3) - (3)].i) * 8)); ;}
     break;
 
   case 234:
 
 /* Line 1455 of yacc.c  */
-#line 466 "slghparse.y"
+#line 467 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createBitRange(slgh->pcode, (yyvsp[(1) - (6)].specsym),(uint4)(yyvsp[(3) - (6)].i),(uint4)(yyvsp[(5) - (6)].i)); ;}
     break;
 
   case 235:
 
 /* Line 1455 of yacc.c  */
-#line 467 "slghparse.y"
+#line 468 "slghparse.y"
     { (yyval.tree)=PcodeCompile_createBitRange(slgh->pcode, 
                                   BitrangeSymbol_getParentSymbol((yyvsp[(1) - (1)].bitsym)),
                                   BitrangeSymbol_getBitOffset((yyvsp[(1) - (1)].bitsym)),
@@ -3995,49 +3996,49 @@ yyreduce:
   case 236:
 
 /* Line 1455 of yacc.c  */
-#line 471 "slghparse.y"
+#line 472 "slghparse.y"
     { (yyval.tree) = PcodeCompile_createUserOp(slgh->pcode, (yyvsp[(1) - (4)].useropsym),(yyvsp[(3) - (4)].param)); ;}
     break;
 
   case 237:
 
 /* Line 1455 of yacc.c  */
-#line 472 "slghparse.y"
+#line 473 "slghparse.y"
     { if ((yyvsp[(3) - (4)].param)->len < 2) { yyerror("Must at least two inputs to cpool");  YYERROR; } (yyval.tree) = PcodeCompile_createVariadic(slgh->pcode, CPUI_CPOOLREF,(yyvsp[(3) - (4)].param)); ;}
     break;
 
   case 238:
 
 /* Line 1455 of yacc.c  */
-#line 474 "slghparse.y"
+#line 475 "slghparse.y"
     { (yyval.starqual) = StarQuality_new(); (yyval.starqual)->size = (u4)(yyvsp[(6) - (6)].i); (yyval.starqual)->id=ConstTpl_newA(SleighSymbol_getSpace((yyvsp[(3) - (6)].spacesym))); ;}
     break;
 
   case 239:
 
 /* Line 1455 of yacc.c  */
-#line 475 "slghparse.y"
+#line 476 "slghparse.y"
     { (yyval.starqual) = StarQuality_new(); (yyval.starqual)->size = 0; (yyval.starqual)->id=ConstTpl_newA(SleighSymbol_getSpace((yyvsp[(3) - (4)].spacesym))); ;}
     break;
 
   case 240:
 
 /* Line 1455 of yacc.c  */
-#line 476 "slghparse.y"
+#line 477 "slghparse.y"
     { (yyval.starqual) = StarQuality_new(); (yyval.starqual)->size = (u4)(yyvsp[(3) - (3)].i); (yyval.starqual)->id=ConstTpl_newA(SleighCompile_getDefaultCodeSpace(slgh)); ;}
     break;
 
   case 241:
 
 /* Line 1455 of yacc.c  */
-#line 477 "slghparse.y"
+#line 478 "slghparse.y"
     { (yyval.starqual) = StarQuality_new(); (yyval.starqual)->size = 0; (yyval.starqual)->id=ConstTpl_newA(SleighCompile_getDefaultCodeSpace(slgh)); ;}
     break;
 
   case 242:
 
 /* Line 1455 of yacc.c  */
-#line 479 "slghparse.y"
+#line 480 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].startsym)); 
                       (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].startsym)) ;}
     break;
@@ -4045,7 +4046,7 @@ yyreduce:
   case 243:
 
 /* Line 1455 of yacc.c  */
-#line 481 "slghparse.y"
+#line 482 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].endsym)); 
                     (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].endsym)); ;}
     break;
@@ -4053,14 +4054,14 @@ yyreduce:
   case 244:
 
 /* Line 1455 of yacc.c  */
-#line 483 "slghparse.y"
+#line 484 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,(yyvsp[(1) - (1)].i)),ConstTpl_new1(j_curspace_size));  ;}
     break;
 
   case 245:
 
 /* Line 1455 of yacc.c  */
-#line 484 "slghparse.y"
+#line 485 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
                     yyerror("Parsed integer is too big (overflow)"); ;}
     break;
@@ -4068,14 +4069,14 @@ yyreduce:
   case 246:
 
 /* Line 1455 of yacc.c  */
-#line 486 "slghparse.y"
+#line 487 "slghparse.y"
     { (yyval.varnode) = SleighSymbol_getVarnode((yyvsp[(1) - (1)].operandsym)); SleighSymbol_setCodeAddress((yyvsp[(1) - (1)].operandsym)); ;}
     break;
 
   case 247:
 
 /* Line 1455 of yacc.c  */
-#line 487 "slghparse.y"
+#line 488 "slghparse.y"
     { AddrSpace *spc = SleighSymbol_getSpace((yyvsp[(3) - (4)].spacesym)); 
                                 (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(spc),ConstTpl_new2(real,(yyvsp[(1) - (4)].i)),ConstTpl_new2(real,AddrSpace_getAddrSize(spc))); ;}
     break;
@@ -4083,7 +4084,7 @@ yyreduce:
   case 248:
 
 /* Line 1455 of yacc.c  */
-#line 489 "slghparse.y"
+#line 490 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                     ConstTpl_new2(j_relative, LabelSymbol_getIndex((yyvsp[(1) - (1)].labelsym))),ConstTpl_new2(real,sizeof(uintm))); SleighSymbol_incrementRefCount((yyvsp[(1) - (1)].labelsym)); ;}
     break;
@@ -4091,42 +4092,42 @@ yyreduce:
   case 249:
 
 /* Line 1455 of yacc.c  */
-#line 491 "slghparse.y"
+#line 492 "slghparse.y"
     { yyerror("Unknown jump destination: %s", *(yyvsp[(1) - (1)].str)); cstr_delete((yyvsp[(1) - (1)].str)); YYERROR; ;}
     break;
 
   case 250:
 
 /* Line 1455 of yacc.c  */
-#line 493 "slghparse.y"
+#line 494 "slghparse.y"
     { (yyval.varnode) = SleighSymbol_getVarnode((yyvsp[(1) - (1)].specsym)); ;}
     break;
 
   case 251:
 
 /* Line 1455 of yacc.c  */
-#line 494 "slghparse.y"
+#line 495 "slghparse.y"
     { (yyval.varnode) = (yyvsp[(1) - (1)].varnode); ;}
     break;
 
   case 252:
 
 /* Line 1455 of yacc.c  */
-#line 495 "slghparse.y"
+#line 496 "slghparse.y"
     { yyerror("Unknown varnode parameter: %s", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str)); ; YYERROR; ;}
     break;
 
   case 253:
 
 /* Line 1455 of yacc.c  */
-#line 496 "slghparse.y"
+#line 497 "slghparse.y"
     { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName((yyvsp[(1) - (1)].subtablesym))); ; YYERROR; ;}
     break;
 
   case 254:
 
 /* Line 1455 of yacc.c  */
-#line 498 "slghparse.y"
+#line 499 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                               ConstTpl_new2(real,(yyvsp[(1) - (1)].i)),ConstTpl_new2(real,0)); ;}
     break;
@@ -4134,7 +4135,7 @@ yyreduce:
   case 255:
 
 /* Line 1455 of yacc.c  */
-#line 500 "slghparse.y"
+#line 501 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),ConstTpl_new2(real,0),ConstTpl_new2(real,0)); 
                                   yyerror("Parsed integer is too big (overflow)"); ;}
     break;
@@ -4142,7 +4143,7 @@ yyreduce:
   case 256:
 
 /* Line 1455 of yacc.c  */
-#line 502 "slghparse.y"
+#line 503 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                                       ConstTpl_new2(real,(yyvsp[(1) - (3)].i)),ConstTpl_new2(real,(yyvsp[(3) - (3)].i))); ;}
     break;
@@ -4150,77 +4151,77 @@ yyreduce:
   case 257:
 
 /* Line 1455 of yacc.c  */
-#line 504 "slghparse.y"
+#line 505 "slghparse.y"
     { (yyval.varnode) = PcodeCompile_addressOf(slgh->pcode, (yyvsp[(2) - (2)].varnode),0); ;}
     break;
 
   case 258:
 
 /* Line 1455 of yacc.c  */
-#line 505 "slghparse.y"
+#line 506 "slghparse.y"
     { (yyval.varnode) = PcodeCompile_addressOf(slgh->pcode, (yyvsp[(4) - (4)].varnode),(u4)(yyvsp[(3) - (4)].i)); ;}
     break;
 
   case 259:
 
 /* Line 1455 of yacc.c  */
-#line 507 "slghparse.y"
+#line 508 "slghparse.y"
     { (yyval.varnode) = SleighSymbol_getVarnode((yyvsp[(1) - (1)].specsym)); ;}
     break;
 
   case 260:
 
 /* Line 1455 of yacc.c  */
-#line 508 "slghparse.y"
+#line 509 "slghparse.y"
     { yyerror("Unknown assignment varnode: %s", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str)); YYERROR; ;}
     break;
 
   case 261:
 
 /* Line 1455 of yacc.c  */
-#line 509 "slghparse.y"
+#line 510 "slghparse.y"
     { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName((yyvsp[(1) - (1)].subtablesym))); YYERROR; ;}
     break;
 
   case 262:
 
 /* Line 1455 of yacc.c  */
-#line 511 "slghparse.y"
+#line 512 "slghparse.y"
     { (yyval.labelsym) = (yyvsp[(2) - (3)].labelsym); ;}
     break;
 
   case 263:
 
 /* Line 1455 of yacc.c  */
-#line 512 "slghparse.y"
+#line 513 "slghparse.y"
     { (yyval.labelsym) = PcodeCompile_defineLabel( slgh->pcode, (yyvsp[(2) - (3)].str)->data ); ;}
     break;
 
   case 264:
 
 /* Line 1455 of yacc.c  */
-#line 514 "slghparse.y"
+#line 515 "slghparse.y"
     { (yyval.varnode) = SleighSymbol_getVarnode((yyvsp[(1) - (1)].specsym)); ;}
     break;
 
   case 265:
 
 /* Line 1455 of yacc.c  */
-#line 515 "slghparse.y"
+#line 516 "slghparse.y"
     { (yyval.varnode) = PcodeCompile_addressOf(slgh->pcode, (yyvsp[(2) - (2)].varnode),0); ;}
     break;
 
   case 266:
 
 /* Line 1455 of yacc.c  */
-#line 516 "slghparse.y"
+#line 517 "slghparse.y"
     { (yyval.varnode) = PcodeCompile_addressOf(slgh->pcode, (yyvsp[(4) - (4)].varnode),(u4)(yyvsp[(3) - (4)].i)); ;}
     break;
 
   case 267:
 
 /* Line 1455 of yacc.c  */
-#line 517 "slghparse.y"
+#line 518 "slghparse.y"
     { (yyval.varnode) = VarnodeTpl_new3(ConstTpl_newA(SleighCompile_getConstantSpace(slgh)),
                             ConstTpl_new2(real,(yyvsp[(1) - (3)].i)),ConstTpl_new2(real,(yyvsp[(3) - (3)].i))); ;}
     break;
@@ -4228,140 +4229,140 @@ yyreduce:
   case 268:
 
 /* Line 1455 of yacc.c  */
-#line 519 "slghparse.y"
+#line 520 "slghparse.y"
     { yyerror("Unknown export varnode: %s", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str));  YYERROR; ;}
     break;
 
   case 269:
 
 /* Line 1455 of yacc.c  */
-#line 520 "slghparse.y"
+#line 521 "slghparse.y"
     { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName((yyvsp[(1) - (1)].subtablesym))); YYERROR; ;}
     break;
 
   case 270:
 
 /* Line 1455 of yacc.c  */
-#line 522 "slghparse.y"
+#line 523 "slghparse.y"
     { (yyval.famsym) = (yyvsp[(1) - (1)].valuesym); ;}
     break;
 
   case 271:
 
 /* Line 1455 of yacc.c  */
-#line 523 "slghparse.y"
+#line 524 "slghparse.y"
     { (yyval.famsym) = (yyvsp[(1) - (1)].valuemapsym); ;}
     break;
 
   case 272:
 
 /* Line 1455 of yacc.c  */
-#line 524 "slghparse.y"
+#line 525 "slghparse.y"
     { (yyval.famsym) = (yyvsp[(1) - (1)].contextsym); ;}
     break;
 
   case 273:
 
 /* Line 1455 of yacc.c  */
-#line 525 "slghparse.y"
+#line 526 "slghparse.y"
     { (yyval.famsym) = (yyvsp[(1) - (1)].namesym); ;}
     break;
 
   case 274:
 
 /* Line 1455 of yacc.c  */
-#line 526 "slghparse.y"
+#line 527 "slghparse.y"
     { (yyval.famsym) = (yyvsp[(1) - (1)].varlistsym); ;}
     break;
 
   case 275:
 
 /* Line 1455 of yacc.c  */
-#line 528 "slghparse.y"
+#line 529 "slghparse.y"
     { (yyval.specsym) = (yyvsp[(1) - (1)].varsym); ;}
     break;
 
   case 276:
 
 /* Line 1455 of yacc.c  */
-#line 529 "slghparse.y"
+#line 530 "slghparse.y"
     { (yyval.specsym) = (yyvsp[(1) - (1)].specsym); ;}
     break;
 
   case 277:
 
 /* Line 1455 of yacc.c  */
-#line 530 "slghparse.y"
+#line 531 "slghparse.y"
     { (yyval.specsym) = (yyvsp[(1) - (1)].operandsym); ;}
     break;
 
   case 278:
 
 /* Line 1455 of yacc.c  */
-#line 531 "slghparse.y"
+#line 532 "slghparse.y"
     { (yyval.specsym) = (yyvsp[(1) - (1)].startsym); ;}
     break;
 
   case 279:
 
 /* Line 1455 of yacc.c  */
-#line 532 "slghparse.y"
+#line 533 "slghparse.y"
     { (yyval.specsym) = (yyvsp[(1) - (1)].endsym); ;}
     break;
 
   case 280:
 
 /* Line 1455 of yacc.c  */
-#line 534 "slghparse.y"
+#line 535 "slghparse.y"
     { (yyval.str) = cstr_new(NULL, 0); cstr_ccat((yyval.str), (yyvsp[(1) - (1)].ch)); ;}
     break;
 
   case 281:
 
 /* Line 1455 of yacc.c  */
-#line 535 "slghparse.y"
+#line 536 "slghparse.y"
     { (yyval.str) = (yyvsp[(1) - (2)].str); cstr_ccat((yyval.str), (yyvsp[(2) - (2)].ch)); ;}
     break;
 
   case 282:
 
 /* Line 1455 of yacc.c  */
-#line 537 "slghparse.y"
+#line 538 "slghparse.y"
     { (yyval.biglist) = (yyvsp[(2) - (3)].biglist); ;}
     break;
 
   case 283:
 
 /* Line 1455 of yacc.c  */
-#line 538 "slghparse.y"
+#line 539 "slghparse.y"
     { (yyval.biglist) = dynarray_new(int64_cmp, int64_delete); dynarray_add((yyval.biglist), int64_new((yyvsp[(1) - (1)].i))); ;}
     break;
 
   case 284:
 
 /* Line 1455 of yacc.c  */
-#line 539 "slghparse.y"
+#line 540 "slghparse.y"
     { (yyval.biglist) = dynarray_new(int64_cmp, int64_delete); dynarray_add((yyval.biglist), int64_new(-(yyvsp[(2) - (2)].i))); ;}
     break;
 
   case 285:
 
 /* Line 1455 of yacc.c  */
-#line 541 "slghparse.y"
+#line 542 "slghparse.y"
     { (yyval.biglist) = dynarray_new(int64_cmp, int64_delete); dynarray_add((yyval.biglist), int64_new((yyvsp[(1) - (1)].i))); ;}
     break;
 
   case 286:
 
 /* Line 1455 of yacc.c  */
-#line 542 "slghparse.y"
+#line 543 "slghparse.y"
     { (yyval.biglist) = dynarray_new(int64_cmp, int64_delete); dynarray_add((yyval.biglist), int64_new(-(yyvsp[(2) - (2)].i))); ;}
     break;
 
   case 287:
 
 /* Line 1455 of yacc.c  */
-#line 543 "slghparse.y"
+#line 544 "slghparse.y"
     { if (strcmp ((yyvsp[(1) - (1)].str)->data, "_")) { yyerror("Expecting integer but saw: %s", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str)); YYERROR; }
                                   (yyval.biglist) = dynarray_new(int64_cmp, int64_delete); dynarray_add((yyval.biglist), int64_new((intb)0xBADBEEF)); cstr_delete((yyvsp[(1) - (1)].str)); ;}
     break;
@@ -4369,21 +4370,21 @@ yyreduce:
   case 288:
 
 /* Line 1455 of yacc.c  */
-#line 545 "slghparse.y"
+#line 546 "slghparse.y"
     { (yyval.biglist) = (yyvsp[(1) - (2)].biglist); dynarray_add((yyvsp[(1) - (2)].biglist), int64_new((yyvsp[(2) - (2)].i))); ;}
     break;
 
   case 289:
 
 /* Line 1455 of yacc.c  */
-#line 546 "slghparse.y"
+#line 547 "slghparse.y"
     { (yyval.biglist) = (yyvsp[(1) - (3)].biglist); dynarray_add((yyvsp[(1) - (3)].biglist), int64_new(-(yyvsp[(3) - (3)].i))); ;}
     break;
 
   case 290:
 
 /* Line 1455 of yacc.c  */
-#line 547 "slghparse.y"
+#line 548 "slghparse.y"
     { if (strcmp((yyvsp[(2) - (2)].str)->data, "_")) { yyerror("Expecting integer but saw: %s", (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str));  YYERROR; }
                                   (yyval.biglist) = (yyvsp[(1) - (2)].biglist); dynarray_add((yyvsp[(1) - (2)].biglist), int64_new((intb)0xBADBEEF)); cstr_delete((yyvsp[(2) - (2)].str)); ;}
     break;
@@ -4391,154 +4392,154 @@ yyreduce:
   case 291:
 
 /* Line 1455 of yacc.c  */
-#line 550 "slghparse.y"
+#line 551 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(2) - (3)].strlist); ;}
     break;
 
   case 292:
 
 /* Line 1455 of yacc.c  */
-#line 551 "slghparse.y"
+#line 552 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, cstr_delete); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
     break;
 
   case 293:
 
 /* Line 1455 of yacc.c  */
-#line 553 "slghparse.y"
+#line 554 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, cstr_delete); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str) ); ;}
     break;
 
   case 294:
 
 /* Line 1455 of yacc.c  */
-#line 554 "slghparse.y"
+#line 555 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str));  ;}
     break;
 
   case 295:
 
 /* Line 1455 of yacc.c  */
-#line 555 "slghparse.y"
+#line 556 "slghparse.y"
     { yyerror( "%s redefined", SleighSymbol_getName((yyvsp[(2) - (2)].anysym))); YYERROR; ;}
     break;
 
   case 296:
 
 /* Line 1455 of yacc.c  */
-#line 557 "slghparse.y"
+#line 558 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(2) - (3)].strlist); ;}
     break;
 
   case 297:
 
 /* Line 1455 of yacc.c  */
-#line 559 "slghparse.y"
+#line 560 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, str_free); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
     break;
 
   case 298:
 
 /* Line 1455 of yacc.c  */
-#line 560 "slghparse.y"
+#line 561 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.strlist), SleighSymbol_getName((yyvsp[(1) - (1)].anysym))); ;}
     break;
 
   case 299:
 
 /* Line 1455 of yacc.c  */
-#line 561 "slghparse.y"
+#line 562 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), (yyvsp[(2) - (2)].str)); ;}
     break;
 
   case 300:
 
 /* Line 1455 of yacc.c  */
-#line 562 "slghparse.y"
+#line 563 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(1) - (2)].strlist); dynarray_add((yyval.strlist), SleighSymbol_getName((yyvsp[(2) - (2)].anysym))); ;}
     break;
 
   case 301:
 
 /* Line 1455 of yacc.c  */
-#line 564 "slghparse.y"
+#line 565 "slghparse.y"
     { (yyval.symlist) = (yyvsp[(2) - (3)].symlist); ;}
     break;
 
   case 302:
 
 /* Line 1455 of yacc.c  */
-#line 565 "slghparse.y"
+#line 566 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (yyvsp[(1) - (1)].valuesym)); ;}
     break;
 
   case 303:
 
 /* Line 1455 of yacc.c  */
-#line 566 "slghparse.y"
+#line 567 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (yyvsp[(1) - (1)].contextsym)); ;}
     break;
 
   case 304:
 
 /* Line 1455 of yacc.c  */
-#line 568 "slghparse.y"
+#line 569 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add( (yyval.symlist), (yyvsp[(1) - (1)].valuesym) ); ;}
     break;
 
   case 305:
 
 /* Line 1455 of yacc.c  */
-#line 569 "slghparse.y"
+#line 570 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (yyvsp[(1) - (1)].contextsym)); ;}
     break;
 
   case 306:
 
 /* Line 1455 of yacc.c  */
-#line 570 "slghparse.y"
+#line 571 "slghparse.y"
     { (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (yyvsp[(2) - (2)].valuesym)); ;}
     break;
 
   case 307:
 
 /* Line 1455 of yacc.c  */
-#line 571 "slghparse.y"
+#line 572 "slghparse.y"
     { (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (yyvsp[(2) - (2)].contextsym)); ;}
     break;
 
   case 308:
 
 /* Line 1455 of yacc.c  */
-#line 572 "slghparse.y"
+#line 573 "slghparse.y"
     { yyerror("%s: is not a value pattern", *(yyvsp[(2) - (2)].str)); vm_free((yyvsp[(2) - (2)].str)); YYERROR; ;}
     break;
 
   case 309:
 
 /* Line 1455 of yacc.c  */
-#line 574 "slghparse.y"
+#line 575 "slghparse.y"
     { (yyval.symlist) = (yyvsp[(2) - (3)].symlist); ;}
     break;
 
   case 310:
 
 /* Line 1455 of yacc.c  */
-#line 575 "slghparse.y"
+#line 576 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (yyvsp[(1) - (1)].varsym)); ;}
     break;
 
   case 311:
 
 /* Line 1455 of yacc.c  */
-#line 577 "slghparse.y"
+#line 578 "slghparse.y"
     { (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (yyvsp[(1) - (1)].varsym)); ;}
     break;
 
   case 312:
 
 /* Line 1455 of yacc.c  */
-#line 578 "slghparse.y"
+#line 579 "slghparse.y"
     { if (strcmp((yyvsp[(1) - (1)].str)->data, "_")) { yyerror("%s: is not a varnode symbol", (yyvsp[(1) - (1)].str)->data); cstr_delete((yyvsp[(1) - (1)].str)); YYERROR; }
 				  (yyval.symlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.symlist), (SleighSymbol *)0); vm_free((yyvsp[(1) - (1)].str)); ;}
     break;
@@ -4546,14 +4547,14 @@ yyreduce:
   case 313:
 
 /* Line 1455 of yacc.c  */
-#line 580 "slghparse.y"
+#line 581 "slghparse.y"
     { (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (yyvsp[(2) - (2)].varsym)); ;}
     break;
 
   case 314:
 
 /* Line 1455 of yacc.c  */
-#line 581 "slghparse.y"
+#line 582 "slghparse.y"
     { if (strcmp((yyvsp[(2) - (2)].str)->data, "_")) { yyerror("%s: is not a varnode symbol", (yyvsp[(2) - (2)].str)->data); cstr_delete((yyvsp[(2) - (2)].str)); YYERROR; }
                                   (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (SleighSymbol *)0); cstr_delete((yyvsp[(2) - (2)].str)); ;}
     break;
@@ -4561,161 +4562,161 @@ yyreduce:
   case 315:
 
 /* Line 1455 of yacc.c  */
-#line 584 "slghparse.y"
+#line 585 "slghparse.y"
     { (yyval.param) = dynarray_new(NULL, NULL); ;}
     break;
 
   case 316:
 
 /* Line 1455 of yacc.c  */
-#line 585 "slghparse.y"
+#line 586 "slghparse.y"
     { (yyval.param) = dynarray_new(NULL, NULL); dynarray_add((yyval.param), (yyvsp[(1) - (1)].tree)); ;}
     break;
 
   case 317:
 
 /* Line 1455 of yacc.c  */
-#line 586 "slghparse.y"
+#line 587 "slghparse.y"
     { (yyval.param) = (yyvsp[(1) - (3)].param); dynarray_add((yyval.param), (yyvsp[(3) - (3)].tree)); ;}
     break;
 
   case 318:
 
 /* Line 1455 of yacc.c  */
-#line 588 "slghparse.y"
+#line 589 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, NULL); ;}
     break;
 
   case 319:
 
 /* Line 1455 of yacc.c  */
-#line 589 "slghparse.y"
+#line 590 "slghparse.y"
     { (yyval.strlist) = dynarray_new(NULL, NULL); dynarray_add((yyval.strlist), (yyvsp[(1) - (1)].str)); ;}
     break;
 
   case 320:
 
 /* Line 1455 of yacc.c  */
-#line 590 "slghparse.y"
+#line 591 "slghparse.y"
     { (yyval.strlist) = (yyvsp[(1) - (3)].strlist); dynarray_add((yyval.strlist), (yyvsp[(3) - (3)].str));  ;}
     break;
 
   case 321:
 
 /* Line 1455 of yacc.c  */
-#line 592 "slghparse.y"
+#line 593 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].spacesym); ;}
     break;
 
   case 322:
 
 /* Line 1455 of yacc.c  */
-#line 593 "slghparse.y"
+#line 594 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].sectionsym); ;}
     break;
 
   case 323:
 
 /* Line 1455 of yacc.c  */
-#line 594 "slghparse.y"
+#line 595 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].tokensym); ;}
     break;
 
   case 324:
 
 /* Line 1455 of yacc.c  */
-#line 595 "slghparse.y"
+#line 596 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].useropsym); ;}
     break;
 
   case 325:
 
 /* Line 1455 of yacc.c  */
-#line 596 "slghparse.y"
+#line 597 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].macrosym); ;}
     break;
 
   case 326:
 
 /* Line 1455 of yacc.c  */
-#line 597 "slghparse.y"
+#line 598 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].subtablesym); ;}
     break;
 
   case 327:
 
 /* Line 1455 of yacc.c  */
-#line 598 "slghparse.y"
+#line 599 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].valuesym); ;}
     break;
 
   case 328:
 
 /* Line 1455 of yacc.c  */
-#line 599 "slghparse.y"
+#line 600 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].valuemapsym); ;}
     break;
 
   case 329:
 
 /* Line 1455 of yacc.c  */
-#line 600 "slghparse.y"
+#line 601 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].contextsym); ;}
     break;
 
   case 330:
 
 /* Line 1455 of yacc.c  */
-#line 601 "slghparse.y"
+#line 602 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].namesym); ;}
     break;
 
   case 331:
 
 /* Line 1455 of yacc.c  */
-#line 602 "slghparse.y"
+#line 603 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].varsym); ;}
     break;
 
   case 332:
 
 /* Line 1455 of yacc.c  */
-#line 603 "slghparse.y"
+#line 604 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].varlistsym); ;}
     break;
 
   case 333:
 
 /* Line 1455 of yacc.c  */
-#line 604 "slghparse.y"
+#line 605 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].operandsym); ;}
     break;
 
   case 334:
 
 /* Line 1455 of yacc.c  */
-#line 605 "slghparse.y"
+#line 606 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].startsym); ;}
     break;
 
   case 335:
 
 /* Line 1455 of yacc.c  */
-#line 606 "slghparse.y"
+#line 607 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].endsym); ;}
     break;
 
   case 336:
 
 /* Line 1455 of yacc.c  */
-#line 607 "slghparse.y"
+#line 608 "slghparse.y"
     { (yyval.anysym) = (yyvsp[(1) - (1)].bitsym); ;}
     break;
 
 
 
 /* Line 1455 of yacc.c  */
-#line 4719 "slghparse.tab.c"
+#line 4720 "slghparse.tab.c"
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yyr1[yyn], &yyval, &yyloc);
@@ -4927,7 +4928,7 @@ yyreturn:
 
 
 /* Line 1675 of yacc.c  */
-#line 609 "slghparse.y"
+#line 610 "slghparse.y"
 
 
 int yyerror(const char *s, ...)
