@@ -188,8 +188,8 @@ aligndef: DEFINE_KEY ALIGN_KEY '=' INTEGER ';' { SleighCompile_setAlignment(slgh
   ;
 tokendef: tokenprop ';'                {}
   ;
-tokenprop: DEFINE_KEY TOKEN_KEY STRING '(' INTEGER ')' { $$ = SleighCompile_defineToken(slgh, $3->data, $5); }
-  | tokenprop fielddef		       { $$ = $1; SleighCompile_addTokenField(slgh, $1, $2); }
+tokenprop: DEFINE_KEY TOKEN_KEY STRING '(' INTEGER ')' { $$ = SleighCompile_defineToken(slgh, $3->data, $5); cstr_delete($3); }
+  | tokenprop fielddef		       { $$ = $1; SleighCompile_addTokenField(slgh, $1, $2); FieldQuality_delete($2); }
   | DEFINE_KEY TOKEN_KEY anysymbol     { yyerror("%s: redefined as a token", SleighSymbol_getName($3)); YYERROR; }
   ;
 contextdef: contextprop ';'            {}
@@ -577,7 +577,7 @@ varlist: '[' varpart ']'	{ $$ = $2; }
 varpart: VARSYM			{ $$ = dynarray_new(NULL, NULL); dynarray_add($$, $1); }
   | STRING                      { if (strcmp($1->data, "_")) { yyerror("%s: is not a varnode symbol", $1->data); cstr_delete($1); YYERROR; }
 				  $$ = dynarray_new(NULL, NULL); dynarray_add($$, (SleighSymbol *)0); vm_free($1); }
-  | varpart VARSYM		{ $$ = $1; dynarray_add($$, $1); }
+  | varpart VARSYM		{ $$ = $1; dynarray_add($$, $2); }
   | varpart STRING		{ if (strcmp($2->data, "_")) { yyerror("%s: is not a varnode symbol", $2->data); cstr_delete($2); YYERROR; }
                                   $$ = $1; dynarray_add($$, (SleighSymbol *)0); cstr_delete($2); }
   ;

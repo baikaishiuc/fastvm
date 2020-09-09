@@ -261,8 +261,57 @@ void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *d
     sym->operand.triple = dsym;
 }
 
+TokenSymbol*    TokenSymbol_new(Token *t)
+{
+    TokenSymbol *sym = SleighSymbol_new(token_symbol, t->name);
+
+    sym->token.tok = t;
+
+    return sym;
+}
+
+ValueSymbol*    ValueSymbol_new(const char *name, PatternValue *pv)
+{
+    ValueSymbol *sym = SleighSymbol_new(value_symbol, name);
+
+    sym->value.patval = pv;
+
+    pv->refcount++;
+
+    return sym;
+}
+
+void                VarnodeListSymbol_checkTableFill(VarnodeListSymbol *vl)
+{
+    intb min = PatternValue_minValue(vl->varnodeList.patval);
+    intb max = PatternValue_maxValue(vl->varnodeList.patval);
+    int i;
+    vl->varnodeList.tableisfilled = (min >= 0) && (max < vl->varnodeList.varnode_table.len);
+    for (i = 0; i < vl->varnodeList.varnode_table.len; i++) {
+        if (vl->varnodeList.varnode_table.ptab[i] == 0) {
+            vl->varnodeList.tableisfilled = false;
+            break;
+        }
+    }
+}
+
+VarnodeListSymbol*  VarnodeListSymbol_new(char *name, PatternValue *pv, struct dynarray *vt)
+{
+    VarnodeListSymbol *v = SleighSymbol_new(varnodelist_symbol, name);
+
+    v->varnodeList.patval = pv;
+    pv->refcount++;
+    v->type = varnodelist_symbol;
+
+    dynarray_insert(&v->varnodeList.varnode_table, vt);
+    VarnodeListSymbol_checkTableFill(v);
+
+    return v;
+}
+
 void            OperandSymbol_delete(OperandSymbol *sym)
 {
+    vm_free(sym);
 }
 
 ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl)

@@ -8,6 +8,8 @@ extern "C" {
 
 #include "space.h"
 
+typedef struct Address      Address;
+
 struct Address {
     AddrSpace *base;
     int offset;
@@ -19,7 +21,7 @@ struct Address {
 };
 
 Address*        Address_new(void);
-Address*        Address_new1(AddrSpace *id, int off);
+Address*        Address_new1(AddrSpace *id, uintb off);
 Address*        Address_new2(Address *op2);
 void            Address_delete(Address *op);
 
@@ -79,6 +81,8 @@ inline Address* Address_add(Address *op1, int off)
 {
     return Address_new1(op1->base, AddrSpace_wrapOffset(op1->base, off));
 }
+
+void        zero_extend(intb *val, int bit);
 
 #ifdef __cplusplus
 }

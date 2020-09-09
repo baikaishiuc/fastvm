@@ -67,7 +67,10 @@ struct SleighSymbol {
         struct {
             AddrSpace *space;
         } space;
-        Token *tok;
+
+        struct {
+            Token *tok;
+        } token;
 
         struct {
             int templateid;     // Index into the constructTpl array
@@ -103,6 +106,12 @@ struct SleighSymbol {
             VarnodeData fix;
             bool context_bits;
         } varnode;
+
+        struct {
+            struct dynarray varnode_table;
+            bool tableisfilled;
+            PatternValue *patval;
+        } varnodeList;
 
         struct {
             AddrSpace *const_space;
@@ -178,6 +187,11 @@ MacroSymbol*    MacroSymbol_new(const char *name, int i);
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
 void            OperandSymbol_defineOperand(OperandSymbol *sym, PatternExpression *pe);
 void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *dsym);
+
+TokenSymbol*    TokenSymbol_new(Token *t);
+ValueSymbol*    ValueSymbol_new(const char *name, PatternValue *pv);
+
+VarnodeListSymbol*  VarnodeListSymbol_new(char *name, PatternValue *pv, struct dynarray *vt);
 
 ContextSymbol*  ContextSymbol_new(const char *name, ContextField *pate, VarnodeSymbol *v, int l, int h, bool fl);
 

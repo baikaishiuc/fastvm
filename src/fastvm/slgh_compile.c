@@ -323,11 +323,24 @@ void            SleighCompile_setAlignment(SleighCompile *s, int e)
 
 TokenSymbol*    SleighCompile_defineToken(SleighCompile *s, const char *name, intb sz)
 {
-    return NULL;
+    if (sz & 7)
+        vm_error("%s:%d token[%s] size must be multiple of 8", slgh_filename(s), slgh_lineno(s), name);
+
+    sz /= 8;
+
+    Token *newtoken = Token_new(name, (int)sz, s->bigendian, s->tokentable.len);
+    dynarray_add(&s->tokentable, newtoken);
+    TokenSymbol *res = TokenSymbol_new(newtoken);
+    SleighCompile_addSymbol(s, res);
+
+    return res;
 }
 
 void            SleighCompile_addTokenField(SleighCompile *s, TokenSymbol *sym, FieldQuality *qual)
 {
+    TokenField *field = TokenField_new(sym->token.tok, qual->signext, qual->low, qual->high);
+
+    SleighCompile_addSymbol(s, ValueSymbol_new(qual->name, field));
 }
 
 bool            SleighCompile_addContextField(SleighCompile *s, VarnodeSymbol *sym, FieldQuality *qual)
@@ -410,6 +423,25 @@ void            SleighCompile_addUserOp(SleighCompile *s, struct dynarray *names
 
 }
 
+
+SleighSymbol*   SleighCompile_dedupSymbolList(SleighCompile *s, struct dynarray *symlist)
+{
+    SleighSymbol *res = NULL, *sym;
+    int i, j;
+
+    for (i = 0; i < symlist->len; i++) {
+        sym = symlist->ptab[i];
+        if (!sym) continue;
+
+        for (j = i + 1; j < symlist->len; j++) {
+            if (symlist->ptab[j] == sym)
+                return res;
+        }
+    }
+
+    return NULL;
+}
+
 void            SleighCompile_attachValues(SleighCompile *s, struct dynarray *symlist, struct dynarray *numlist)
 {
 
@@ -422,7 +454,32 @@ void            SleighCompile_attachNames(SleighCompile *s, struct dynarray *sym
 
 void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *symlist, struct dynarray *varlist)
 {
+    SleighSymbol *dup = SleighCompile_dedupSymbolList(s, symlist);
+    if (dup)
+        vm_error("%s:%d attach value list contain duplicate entries[%s]", slgh_filename(s), slgh_lineno(s), dup->name);
+    int i, sz = 0, j;
 
+    for (i = 0; i < symlist->len; i++) {
+        ValueSymbol *sym = symlist->ptab[i];
+        if (!sym) continue;
+
+        PatternValue *patval = SleighSymbol_getPatternValue(sym);
+        if ((PatternValue_maxValue(patval) + 1) != varlist->len)
+            vm_error("%s:%d Attach varnode %s is wrong size for list", slgh_filename(s), slgh_lineno(s), sym->name);
+
+        for (j = 0; j < varlist->len; j++) {
+            VarnodeSymbol *vsym = varlist->ptab[j];
+            if (vsym) {
+                if (!sz)
+                    sz = vsym->varnode.fix.size;
+                else if (sz != vsym->varnode.fix.size) {
+                    vm_error("Attach statement contains varnodes of different size %d", );
+                }
+            }
+        }
+
+        SymbolTable_replaceSymbol(s->symtab, sym, VarnodeListSymbol_new(sym->name, patval, varlist));
+    }
 }
 
 void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *rtl)

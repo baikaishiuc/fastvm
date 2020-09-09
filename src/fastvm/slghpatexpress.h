@@ -125,6 +125,9 @@ EndInstructionValue*    EndInstructionValue_new();
 
 OperandValue*       OperandValue_new(int index, Constructor *ct);
 
+intb                PatternValue_minValue(PatternValue *pv);
+intb                PatternValue_maxValue(PatternValue *pv);
+
 typedef struct OperandResolve {
     struct dynarray     *operands;
     int     base;

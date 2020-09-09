@@ -132,6 +132,57 @@ OperandValue*       OperandValue_new(int index, Constructor *ct)
     return PatternExpression_new(a_operandValue, index, ct);
 }
 
+intb                PatternValue_minValue(PatternValue *pv)
+{
+    switch (pv->type) {
+    case a_tokenField:
+    case a_contextField:
+    case a_startInstructionValue:
+    case a_endInstructionValue:
+        return 0;
+
+    case a_constantValue:
+        return pv->constantValue.val;
+
+    default:
+        vm_error("Unsupport PatternValue type = %d", pv->type);
+    }
+
+    return 0;
+}
+
+intb                PatternValue_maxValue(PatternValue *pv)
+{
+    intb res;
+    switch (pv->type) {
+    case a_tokenField:
+        res = 0;
+        res = ~res;
+        zero_extend(&res, pv->tokenField.bitend - pv->tokenField.bitstart);
+        return res;
+
+    case a_contextField:
+        res = 0;
+        res = ~res;
+        zero_extend(&res, pv->contextField.endbit - pv->contextField.startbit);
+        return res;
+
+    case a_constantValue:
+        return pv->constantValue.val;
+
+    case a_startInstructionValue:
+        return 0;
+
+    case a_endInstructionValue:
+        return 0;
+
+    default:
+        vm_error("Unsupport PatternValue type = %d", pv->type);
+    }
+
+    return 0;
+}
+
 ContextField*       ContextField_new(bool s, int sbit, int ebit)
 {
     ContextField*   c = PatternExpression_new(a_contextField);

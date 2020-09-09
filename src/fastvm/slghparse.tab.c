@@ -2559,14 +2559,14 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 191 "slghparse.y"
-    { (yyval.tokensym) = SleighCompile_defineToken(slgh, (yyvsp[(3) - (6)].str)->data, (yyvsp[(5) - (6)].i)); ;}
+    { (yyval.tokensym) = SleighCompile_defineToken(slgh, (yyvsp[(3) - (6)].str)->data, (yyvsp[(5) - (6)].i)); cstr_delete((yyvsp[(3) - (6)].str)); ;}
     break;
 
   case 25:
 
 /* Line 1455 of yacc.c  */
 #line 192 "slghparse.y"
-    { (yyval.tokensym) = (yyvsp[(1) - (2)].tokensym); SleighCompile_addTokenField(slgh, (yyvsp[(1) - (2)].tokensym), (yyvsp[(2) - (2)].fieldqual)); ;}
+    { (yyval.tokensym) = (yyvsp[(1) - (2)].tokensym); SleighCompile_addTokenField(slgh, (yyvsp[(1) - (2)].tokensym), (yyvsp[(2) - (2)].fieldqual)); FieldQuality_delete((yyvsp[(2) - (2)].fieldqual)); ;}
     break;
 
   case 26:
@@ -4547,7 +4547,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 580 "slghparse.y"
-    { (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (yyvsp[(1) - (2)].symlist)); ;}
+    { (yyval.symlist) = (yyvsp[(1) - (2)].symlist); dynarray_add((yyval.symlist), (yyvsp[(2) - (2)].varsym)); ;}
     break;
 
   case 314:

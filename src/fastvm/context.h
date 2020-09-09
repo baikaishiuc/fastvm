@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #include "space.h"
+#include "address.h"
 
 typedef struct Token {
     int size;
@@ -15,7 +16,7 @@ typedef struct Token {
     char name[1];
 } Token;
 
-Token*          Token_new(const char *name, int be, int index);
+Token*          Token_new(const char *name, int sz, int be, int index);
 void            Token_delete(Token *t);
 
 typedef struct FixedHandle {
