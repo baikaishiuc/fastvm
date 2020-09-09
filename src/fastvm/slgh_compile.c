@@ -13,6 +13,8 @@ int yylex_destroy(void) {
 #define slgh_lineno(s)                  ((struct slgh_preproc *)dynarray_back(&s->preproc))->lineno
 #define slgh_filename(s)                ((struct slgh_preproc *)dynarray_back(&s->preproc))->fullpath.data
 
+#undef print_info
+#define print_info  printf
 
 RtlPair*        RtlPair_newV()
 {
@@ -369,6 +371,7 @@ void            SleighCompile_addSymbol(SleighCompile *s, SleighSymbol *sym)
     sym->filename = basename(proc->fullpath.data);
     sym->lineno = proc->lineno;
 
+    //print_info("AddSymbol [%s] %s:%d\n", sym->name, basename(sym->filename), sym->lineno);
     SymbolTable_addSymbol(s->symtab, sym);
 }
 
@@ -1196,7 +1199,9 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
     SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
 
     if (sym && sym->filename)
-        printf("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
+        print_info("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
+    else
+        print_info("find symbol:%s\n", name);
     return sym;
 }
 

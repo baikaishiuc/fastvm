@@ -62,6 +62,9 @@ PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
         case value_symbol:
             return s->value.patval;
 
+        case varnodelist_symbol:
+            return s->varnodeList.patval;
+
         case context_symbol:
             return s->context.patval;
 
@@ -155,6 +158,7 @@ void            Constructor_addOperand(Constructor *c, OperandSymbol *sym)
 
 void            SleighSymbol_delete(SleighSymbol *sym)
 {
+    vm_free(sym);
 }
 
 SleighSymbol *SleighSymbol_new(int type, const char *name)
@@ -624,6 +628,8 @@ void            SymbolTable_replaceSymbol(SymbolTable *s, SleighSymbol *a, Sleig
             b->id = a->id;
             b->scopeid = a->scopeid;
             s->symbolist.ptab[b->id] = b;
+
+            SymbolScope_addSymbol(s->table.ptab[b->scopeid], b);
             SleighSymbol_delete(a);
             return;
         }

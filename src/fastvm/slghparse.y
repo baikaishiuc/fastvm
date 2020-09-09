@@ -478,9 +478,9 @@ sizedstar: '*' '[' SPACESYM ']' ':' INTEGER { $$ = StarQuality_new(); $$->size =
   | '*'				{ $$ = StarQuality_new(); $$->size = 0; $$->id=ConstTpl_newA(SleighCompile_getDefaultCodeSpace(slgh)); }
   ;
 jumpdest: STARTSYM		{ VarnodeTpl *sym = SleighSymbol_getVarnode($1); 
-                      $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1) }
+                      $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); VarnodeTpl_delete(sym); }
   | ENDSYM			{ VarnodeTpl *sym = SleighSymbol_getVarnode($1); 
-                    $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete($1); }
+                    $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); VarnodeTpl_delete(sym); }
   | INTEGER			{ $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,$1),ConstTpl_new1(j_curspace_size));  }
   | BADINTEGER    { $$ = VarnodeTpl_new3(ConstTpl_new1(j_curspace),ConstTpl_new2(real,0),ConstTpl_new1(j_curspace_size)); 
                     yyerror("Parsed integer is too big (overflow)"); }

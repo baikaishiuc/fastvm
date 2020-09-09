@@ -4040,7 +4040,7 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 480 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].startsym)); 
-                      (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].startsym)) ;}
+                      (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace),VarnodeTpl_getOffset(sym), ConstTpl_new1(j_curspace_size)); VarnodeTpl_delete(sym); ;}
     break;
 
   case 243:
@@ -4048,7 +4048,7 @@ yyreduce:
 /* Line 1455 of yacc.c  */
 #line 482 "slghparse.y"
     { VarnodeTpl *sym = SleighSymbol_getVarnode((yyvsp[(1) - (1)].endsym)); 
-                    (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); SleighSymbol_delete((yyvsp[(1) - (1)].endsym)); ;}
+                    (yyval.varnode) = VarnodeTpl_new3(ConstTpl_new1(j_curspace), VarnodeTpl_getOffset(sym),ConstTpl_new1(j_curspace_size)); VarnodeTpl_delete(sym); ;}
     break;
 
   case 244:
