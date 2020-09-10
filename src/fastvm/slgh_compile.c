@@ -1086,7 +1086,11 @@ ConstructTpl*       SleighCompile_setResultVarnode(SleighCompile *s, ConstructTp
 
 ConstructTpl*       SleighCompile_setResultStarVarnode(SleighCompile *s, ConstructTpl *ct, StarQuality *star, VarnodeTpl *vn)
 {
-    return NULL;
+    HandleTpl *res = HandleTpl_newV(vn);
+
+    ct->result = res;
+
+    return ct;
 }
 
 struct dynarray*    SleighCompile_createCrossBuild(SleighCompile *s, VarnodeTpl *addr, SectionSymbol *sym)

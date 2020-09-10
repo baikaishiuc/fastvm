@@ -4,11 +4,14 @@
 
 StarQuality*        StarQuality_new()
 {
-    return NULL;
+    StarQuality *sq = vm_mallocz(sizeof(sq[0]));
+
+    return sq;
 }
 
 void                StarQuality_delete(StarQuality *sq)
 {
+    vm_free(sq);
 }
 
 ExpTree*            ExpTree_new()
@@ -357,12 +360,117 @@ void                PcodeCompile_newLocalDefinition(PcodeCompile *p, char *name,
 
 struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn, uint32_t bitoffset, uint32_t numbits, ExpTree *rhs)
 {
+    assert(NULL);
     return NULL;
 }
 
-ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol *sym, u4 bitoffset, u4 numbits)
+VarnodeTpl*         PcodeCompile_buildTruncatedVarnode(PcodeCompile *p, VarnodeTpl *basevn, int bitoffset, int numbits)
 {
-    return NULL;
+    int byteoffset = bitoffset / 8;
+    int numbytes = numbits / 8;
+    intb fullsz = 0;
+
+    if (basevn->size->type == real) {
+        fullsz = basevn->size->value_real;
+        if (!fullsz)
+            return NULL;
+
+        if ((byteoffset + numbytes) > fullsz)
+            vm_error("Requested bit range out of bounds");
+    }
+
+    if (bitoffset % 8)
+        return NULL;
+    if (numbits % 8)
+        return NULL;
+
+    if (ConstTpl_isUniqueSpace(basevn->space))
+        return NULL;
+
+    int offset_type = basevn->offset->type;
+    if ((offset_type != real) && (offset_type != handle))
+        return 0;
+
+    ConstTpl *off;
+    if (offset_type == handle) {
+        off = ConstTpl_new4(handle, basevn->offset->value.handle_index, v_offset_plus, byteoffset);
+    }
+    else {
+        if (basevn->size->type != real)
+            vm_error("Could not construct request bit range");
+
+        intb plus;
+        if (AddrSpace_isBigEndian(p->defaultspace))
+            plus = fullsz - (byteoffset + numbytes);
+        else
+            plus = byteoffset;
+
+        off = ConstTpl_new2(real, basevn->offset->value_real + plus);
+    }
+
+    VarnodeTpl *res = VarnodeTpl_new(basevn->space, off, ConstTpl_new2(real, numbytes));
+    return res;
+}
+
+ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol *sym, int bitoffset, int numbits)
+{
+    VarnodeTpl *vn = SleighSymbol_getVarnode(sym);
+
+    if (!numbits)
+        vm_error("Size of bitrange is zero");
+
+    int finalsize = (numbits + 7) / 8;
+    int truncshift = 0;
+    bool maskneeded = (numbits + 7) / 8;
+    bool truncneeded = true;
+
+    if (!bitoffset && !maskneeded) {
+        if ((vn->size->type == handle) && VarnodeTpl_isZeroSize(vn)) {
+            VarnodeTpl_setSize(vn, ConstTpl_new2(real, finalsize));
+            return ExpTree_new(vn);
+        }
+    }
+
+    VarnodeTpl *truncvn = PcodeCompile_buildTruncatedVarnode(p, vn, bitoffset, numbits);
+    if (truncvn) 
+        return ExpTree_new(truncvn);
+
+    if (vn->size->type == real) {
+        int insize = (int)vn->size->value_real;
+        if (insize > 0) {
+            truncneeded = (finalsize < insize);
+            insize *= 8;
+            if (bitoffset >= insize || (bitoffset + numbits) > insize)
+                vm_error("Bitrange is bad");
+            if (maskneeded && ((bitoffset + numbits) == insize))
+                maskneeded = false;
+        }
+    }
+
+    uintb mask = 2;
+    mask = (mask << (numbits - 1)) - 1;
+
+    if (truncneeded && ((bitoffset % 8) == 0)) {
+        truncshift = bitoffset / 8;
+        bitoffset = 0;
+    }
+
+    if ((bitoffset == 0) && !truncneeded && !maskneeded)
+        vm_error("Superfluous bitrang");
+
+    if (maskneeded && (finalsize > 8))
+        vm_error("Illegal masked bitrange producing varnode larger than 64bits: %s", sym->name);
+
+    ExpTree *res = ExpTree_new(vn);
+
+    if (bitoffset)
+        PcodeCompile_appendOp(p, CPUI_INT_RIGHT, res, bitoffset, 4);
+    if (truncneeded)
+        PcodeCompile_appendOp(p, CPUI_SUBPIECE, res, truncshift, 4);
+    if (maskneeded)
+        PcodeCompile_appendOp(p, CPUI_INT_AND, res, mask, finalsize);
+    PcodeCompile_forceSize(res->outvn, ConstTpl_new2(real, finalsize), res->ops);
+    return res;
 }
 
 ExpTree*            PcodeCompile_createVariadic(PcodeCompile *p, OpCode opc, struct dynarray *param)
@@ -543,4 +651,18 @@ bool                PcodeCompile_propagateSize(PcodeCompile *p, ConstructTpl *ct
     if (lastsize)
         return false;
     return true;
+}
+
+void                PcodeCompile_appendOp(PcodeCompile *p, OpCode opc, ExpTree *res, uintb constval, int constsz)
+{
+    OpTpl *op = OpTpl_new(opc);
+    VarnodeTpl *vn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace),
+                                    ConstTpl_new2(real, constval),
+                                    ConstTpl_new2(real, constsz));
+    VarnodeTpl *outvn = PcodeCompile_buildTemporary(p);
+    OpTpl_addInput(op, res->outvn);
+    OpTpl_addInput(op, vn);
+    OpTpl_setOutput(op, outvn);
+    dynarray_add(res->ops, op);
+    res->outvn = outvn;
 }

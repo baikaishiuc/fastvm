@@ -97,10 +97,11 @@ struct dynarray*    PcodeCompile_createUserOpNoOut(PcodeCompile *p, UserOpSymbol
 LabelSymbol*        PcodeCompile_defineLabel(PcodeCompile *p, char *name);
 void                PcodeCompile_newLocalDefinition(PcodeCompile *p, char *name, uint32_t size);
 struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn, uint32_t bitoffset, uint32_t numbits, ExpTree *rhs);
-ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol *sym, u4 bitoffset, u4 numbits);
+ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol *sym, int bitoffset, int numbits);
 ExpTree*            PcodeCompile_createVariadic(PcodeCompile *p, OpCode opc, struct dynarray *param);
 VarnodeTpl*         PcodeCompile_addressOf(PcodeCompile *p, VarnodeTpl *var, u4 size);
 bool                PcodeCompile_propagateSize(PcodeCompile *p, ConstructTpl *ct);
+void                PcodeCompile_appendOp(PcodeCompile *p, OpCode opc, ExpTree *res, uintb constval, int constsz);
 
 #ifdef __cplusplus
 }

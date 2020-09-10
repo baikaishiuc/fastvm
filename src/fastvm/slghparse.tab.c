@@ -3319,7 +3319,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 367 "slghparse.y"
-    { (yyval.sem) = SleighCompile_setResultStarVarnode(slgh, (yyvsp[(1) - (5)].sem),(yyvsp[(3) - (5)].starqual),(yyvsp[(4) - (5)].varnode)); ;}
+    { (yyval.sem) = SleighCompile_setResultStarVarnode(slgh, (yyvsp[(1) - (5)].sem),(yyvsp[(3) - (5)].starqual),(yyvsp[(4) - (5)].varnode)); VarnodeTpl_delete((yyvsp[(4) - (5)].varnode)); ;}
     break;
 
   case 141:
@@ -3973,7 +3973,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 466 "slghparse.y"
-    { (yyval.tree) = PcodeCompile_createBitRange(slgh->pcode, (yyvsp[(1) - (3)].specsym),0,(u4)((yyvsp[(3) - (3)].i) * 8)); ;}
+    { (yyval.tree) = PcodeCompile_createBitRange(slgh->pcode, (yyvsp[(1) - (3)].specsym),0,(i4)((yyvsp[(3) - (3)].i) * 8)); ;}
     break;
 
   case 234:

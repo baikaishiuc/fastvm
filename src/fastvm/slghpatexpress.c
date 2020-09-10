@@ -17,7 +17,7 @@ PatternExpression*  PatternExpression_new(int type, ...)
         case a_leftShiftExp:
         case a_rightShiftExp:
         case a_andExp:
-        case a_orEq:
+        case a_orExp:
         case a_xorExp:
         case a_divExp:
             pat->and.left = va_arg(ap, PatternExpression *);
