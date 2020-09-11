@@ -37,7 +37,7 @@ struct ExpTree {
     VarnodeTpl *outvn;
 };
 
-ExpTree*            ExpTree_new();
+ExpTree*            ExpTree_new(void);
 ExpTree*            ExpTree_newV(VarnodeTpl *vn);
 ExpTree*            ExpTree_newO(OpTpl *op);
 void                ExpTree_delete(ExpTree *);

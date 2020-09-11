@@ -463,7 +463,7 @@ void SymbolScope_delete(SymbolScope *p)
     vm_free(p);
 }
 
-SymbolTable*    SymbolTable_new()
+SymbolTable*    SymbolTable_new(void)
 {
     SymbolTable *tab = vm_mallocz(sizeof(tab[0]));
 

@@ -69,7 +69,9 @@ struct PatternExpression {
             PatternExpression *right;
         } plus, sub, mult, leftShift, rightShfit, and, or, xor, div;
 
-        PatternExpression *minus, *not;
+        struct {
+            PatternExpression * unary;
+        } not, minus;
 
         PatternValue *value;
 

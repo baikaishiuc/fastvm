@@ -14,7 +14,7 @@ void                StarQuality_delete(StarQuality *sq)
     vm_free(sq);
 }
 
-ExpTree*            ExpTree_new()
+ExpTree*            ExpTree_new(void)
 {
     ExpTree *e = vm_mallocz(sizeof(e[0]));
 
@@ -310,8 +310,8 @@ struct dynarray*    PcodeCompile_createStore(PcodeCompile *p, StarQuality *qual,
     dynarray_add(res, val->ops);
     dynarray_reset(val->ops);
 
-    OpTpl *op = OpTpl_new(CPUI_STORE);
-    VarnodeTpl *spcvn = VarnodeTpl_new(ConstTpl_newA(p->constantspace), qual->id, ConstTpl_new2(real, 8));
+    OpTpl *op = OpTpl_new(CPUI_STORE); 
+    VarnodeTpl *spcvn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), qual->id, ConstTpl_new2(real, 8));
 
     /* 这里没有设置out，感觉有点问题，理论上对于如下的表达式:
 
@@ -342,7 +342,7 @@ ExpTree*            PcodeCompile_createUserOp(PcodeCompile *p, UserOpSymbol *sym
 struct dynarray*    PcodeCompile_createUserOpNoOut(PcodeCompile *p, UserOpSymbol *sym, struct dynarray *params)
 {
     OpTpl *op = OpTpl_new1(CPUI_CALLOTHER);
-    VarnodeTpl *vn = VarnodeTpl_new(ConstTpl_newA(p->constantspace), 
+    VarnodeTpl *vn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), 
                                     ConstTpl_new2(real, sym->index),
                                     ConstTpl_new2(real, 4));
     OpTpl_addInput(op, vn);
@@ -408,7 +408,7 @@ VarnodeTpl*         PcodeCompile_buildTruncatedVarnode(PcodeCompile *p, VarnodeT
         off = ConstTpl_new2(real, basevn->offset->value_real + plus);
     }
 
-    VarnodeTpl *res = VarnodeTpl_new(basevn->space, off, ConstTpl_new2(real, numbytes));
+    VarnodeTpl *res = VarnodeTpl_new3(basevn->space, off, ConstTpl_new2(real, numbytes));
     return res;
 }
 
@@ -427,13 +427,13 @@ ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol 
     if (!bitoffset && !maskneeded) {
         if ((vn->size->type == handle) && VarnodeTpl_isZeroSize(vn)) {
             VarnodeTpl_setSize(vn, ConstTpl_new2(real, finalsize));
-            return ExpTree_new(vn);
+            return ExpTree_newV(vn);
         }
     }
 
     VarnodeTpl *truncvn = PcodeCompile_buildTruncatedVarnode(p, vn, bitoffset, numbits);
     if (truncvn) 
-        return ExpTree_new(truncvn);
+        return ExpTree_newV(truncvn);
 
     if (vn->size->type == real) {
         int insize = (int)vn->size->value_real;
@@ -461,7 +461,7 @@ ExpTree*            PcodeCompile_createBitRange(PcodeCompile *p, SpecificSymbol 
     if (maskneeded && (finalsize > 8))
         vm_error("Illegal masked bitrange producing varnode larger than 64bits: %s", sym->name);
 
-    ExpTree *res = ExpTree_new(vn);
+    ExpTree *res = ExpTree_newV(vn);
 
     if (bitoffset)
         PcodeCompile_appendOp(p, CPUI_INT_RIGHT, res, bitoffset, 4);

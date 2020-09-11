@@ -90,7 +90,7 @@ struct VarnodeTpl {
 
 #define VarnodeTpl_getOffset(v)             v->offset
 
-VarnodeTpl*     VarnodeTpl_new();
+VarnodeTpl*     VarnodeTpl_new(void);
 VarnodeTpl*     VarnodeTpl_clone(VarnodeTpl *vn);
 VarnodeTpl*     VarnodeTpl_new2(int hand, bool zerosize);
 VarnodeTpl*     VarnodeTpl_new3(ConstTpl *sp, ConstTpl *off, ConstTpl *sz);
@@ -131,7 +131,7 @@ struct ConstructTpl {
 #define ConstructTpl_getOpvec(c)        (&((c)->vec))
 #define ConstructTpl_getResult(c)       (c)->result
 
-ConstructTpl*   ConstructTpl_new();
+ConstructTpl*   ConstructTpl_new(void);
 void            ConstructTpl_delete(ConstructTpl *c);
 
 bool            ConstructTpl_addOpList(ConstructTpl *t, struct dynarray *oplist);
@@ -177,7 +177,7 @@ struct HandleTpl {
     ConstTpl *temp_offset;
 };
 
-HandleTpl*          HandleTpl_new();
+HandleTpl*          HandleTpl_new(void);
 HandleTpl*          HandleTpl_newV(VarnodeTpl *vn);
 HandleTpl*          HandleTpl_new5(ConstTpl *spc, ConstTpl *sz, VarnodeTpl *vn, AddrSpace *sp, uintb offset);
 void                HandleTpl_delete(HandleTpl *h);

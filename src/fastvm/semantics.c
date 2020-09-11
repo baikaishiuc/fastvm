@@ -53,7 +53,7 @@ bool        OpTpl_isZeroSize(OpTpl *o)
     return false;
 }
 
-ConstructTpl*   ConstructTpl_new()
+ConstructTpl*   ConstructTpl_new(void)
 {
     ConstructTpl *t = vm_mallocz(sizeof(t[0]));
 
@@ -283,7 +283,7 @@ bool    ConstTpl_lessThan(ConstTpl *lhs, ConstTpl *rhs)
     return false;
 }
 
-VarnodeTpl*     VarnodeTpl_new()
+VarnodeTpl*     VarnodeTpl_new(void)
 {
     assert(0);
     return NULL;
@@ -372,7 +372,7 @@ int             VarnodeTpl_transfer(VarnodeTpl *vn, struct dynarray *params)
     return -1;
 }
 
-HandleTpl*          HandleTpl_new()
+HandleTpl*          HandleTpl_new(void)
 {
     HandleTpl *h = vm_mallocz(sizeof(h[0]));
 

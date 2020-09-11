@@ -261,7 +261,7 @@ struct SymbolTable {
     SymbolScope *skipScope;
 };
 
-SymbolTable*    SymbolTable_new();
+SymbolTable*    SymbolTable_new(void);
 void            SymbolTable_delete(SymbolTable *s);
 
 SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scope, const char *name);

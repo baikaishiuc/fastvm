@@ -37,6 +37,14 @@ PatternExpression*  PatternExpression_new(int type, ...)
         case a_tokenField:
             break;
 
+        case a_minusExp:
+            pat->minus.unary = va_arg(ap, PatternExpression *);
+            break;
+
+        case a_notExp:
+            pat->not.unary = va_arg(ap, PatternExpression *);
+            break;
+
         default:
             vm_error("un-support PatternExpression(%d)", type);
     }
