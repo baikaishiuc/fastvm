@@ -348,7 +348,8 @@ CString *cstr_new(char *src, int len)
 {
     CString *cs = vm_mallocz(sizeof (cs[0]));
 
-    cstr_cat(cs, src, len);
+    if (len)
+        cstr_cat(cs, src, len);
 
     return cs;
 }

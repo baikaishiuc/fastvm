@@ -364,7 +364,7 @@ rtlcontinue: rtlfirstsection { $$ = $1; }
   ;
 rtl: rtlmid { $$ = $1; if (!ConstructTpl_getOpvec($1)->len && (ConstructTpl_getResult($$) == (HandleTpl *)0)) SleighCompile_recordNop(slgh); }
   | rtlmid EXPORT_KEY exportvarnode ';' { $$ = SleighCompile_setResultVarnode(slgh, $1,$3); VarnodeTpl_delete($3); }
-  | rtlmid EXPORT_KEY sizedstar lhsvarnode ';' { $$ = SleighCompile_setResultStarVarnode(slgh, $1,$3,$4); }
+  | rtlmid EXPORT_KEY sizedstar lhsvarnode ';' { $$ = SleighCompile_setResultStarVarnode(slgh, $1,$3,$4); VarnodeTpl_delete($4); }
   | rtlmid EXPORT_KEY STRING		{ yyerror("Unknown export varnode: %s", *$3); YYERROR; }
   | rtlmid EXPORT_KEY sizedstar STRING	{ yyerror("Unknown pointer varnode: %s", *$4); vm_free($3); vm_free($4); YYERROR; }
   ;
@@ -463,7 +463,7 @@ expr: varnode { $$ = ExpTree_newV($1); }
   | OP_NEW '(' expr ',' expr ')' { $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_NEW,$3,$5); }
   | OP_POPCOUNT '(' expr ')' { $$ = PcodeCompile_createOp(slgh->pcode, CPUI_POPCOUNT,$3); }
   | specificsymbol '(' integervarnode ')' { $$ = PcodeCompile_createOp2(slgh->pcode, CPUI_SUBPIECE,ExpTree_newV(SleighSymbol_getVarnode($1)),ExpTree_newV($3)); }
-  | specificsymbol ':' INTEGER	{ $$ = PcodeCompile_createBitRange(slgh->pcode, $1,0,(u4)($3 * 8)); }
+  | specificsymbol ':' INTEGER	{ $$ = PcodeCompile_createBitRange(slgh->pcode, $1,0,(i4)($3 * 8)); }
   | specificsymbol '[' INTEGER ',' INTEGER ']' { $$ = PcodeCompile_createBitRange(slgh->pcode, $1,(uint4)$3,(uint4)$5); }
   | BITSYM                      { $$=PcodeCompile_createBitRange(slgh->pcode, 
                                   BitrangeSymbol_getParentSymbol($1),
