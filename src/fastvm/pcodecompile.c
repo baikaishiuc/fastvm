@@ -178,7 +178,7 @@ ExpTree*    PcodeCompile_createOp2Out(PcodeCompile *p, VarnodeTpl *outvn, OpCode
     if (!outvn)
         outvn = PcodeCompile_buildTemporary(p);
 
-    OpTpl *op = OpTpl_new(opc);
+    OpTpl *op = OpTpl_new1(opc);
     dynarray_insert(vn1->ops, vn2->ops);
     dynarray_reset(vn2->ops);
 
@@ -195,7 +195,7 @@ ExpTree*    PcodeCompile_createOp2Out(PcodeCompile *p, VarnodeTpl *outvn, OpCode
 
 struct dynarray*    PcodeCompile_createOpNoOut(PcodeCompile *p, OpCode opc, ExpTree *vn)
 {
-    OpTpl *op = OpTpl_new(opc);
+    OpTpl *op = OpTpl_new1(opc);
     OpTpl_addInput(op, vn->outvn);
 
     struct dynarray *res = vn->ops;
@@ -210,7 +210,7 @@ struct dynarray*    PcodeCompile_createOpNoOut(PcodeCompile *p, OpCode opc, ExpT
 
 struct dynarray*    PcodeCompile_createOpNoOut2(PcodeCompile *p, OpCode opc, ExpTree *vn1, ExpTree *vn2)
 {
-    OpTpl *op = OpTpl_new(opc);
+    OpTpl *op = OpTpl_new1(opc);
     struct dynarray *res = vn1->ops;
 
     dynarray_insert(vn1->ops, vn2->ops);
@@ -237,7 +237,7 @@ struct dynarray*    PcodeCompile_createOpConst(PcodeCompile *p, OpCode opc, uint
 
     struct dynarray *res = dynarray_new(NULL, NULL);
 
-    OpTpl *op = OpTpl_new(opc);
+    OpTpl *op = OpTpl_new1(opc);
     OpTpl_addInput(op, vn);
     dynarray_add(res, op);
 
@@ -288,7 +288,7 @@ void                PcodeCompile_forceSize(VarnodeTpl *vt, ConstTpl *size, struc
 ExpTree*            PcodeCompile_createLoad(PcodeCompile *p, StarQuality *qual, ExpTree *ptr)
 {
     VarnodeTpl *outvn = PcodeCompile_buildTemporary(p);
-    OpTpl *op = OpTpl_new(CPUI_LOAD);
+    OpTpl *op = OpTpl_new1(CPUI_LOAD);
 
     VarnodeTpl *spcvn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), qual->id, ConstTpl_new2(real, 8));
 
@@ -307,10 +307,10 @@ struct dynarray*    PcodeCompile_createStore(PcodeCompile *p, StarQuality *qual,
 {
     struct dynarray *res = ptr->ops;
     ptr->ops = NULL;
-    dynarray_add(res, val->ops);
+    dynarray_insert(res, val->ops);
     dynarray_reset(val->ops);
 
-    OpTpl *op = OpTpl_new(CPUI_STORE); 
+    OpTpl *op = OpTpl_new1(CPUI_STORE); 
     VarnodeTpl *spcvn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), qual->id, ConstTpl_new2(real, 8));
 
     /* 这里没有设置out，感觉有点问题，理论上对于如下的表达式:
@@ -336,6 +336,7 @@ struct dynarray*    PcodeCompile_createStore(PcodeCompile *p, StarQuality *qual,
 
 ExpTree*            PcodeCompile_createUserOp(PcodeCompile *p, UserOpSymbol *sym, struct dynarray *param)
 {
+    assert(NULL);
     return NULL;
 }
 
@@ -655,7 +656,7 @@ bool                PcodeCompile_propagateSize(PcodeCompile *p, ConstructTpl *ct
 
 void                PcodeCompile_appendOp(PcodeCompile *p, OpCode opc, ExpTree *res, uintb constval, int constsz)
 {
-    OpTpl *op = OpTpl_new(opc);
+    OpTpl *op = OpTpl_new1(opc);
     VarnodeTpl *vn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace),
                                     ConstTpl_new2(real, constval),
                                     ConstTpl_new2(real, constsz));

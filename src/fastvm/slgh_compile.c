@@ -615,8 +615,8 @@ bool MacroBuilder_transferOp(MacroBuilder *m, OpTpl *op, struct dynarray *params
         }
 
         uintb newtemp = SleighCompile_getUniqueAddr(slgh);
-        OpTpl *subpieceop = OpTpl_new(CPUI_SUBPIECE);
-        VarnodeTpl *newvn = VarnodeTpl_new(ConstTpl_newA(slgh->uniqspace), ConstTpl_new2(real, newtemp),
+        OpTpl *subpieceop = OpTpl_new1(CPUI_SUBPIECE);
+        VarnodeTpl *newvn = VarnodeTpl_new3(ConstTpl_newA(slgh->uniqspace), ConstTpl_new2(real, newtemp),
                                         ConstTpl_new2(real, realsize));
         OpTpl_setOutput(subpieceop, newvn);
         HandleTpl *hand = params->ptab[handleIndex];
@@ -686,7 +686,7 @@ void            MacroBuilder_setLabel(MacroBuilder *m, OpTpl *op)
     OpTpl *clone;
     VarnodeTpl *v_clone;
 
-    clone = OpTpl_new(op->opc);
+    clone = OpTpl_new1(op->opc);
     v_clone = VarnodeTpl_clone(OpTpl_getIn(op, 0));
     uintb val = v_clone->offset->value_real + m->pb->labelbase;
     VarnodeTpl_setOffset(v_clone, val);
@@ -1131,7 +1131,7 @@ struct dynarray*    SleighCompile_createMacroUse(SleighCompile *s, MacroSymbol *
     }
 
     slgh_cmp_macro_params(s, sym, params);
-    OpTpl *op = OpTpl_new(MACROBUILD);
+    OpTpl *op = OpTpl_new1(MACROBUILD);
     VarnodeTpl *idvn = VarnodeTpl_new3(ConstTpl_newA(s->constantspace),
                                         ConstTpl_new2(real, sym->macro.index),
                                         ConstTpl_new2(real, 4));

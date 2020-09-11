@@ -108,7 +108,7 @@ struct OpTpl {
   struct dynarray input;    // VarnodeTpl *
 };
 
-OpTpl*      OpTpl_new();
+OpTpl*      OpTpl_new(void);
 OpTpl*      OpTpl_new1(OpCode oc);
 void        OpTpl_delete(OpTpl *);
 
