@@ -191,6 +191,8 @@ EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
 MacroSymbol*    MacroSymbol_new(const char *name, int i);
 
+UserOpSymbol*   UserOpSymbol_new(const char *name);
+
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
 void            OperandSymbol_defineOperand(OperandSymbol *sym, PatternExpression *pe);
 void            OperandSymbol_defineOperandS(OperandSymbol *sym, SleighSymbol *dsym);

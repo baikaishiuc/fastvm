@@ -162,6 +162,7 @@ struct SleighCompile {
     uint32_t maxdelayslotbytes;
     uint32_t unique_allocatemask;
     uint32_t numSections;
+    int userop_count;
 
     bool warnunnecessarypcode;
     bool warndeadtemps;

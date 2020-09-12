@@ -234,7 +234,7 @@ bitrangesingle: STRING '=' VARSYM '[' INTEGER ',' INTEGER ']' {
                SleighCompile_defineBitrange(slgh, $1->data,$3,(uint4)$5,(uint4)$7); 
                }
   ;
-pcodeopdef: DEFINE_KEY PCODEOP_KEY stringlist ';' { SleighCompile_addUserOp(slgh, $3); }
+pcodeopdef: DEFINE_KEY PCODEOP_KEY stringlist ';' { SleighCompile_addUserOp(slgh, $3); dynarray_delete($3); }
   ;
 valueattach: ATTACH_KEY VALUES_KEY valuelist intblist ';' { SleighCompile_attachValues(slgh, $3, $4); }
   ;

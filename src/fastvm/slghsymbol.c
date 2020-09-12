@@ -113,7 +113,7 @@ void            Constructor_markSubtableOperands(Constructor *c, struct dynarray
     for (i = 0; i < c->operands.len; i++) {
         SleighSymbol *s = c->operands.ptab[i];
         TripleSymbol *sym = OperandSymbol_getDefiningSymbol(s);
-        check->ptab[i] = (sym && (s->type == subtable_symbol)) ? 0 : (void *)2;
+        check->ptab[i] = (sym && (sym->type == subtable_symbol)) ? 0 : (void *)2;
     }
 }
 
@@ -252,6 +252,13 @@ VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offse
     return sym;
 }
 
+UserOpSymbol*   UserOpSymbol_new(const char *name)
+{
+    UserOpSymbol* sym = SleighSymbol_new(userop_symbol, name);
+
+    return sym;
+}
+
 MacroSymbol*    MacroSymbol_new(const char *name, int i)
 {
     MacroSymbol * sym = SleighSymbol_new(macro_symbol, name);
@@ -260,6 +267,7 @@ MacroSymbol*    MacroSymbol_new(const char *name, int i)
 
     return sym;
 }
+
 
 void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand)
 {

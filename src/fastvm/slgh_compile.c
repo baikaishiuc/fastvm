@@ -423,7 +423,14 @@ void            SleighCompile_defineOperand(SleighCompile *s, OperandSymbol *sym
 
 void            SleighCompile_addUserOp(SleighCompile *s, struct dynarray *names)
 {
+    int i;
 
+    for (i = 0; i < names->len; i++) {
+        CString *cstr = names->ptab[i];
+        UserOpSymbol *sym = UserOpSymbol_new(cstr->data);
+        sym->userop.index = s->userop_count++;
+        SleighCompile_addSymbol(s, sym);
+    }
 }
 
 
@@ -710,8 +717,16 @@ bool            SleighCompile_expandMacros(SleighCompile *s, ConstructTpl *ctpl,
                 return false;
 
             MacroBuilder_setMacroOp(m, op);
+            ConstructTpl *macro_tpl = s->macrotable.ptab[index];
+            PcodeBuilder_build(m->pb, macro_tpl, -1);
+            ConstructTpl_setNumLabels(ctpl, ctpl->numlabels + macro_tpl->numlabels);
+            OpTpl_delete(op);
         }
+        else
+            dynarray_add(&newvec, op);
     }
+    dynarray_reset(&ctpl->vec);
+    dynarray_insert(&ctpl->vec, &newvec);
 
     return true;
 }
@@ -1005,6 +1020,15 @@ PatternEquation*    SleighCompile_constrainOperand(SleighCompile *s, OperandSymb
 
 void                SleighCompile_selfDefine(SleighCompile *s, OperandSymbol *sym)
 {
+    TripleSymbol *glob = SymbolTable_findSymbolSkip(s->symtab, sym->name, 1);
+    if (!glob)
+        vm_error("%s:%d No matching global symbol %s", basename(slgh_filename(s)), slgh_lineno(s), sym->name);
+
+    int type = glob->type;
+    if ((type == value_symbol) || (type == context_symbol))
+        OperandSymbol_defineOperand(sym, SleighSymbol_getPatternExpression(glob));
+    else
+        OperandSymbol_defineOperandS(sym, glob);
 
 }
 
@@ -1170,6 +1194,8 @@ void                SleighCompile_parseFromNewFile(SleighCompile *s, const char 
     cstr_cat(&proc->fullpath, fname, strlen(fname));
 
     dynarray_add(&s->preproc, proc);
+
+    printf("Start parseing file [%s]\n", fname);
 }
 
 void                SleighCompile_parsePreprocMacro(SleighCompile *s)

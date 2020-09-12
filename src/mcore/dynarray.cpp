@@ -131,7 +131,7 @@ void dynarray_insertB(struct dynarray *d, int before, void *elm)
     int i;
     dynarray_add(d, NULL);
 
-    for (i = d->len - 1; i > before; i++) {
+    for (i = d->len - 1; i > before; i--) {
         d->ptab[i] = d->ptab[i - 1];
     }
     d->ptab[before] = elm;

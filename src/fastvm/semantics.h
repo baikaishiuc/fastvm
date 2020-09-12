@@ -127,7 +127,7 @@ struct ConstructTpl {
   HandleTpl *result;
 };
 
-#define ConstructTpl_setNumLabels(c, v) (c)->numlabels = val
+#define ConstructTpl_setNumLabels(c, v) (c)->numlabels = v 
 #define ConstructTpl_getOpvec(c)        (&((c)->vec))
 #define ConstructTpl_getResult(c)       (c)->result
 
@@ -154,6 +154,7 @@ struct PcodeBuilder { // SLEIGH specific pcode generator
 
 PcodeBuilder*       PcodeBuilder_new(void *ref);
 void                PcodeBuilder_delete(PcodeBuilder *p);
+void                PcodeBuilder_build(PcodeBuilder *pb, ConstructTpl *construct, int secnum);
 /* 使用这个函数前，必须得注册
 dump
 appendBuild
