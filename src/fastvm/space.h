@@ -93,6 +93,9 @@ ConstantSpace*      ConstantSpace_new(void *m, const char *name, int ind);
 OtherSpace*         OtherSpace_new(void *m, const char *name, int ind);
 UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl);
 
+/* 这个函数我有点看不懂，他的地址的单位是wordsize大小的单元 */
+#define AddrSpace_byteToAddress(val,ws)             val/ws
+
 typedef struct VarnodeData {
     AddrSpace *space;
     u8 offset;

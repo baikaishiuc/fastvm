@@ -27,6 +27,8 @@ ExpTree*            ExpTree_newV(VarnodeTpl *vn)
 {
     ExpTree *e = vm_mallocz(sizeof(e[0]));
 
+    assert(vn);
+
     e->outvn = vn;
     e->ops = dynarray_new(NULL, NULL);
 
@@ -486,7 +488,25 @@ ExpTree*            PcodeCompile_createVariadic(PcodeCompile *p, OpCode opc, str
 
 VarnodeTpl*         PcodeCompile_addressOf(PcodeCompile *p, VarnodeTpl *var, u4 size)
 {
-    return NULL;
+    if (size == 0) {
+        if (var->space->type == spaceid) {
+            AddrSpace *spv = var->space->value.spaceid;
+            size = spv->addrsize;
+        }
+    }
+
+    VarnodeTpl *res;
+    if ((var->offset->type == real) && (var->space->type == spaceid)) {
+        AddrSpace *spc = var->space->value.spaceid;
+        // 这段代码看不懂，把byte的偏移转成地址以后，是有变小的，假如在针对这个VarnodeTpl继续取地址，
+        // 那不是会继续变小吗？
+        uintb off = AddrSpace_byteToAddress(var->offset->value_real, spc->wordsize);
+        res = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), ConstTpl_new2(real, off), ConstTpl_new2(real, size));
+    }
+    else
+        res = VarnodeTpl_new3(ConstTpl_newA(p->constantspace), var->offset, ConstTpl_new2(real, size));
+
+    return res;
 }
 
 /* 
