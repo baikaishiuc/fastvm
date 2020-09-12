@@ -2759,7 +2759,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 237 "slghparse.y"
-    { SleighCompile_addUserOp(slgh, (yyvsp[(3) - (4)].strlist)); ;}
+    { SleighCompile_addUserOp(slgh, (yyvsp[(3) - (4)].strlist)); dynarray_delete((yyvsp[(3) - (4)].strlist)); ;}
     break;
 
   case 56:
@@ -4194,7 +4194,7 @@ yyreduce:
 
 /* Line 1455 of yacc.c  */
 #line 513 "slghparse.y"
-    { (yyval.labelsym) = PcodeCompile_defineLabel( slgh->pcode, (yyvsp[(2) - (3)].str)->data ); ;}
+    { (yyval.labelsym) = PcodeCompile_defineLabel( slgh->pcode, (yyvsp[(2) - (3)].str)->data ); cstr_delete((yyvsp[(2) - (3)].str)); ;}
     break;
 
   case 264:

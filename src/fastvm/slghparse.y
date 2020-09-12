@@ -510,7 +510,7 @@ lhsvarnode: specificsymbol	{ $$ = SleighSymbol_getVarnode($1); }
   | SUBTABLESYM                 { yyerror("Subtable not attached to operand: %s", SleighSymbol_getName($1)); YYERROR; }
   ;
 label: '<' LABELSYM '>'         { $$ = $2; }
-  | '<' STRING '>'              { $$ = PcodeCompile_defineLabel( slgh->pcode, $2->data ); }
+  | '<' STRING '>'              { $$ = PcodeCompile_defineLabel( slgh->pcode, $2->data ); cstr_delete($2); }
   ;
 exportvarnode: specificsymbol	{ $$ = SleighSymbol_getVarnode($1); }
   | '&' varnode                 { $$ = PcodeCompile_addressOf(slgh->pcode, $2,0); }

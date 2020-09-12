@@ -587,7 +587,7 @@ void            SleighCompile_checkSymbols(SleighCompile *s, SymbolScope *scope)
         if (sym->type != label_symbol) continue;
         if (!sym->label.refcount)
             vm_error("%s:%d Label %s was placed but not used", slgh_filename(s), slgh_lineno(s), sym->name);
-        else if (sym->label.isplaced)
+        else if (!sym->label.isplaced)
             vm_error("%s:%d Label %s was referenced but never placed", slgh_filename(s), slgh_lineno(s), sym->name);
     }
 }

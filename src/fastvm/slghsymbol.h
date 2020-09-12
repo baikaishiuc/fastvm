@@ -191,6 +191,8 @@ EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc);
 VarnodeSymbol*  VarnodeSymbol_new(const char *name, AddrSpace *base, uintb offset, int size);
 MacroSymbol*    MacroSymbol_new(const char *name, int i);
 
+LabelSymbol*    LabelSymbol_new(const char *name, int i);
+
 UserOpSymbol*   UserOpSymbol_new(const char *name);
 
 OperandSymbol*  OperandSymbol_new(const char *name, int index, Constructor *ct);
@@ -244,6 +246,7 @@ inline void         SleighSymbol_setCodeAddress(SleighSymbol *sym) {
 inline void         SleighSymbol_incrementRefCount(SleighSymbol *sym) {
     assert(sym->type == label_symbol);
 
+    sym->label.refcount++;
 }
 
 #define SleighSymbol_getName(sym)           sym->name 

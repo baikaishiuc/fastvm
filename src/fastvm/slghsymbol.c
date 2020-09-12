@@ -268,6 +268,15 @@ MacroSymbol*    MacroSymbol_new(const char *name, int i)
     return sym;
 }
 
+LabelSymbol*    LabelSymbol_new(const char *name, int i)
+{
+    LabelSymbol* sym = SleighSymbol_new(label_symbol, name);
+
+    sym->label.index = i;
+
+    return sym;
+}
+
 
 void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand)
 {

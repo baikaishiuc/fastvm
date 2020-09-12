@@ -129,7 +129,19 @@ void                PcodeCompile_delete(PcodeCompile *pcode)
 
 struct dynarray*    PcodeCompile_placeLabel(PcodeCompile *p, LabelSymbol *sym)
 {
-    return NULL;
+    if (sym->label.isplaced)
+        vm_error("%s:%d Label %s is placed more than once", basename(sym->filename), sym->lineno, sym->name);
+
+    sym->label.isplaced = true;
+    struct dynarray *res = dynarray_new(NULL, NULL);
+    OpTpl *op = OpTpl_new1(LABELBUILD);
+    VarnodeTpl *idvn = VarnodeTpl_new3(ConstTpl_newA(p->constantspace),
+                                        ConstTpl_new2(real, sym->label.index),
+                                        ConstTpl_new2(real, 4));
+    OpTpl_addInput(op, idvn);
+    dynarray_add(res, op);
+
+    return res;
 }
 
 VarnodeTpl*         PcodeCompile_buildTemporary(PcodeCompile *p)
@@ -359,11 +371,15 @@ struct dynarray*    PcodeCompile_createUserOpNoOut(PcodeCompile *p, UserOpSymbol
 
 LabelSymbol*        PcodeCompile_defineLabel(PcodeCompile *p, char *name)
 {
-    return NULL;
+    LabelSymbol *labsym = LabelSymbol_new(name, p->local_labelcount++);
+
+    p->addSymbol(p->slgh, labsym);
+    return labsym;
 }
 
 void                PcodeCompile_newLocalDefinition(PcodeCompile *p, char *name, uint32_t size)
 {
+    assert(NULL);
 }
 
 struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn, uint32_t bitoffset, uint32_t numbits, ExpTree *rhs)
