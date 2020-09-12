@@ -182,8 +182,14 @@ ConstTpl*   ConstTpl_new3(const_type tp, int4 ht, v_field vf)
 
 ConstTpl*   ConstTpl_new4(const_type tp, int4 ht, v_field vf, uintb plus)
 {
-    assert(NULL);
-    return NULL;
+    ConstTpl *c = vm_mallocz(sizeof(c[0]));
+
+    c->type = tp;
+    c->value.handle_index = ht;
+    c->select = vf;
+    c->value_real = plus;
+
+    return c;
 }
 
 void        ConstTpl_delete(ConstTpl *c)

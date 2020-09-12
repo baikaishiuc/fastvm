@@ -336,8 +336,13 @@ struct dynarray*    PcodeCompile_createStore(PcodeCompile *p, StarQuality *qual,
 
 ExpTree*            PcodeCompile_createUserOp(PcodeCompile *p, UserOpSymbol *sym, struct dynarray *param)
 {
-    assert(NULL);
-    return NULL;
+    VarnodeTpl *outvn = PcodeCompile_buildTemporary(p);
+    ExpTree *res = ExpTree_new();
+    res->ops = PcodeCompile_createUserOpNoOut(p, sym, param);
+    OpTpl *last = dynarray_back(res->ops);
+    OpTpl_setOutput(last, outvn);
+    res->outvn = VarnodeTpl_clone(outvn);
+    return res;
 }
 
 struct dynarray*    PcodeCompile_createUserOpNoOut(PcodeCompile *p, UserOpSymbol *sym, struct dynarray *params)

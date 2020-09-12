@@ -1132,10 +1132,11 @@ void slgh_cmp_macro_params(SleighCompile *s, MacroSymbol *sym, struct dynarray *
         e = params->ptab[i];
         vn = e->outvn;
         if (vn == 0) continue;
+        if (vn->offset->type != handle) continue;
 
         int hand = vn->offset->value.handle_index;
 
-        OperandSymbol *macrop = MacroSymbol_getOperand(sym, hand);
+        OperandSymbol *macrop = MacroSymbol_getOperand(sym, i);
         OperandSymbol *parentop;
         if (s->curct == NULL)
             parentop = MacroSymbol_getOperand(s->curmacro, hand);
