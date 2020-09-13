@@ -50,6 +50,9 @@ PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
         case context_symbol:
             return s->context.patval;
 
+        case epsilon_symbol:
+            return s->epsilon.patexp;
+
         default:
             vm_error("Cannot use symbol in pattern");
             return NULL;
@@ -233,9 +236,8 @@ EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc)
 
 EpsilonSymbol*  EpsilonSymbol_new(const char *name, AddrSpace *spc)
 {
-    EpsilonSymbol *sym = vm_mallocz(sizeof(sym[0]) + strlen(name));
+    EpsilonSymbol *sym = SleighSymbol_new(epsilon_symbol, name);
 
-    sym->type = epsilon_symbol;
     sym->epsilon.const_space = spc;
 
     return sym;

@@ -1231,6 +1231,8 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 
     if (sym && sym->filename)
         print_info("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
+    else if (sym)
+        print_info("find symbol:%s, type = %d\n", name, sym->type);
     else
         print_info("find symbol:%s\n", name);
     return sym;
