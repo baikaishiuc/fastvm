@@ -594,7 +594,7 @@ void            SleighCompile_checkSymbols(SleighCompile *s, SymbolScope *scope)
 
 bool MacroBuilder_transferOp(MacroBuilder *m, OpTpl *op, struct dynarray *params)
 {
-    /* 这个好像是把macro inline时*/
+    /* 这个好像是把macro inline时，把实际的参数替换形参 */
     VarnodeTpl *outvn = OpTpl_getOut(op);
     int handleIndex = 0;
     int i, plus;
@@ -619,23 +619,23 @@ bool MacroBuilder_transferOp(MacroBuilder *m, OpTpl *op, struct dynarray *params
         if (plus > 0) {
             if (hasrealsize)
                 vm_error("Problem with bit range operator in macro");
+
+            uintb newtemp = SleighCompile_getUniqueAddr(slgh);
+            OpTpl *subpieceop = OpTpl_new1(CPUI_SUBPIECE);
+            VarnodeTpl *newvn = VarnodeTpl_new3(ConstTpl_newA(slgh->uniqspace), ConstTpl_new2(real, newtemp),
+                                            ConstTpl_new2(real, realsize));
+            OpTpl_setOutput(subpieceop, newvn);
+            HandleTpl *hand = params->ptab[handleIndex];
+            VarnodeTpl *origvn = VarnodeTpl_new3(hand->space, hand->ptroffset, hand->size);
+            OpTpl_addInput(subpieceop, origvn);
+            VarnodeTpl *plusvn = VarnodeTpl_new3(ConstTpl_newA(slgh->constantspace), ConstTpl_new2(real, plus),
+                                                ConstTpl_new2(real, 4));
+            OpTpl_addInput(subpieceop, plusvn);
+            dynarray_add(m->outvec, subpieceop);
+
+            VarnodeTpl_delete(vn);
+            op->input.ptab[i] = newvn;
         }
-
-        uintb newtemp = SleighCompile_getUniqueAddr(slgh);
-        OpTpl *subpieceop = OpTpl_new1(CPUI_SUBPIECE);
-        VarnodeTpl *newvn = VarnodeTpl_new3(ConstTpl_newA(slgh->uniqspace), ConstTpl_new2(real, newtemp),
-                                        ConstTpl_new2(real, realsize));
-        OpTpl_setOutput(subpieceop, newvn);
-        HandleTpl *hand = params->ptab[handleIndex];
-        VarnodeTpl *origvn = VarnodeTpl_new3(hand->space, hand->ptroffset, hand->size);
-        OpTpl_addInput(subpieceop, origvn);
-        VarnodeTpl *plusvn = VarnodeTpl_new3(ConstTpl_newA(slgh->constantspace), ConstTpl_new2(real, plus),
-                                            ConstTpl_new2(real, 4));
-        OpTpl_addInput(subpieceop, plusvn);
-        dynarray_add(m->outvec, subpieceop);
-
-        VarnodeTpl_delete(vn);
-        op->input.ptab[i] = newvn;
     }
     dynarray_add(m->outvec, op);
     return true;
