@@ -382,10 +382,56 @@ void                PcodeCompile_newLocalDefinition(PcodeCompile *p, char *name,
     assert(NULL);
 }
 
-struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn, uint32_t bitoffset, uint32_t numbits, ExpTree *rhs)
+struct dynarray*    PcodeCompile_assignBitRange(PcodeCompile *p, VarnodeTpl *vn, int bitoffset, int numbits, ExpTree *rhs)
 {
-    assert(NULL);
-    return NULL;
+    int smallsize = (numbits + 7) / 8;
+    bool shiftneeded = (bitoffset != 0);
+    bool zextneeded = true;
+    //uintb mask = 2;
+    //mask = ~(((mask << (numbits - 1)) - 1) << bitoffset);
+    // 
+    // 原先的代码中用来计算mask，不知道为什么要把mask设置为2，然后在左移 numbits - 1
+    // 看起来  2 << (numbits - 1) == 1 << numbits
+    // 而且后面看起来更好懂
+    uintb mask = ~((((uintb)1 << numbits) - 1) << bitoffset);
+
+    if (vn->size->type == real) {
+        int symsize = (int)vn->size->value_real;
+        if (symsize > 0)
+            zextneeded = (symsize > smallsize);
+        symsize *= 8;
+        if ((bitoffset >= symsize) || ((bitoffset + numbits) > symsize))
+            vm_error("Assigned bitrange[%d:%d] is bad", bitoffset, numbits);
+        else if ((bitoffset == 0) && (numbits == symsize))
+            vm_error("Assigning to bitrange is superfluous");
+    }
+
+    PcodeCompile_forceSize(rhs->outvn, ConstTpl_new2(real, smallsize), rhs->ops);
+
+    ExpTree *res;
+    VarnodeTpl *finalout = PcodeCompile_buildTruncatedVarnode(p, vn, bitoffset, numbits);
+    if (finalout) {
+        res = PcodeCompile_createOpOut(p, finalout, CPUI_COPY, rhs);
+    }
+    else {
+        if ((bitoffset + numbits) > 64)
+            vm_error("Assigned bitrange extends pass first 64 bits");
+
+        res = ExpTree_newV(vn);
+        PcodeCompile_appendOp(p, CPUI_INT_AND, res, mask, 0);
+        if (zero_extend)
+            PcodeCompile_createOp(p, CPUI_INT_ZEXT, rhs);
+        if (shiftneeded)
+            PcodeCompile_appendOp(p, CPUI_INT_LEFT, rhs, bitoffset, 4);
+
+        finalout = VarnodeTpl_clone(vn);
+        res = PcodeCompile_createOp2Out(p, finalout, CPUI_INT_OR, res, rhs);
+    }
+
+    struct dynarray *resops = res->ops;
+    res->ops = NULL;
+    ExpTree_delete(res);
+    return resops;
 }
 
 VarnodeTpl*         PcodeCompile_buildTruncatedVarnode(PcodeCompile *p, VarnodeTpl *basevn, int bitoffset, int numbits)
