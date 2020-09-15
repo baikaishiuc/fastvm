@@ -1426,7 +1426,7 @@ int                 slgh_run(SleighCompile *s, const char *filein, const char *f
     FILE *out = fopen(fileout, "w");
     if (!out)
         vm_error("fopen(%s) failure", fileout);
-    slgh->saveXml(s, out);
+    //slgh->saveXml(s, out);
     fclose(out);
 
     yylex_destroy();
