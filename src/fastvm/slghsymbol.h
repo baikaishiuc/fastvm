@@ -91,6 +91,12 @@ struct SleighSymbol {
         } value;
 
         struct {
+            PatternValue *patval;
+            struct dynarray valuetable;
+            bool tableisfilled;
+        } valuemap;
+
+        struct {
             uint32_t    reloffset;
             int32_t     offsetbase;     
             int32_t     minimumlength;
@@ -221,6 +227,8 @@ VarnodeTpl*     StartSymbol_getVarnode(StartSymbol *sym);
 VarnodeTpl*     EndSymbol_getVarnode(EndSymbol *sym);
 VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
 
+void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o);
+
 #define OperandSymbol_getDefiningSymbol(s) (((s)->type == operand_symbol) ? s->operand.triple:NULL)
 
 
@@ -285,6 +293,7 @@ SleighSymbol*   SymbolTable_findSymbolSkip(SymbolTable *s, const char *name, int
 SleighSymbol*   SymbolTable_findGlobalSymbol(SymbolTable *s, const char *name);
 SleighSymbol*   SymbolTable_findSymbolById(SymbolTable *s, int id);
 void            SymbolTable_replaceSymbol(SymbolTable *s, SleighSymbol *a, SleighSymbol *b);
+void            SymbolTable_saveXml(SymbolTable *s, FILE *o);
 
 struct Constructor {
     TokenPattern *pattern;

@@ -178,8 +178,11 @@ struct SleighCompile {
     MacroSymbol*        curmacro;
     bool                contextlock;
 
-
     void(*saveXml)(SleighCompile *s, FILE *out);
+
+    struct {
+        bool     parse;
+    } debug;
 };
 
 typedef enum SleighArchType {
@@ -196,8 +199,7 @@ typedef struct SleighCompileClass {
     char name[1];
 } SleighCompileClass;
 
-
-SleighCompile*  SleighCompile_new();
+SleighCompile*  SleighCompile_new(int debug);
 void            SleighCompile_delete(SleighCompile *s);
 
 SleighCompile*  SleighArch_register();

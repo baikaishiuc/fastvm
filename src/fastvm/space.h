@@ -79,7 +79,7 @@ struct AddrSpace {
 #define AddrSpace_getShortcut(a)            (a)->shortcut
 #define AddrSpace_isHeritaged(a)            ((a)->flags & heritaged)
 #define AddrSpace_doesDeadCode(a)           ((a)->flags & does_deadcode)
-#define AddrSpace_hasPhysical(a)            ((a)->flags & hashpysical)
+#define AddrSpace_hasPhysical(a)            ((a)->flags & hasphysical)
 #define AddrSpace_isBigEndian(a)            ((a)->flags & big_endian)
 #define AddrSpace_isReverseJustified(a)     ((a)->flags & reverse_justification)
 #define AddrSpace_isOverlay(a)              ((a)->flags & overlay)
@@ -92,6 +92,8 @@ void                AddrSpace_delete(AddrSpace *a);
 ConstantSpace*      ConstantSpace_new(void *m, const char *name, int ind);
 OtherSpace*         OtherSpace_new(void *m, const char *name, int ind);
 UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl);
+
+void                AddrSpace_saveXml(AddrSpace *a, FILE *o);
 
 /* 这个函数我有点看不懂，他的地址的单位是wordsize大小的单元 */
 #define AddrSpace_byteToAddress(val,ws)             val/ws

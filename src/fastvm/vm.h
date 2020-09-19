@@ -313,4 +313,26 @@ void                cstr_delete(CString *cstr);
 char* str_new(char *src, int len);
 void str_free(char *);
 
+void xml_escape_out(FILE *o, const char *str);
+
+inline void a_v(FILE *o, const char *attr, const char *val)
+{
+    fprintf(o, " %s=\"%s\"", attr, val);
+}
+
+inline void a_v_i(FILE *o, const char *attr, intb val)
+{
+    fprintf(o, " %s=\"%lld\"", attr, val);
+}
+
+inline void a_v_u(FILE *o, const char *attr, uintb val)
+{
+    fprintf(o, " %s=\"0x%llx\"", attr, val);
+}
+
+inline void a_v_b(FILE *o, const char *attr, bool val)
+{
+    fprintf(o, " %s=\"%s\"", attr, val?"true":"false");
+}
+
 #endif

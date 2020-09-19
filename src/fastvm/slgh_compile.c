@@ -1,5 +1,8 @@
 ﻿
 #include "slgh_compile.h"
+#include "mxml/mxml.h"
+
+#define SLA_FORMAT_VERSION      2
 
 SleighCompile *slgh = NULL;
 extern int yydebug;
@@ -149,13 +152,15 @@ void            SectionVector_append(SectionVector *sv, ConstructTpl *rtl, Symbo
 
 }
 
-SleighCompile*  SleighCompile_new()
+SleighCompile*  SleighCompile_new(int debug)
 {
     SleighCompile *slgh = vm_mallocz(sizeof (slgh[0]));
 
     slgh->symtab = SymbolTable_new();
 
     slgh->pcode = PcodeCompile_new(slgh, SleighCompile_getUniqueAddr, SleighCompile_addSymbol);
+
+    slgh->debug.parse = debug;
 
     return slgh;
 }
@@ -1229,12 +1234,14 @@ SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
     SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
 
-    if (sym && sym->filename)
-        print_info("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
-    else if (sym)
-        print_info("find symbol:%s, type = %d\n", name, sym->type);
-    else
-        print_info("find symbol:%s\n", name);
+    if (s->debug.parse) {
+        if (sym && sym->filename)
+            print_info("%s:%d sym->name = %s, type = %s\n", basename(sym->filename), sym->lineno, sym->name, SymbolTypeStr(sym->type));
+        else if (sym)
+            print_info("find symbol:%s, type = %d\n", name, sym->type);
+        else
+            print_info("find symbol:%s\n", name);
+    }
     return sym;
 }
 
@@ -1244,7 +1251,8 @@ void                SleighCompile_nextLine(SleighCompile *s)
 
     proc->lineno++;
 
-    printf("*****scan %s line %d\n", basename(proc->fullpath.data), proc->lineno);
+    if (s->debug.parse)
+        printf("*****scan %s line %d\n", basename(proc->fullpath.data), proc->lineno);
 }
 
 int                 SleighCompile_calcContextVarLayout(SleighCompile *s, int start, int sz, int numbits)
@@ -1397,6 +1405,41 @@ void    SleighCompile_process(SleighCompile *s)
     if (s->errors > 0) return;
 }
 
+void    SleighCompile_saveXml(SleighCompile *s, FILE *o)
+{
+    int i;
+    fprintf(o, "<sleigh");
+    a_v_i(o, "version", SLA_FORMAT_VERSION);
+    a_v_b(o, "bigendian", s->bigendian);
+    a_v_i(o, "align", s->alignment);
+    a_v_u(o, "uniqbase", s->unique_base);
+    if (s->maxdelayslotbytes)
+        a_v_u(o, "maxdelay", s->maxdelayslotbytes);
+    if (s->unique_allocatemask)
+        a_v_u(o, "uniqmask", s->unique_allocatemask);
+    if (s->numSections)
+        a_v_u(o, "numSections", s->numSections);
+    fprintf(o, ">\n");
+
+    fprintf(o, "<spaces");
+    a_v(o, "defaultspace", s->defaultcodespace->name);
+    fprintf(o, ">\n");
+
+    for (i = 0; i < s->baselist.len; i++) {
+        AddrSpace *spc = s->baselist.ptab[i];
+        if (!spc) continue;
+        if ((spc->type == IPTR_CONSTANT)
+            || (spc->type == IPTR_FSPEC)
+            || (spc->type == IPTR_IOP)
+            || (spc->type == IPTR_JOIN))
+            continue;
+
+        AddrSpace_saveXml(spc, o);
+    }
+    fprintf(o, "</spaces>\n");
+    fprintf(o, "</sleigh>\n");
+}
+
 static char help[] = {
     "USAGE: sleigh [-x] [-dNAME=VALUE] inputfile [outputfile]\n" 
     "   -a              scan for all slaspec files recursively where inputfile is a directory\n" 
@@ -1426,7 +1469,7 @@ int                 slgh_run(SleighCompile *s, const char *filein, const char *f
     FILE *out = fopen(fileout, "w");
     if (!out)
         vm_error("fopen(%s) failure", fileout);
-    //slgh->saveXml(s, out);
+    SleighCompile_saveXml(s, out);
     fclose(out);
 
     yylex_destroy();

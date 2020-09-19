@@ -379,3 +379,17 @@ char* str_new(char *src, int len)
 void str_free(char *s)
 {
 }
+
+void xml_escape_out(FILE *o, const char *str)
+{
+    for (; *str; str++) {
+        if (*str == '<')    fprintf(o, "&lt;");
+        else if (*str == '>')    fprintf(o, "&gt;");
+        else if (*str == '&')    fprintf(o, "&amp;");
+        else if (*str == '"')    fprintf(o, "&quot;");
+        else if (*str == '\'')    fprintf(o, "&apos;");
+        else
+            fputc(*str, o);
+
+    }
+}

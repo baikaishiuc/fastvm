@@ -78,6 +78,26 @@ UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl)
     return spc;
 }
 
+void                AddrSpace_saveXmlAttr(AddrSpace *a, FILE *o)
+{
+    a_v(o, "name", a->name);
+    a_v_i(o, "index", a->index);
+    a_v_b(o, "bigendian", AddrSpace_isBigEndian(a));
+    a_v_i(o, "delay", a->delay);
+    if (a->delay != a->deadcodedelay)
+        a_v_i(o, "deadcodedelay", a->deadcodedelay);
+    a_v_i(o, "size", a->addrsize);
+    if (a->wordsize > 1) a_v_i(o, "wordsize", a->wordsize);
+    a_v_b(o, "physical", AddrSpace_hasPhysical(a));
+}
+
+void                AddrSpace_saveXml(AddrSpace *a, FILE *o)
+{
+    fprintf(o, "<space");
+    AddrSpace_saveXmlAttr(a, o);
+    fprintf(o, "/>\n");
+}
+
 uintb  AddrSpace_wrapOffset(AddrSpace *s, uintb off)
 {
     if (off <= s->highest)

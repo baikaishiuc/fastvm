@@ -13,5 +13,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 include_directories(${PROJECT_SOURCE_DIR}/src/)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/mcore)
+add_subdirectory(${PROJECT_SOURCE_DIR}/src/mxml)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/fastvm)
 
