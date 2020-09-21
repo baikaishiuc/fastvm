@@ -112,6 +112,7 @@ struct PatternExpression {
 
 PatternExpression*  PatternExpression_new(int type, ...);
 void                PatternExpression_delete(PatternExpression *p);
+void                PatternExpression_saveXml(PatternExpression *p, FILE *o);
 
 ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);

@@ -1005,6 +1005,7 @@ Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSy
     s->curmacro = NULL;
     s->curct = Constructor_newS(sym);
     s->curct->lineno = slgh_lineno(s);
+    s->curct->filename = basename(slgh_filename(s));
     // ctorLocationMap[curct] = *getCurrentLocation();
     SubtableSymbol_addConstructor(sym, s->curct);
     SymbolTable_addScope(s->symtab);
@@ -1437,6 +1438,7 @@ void    SleighCompile_saveXml(SleighCompile *s, FILE *o)
         AddrSpace_saveXml(spc, o);
     }
     fprintf(o, "</spaces>\n");
+    SymbolTable_saveXml(s->symtab, o);
     fprintf(o, "</sleigh>\n");
 }
 

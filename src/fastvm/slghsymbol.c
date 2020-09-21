@@ -104,6 +104,37 @@ void            Constructor_delete(Constructor *c)
 
 void            Constructor_addSyntax(Constructor *c, const char *syn)
 {
+    int i, len;
+    bool hasNonSpace = false;
+    char *syntrim;
+    CString *back;
+
+    if (!syn || !syn[0]) return;
+
+    len = strlen(syn);
+    for (i = 0; i < len; i++) {
+        if (syn[i] != ' ') {
+            hasNonSpace = true;
+            break;
+        }
+    }
+
+    if (hasNonSpace)
+        syntrim = (char *)syn;
+    else
+        syntrim = " ";
+    if ((c->firstwhitespace == -1) && !strcmp(syntrim, " "))
+        c->firstwhitespace = c->printpiece.len;
+    if (!c->printpiece.len)
+        dynarray_add(&c->printpiece, cstr_new(syntrim, strlen(syntrim)));
+    else if ((back = dynarray_back(&c->printpiece)) && !strcmp(back->data, " ") && !strcmp(syntrim, " ")) {
+    }
+    else if (back->data[0] == '\n' || !strcmp(back->data, " ") || !strcmp(syntrim, " ")) {
+        dynarray_add(&c->printpiece, cstr_new(syntrim, strlen(syntrim)));
+    }
+    else {
+        cstr_cat(back, syntrim, strlen(syntrim));
+    }
 }
 
 void            Constructor_markSubtableOperands(Constructor *c, struct dynarray *check)
@@ -504,10 +535,8 @@ SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scop
 
 void            SymbolTable_addScope(SymbolTable *s)
 {
-    SymbolScope *scope;
+    SymbolScope *scope = SymbolScope_new(s->curscope, s->table.len);;
 
-    scope = vm_mallocz(sizeof(struct SymbolScope));
-    scope->parent = s->curscope;
     s->curscope = scope;
     dynarray_add(&s->table, s->curscope);
 }
@@ -668,6 +697,13 @@ void            SymbolTable_saveXml(SymbolTable *s, FILE *o)
     }
 
     for (i = 0; i < s->symbolist.len; i++) {
+        SleighSymbol *sym = s->symbolist.ptab[i];
+        SleighSymbol_saveXmlHeader(sym, o);
+    }
+
+    for (i = 0; i < s->symbolist.len; i++) {
+        SleighSymbol *sym = s->symbolist.ptab[i];
+        SleighSymbol_saveXml(sym, o);
     }
 
     fprintf(o, "</symbol_table>\n");
@@ -730,6 +766,23 @@ void            ContextChange_delete(ContextChange *cc)
     vm_free(cc);
 }
 
+void            ContextChange_saveXml(ContextChange *cc, FILE *o)
+{
+    if (cc->type == context_op) {
+        fprintf(o, "<context_op i=\"%d\" shift=\"%d\" mask=\"0x%x\"", cc->op.num, cc->op.shift, cc->op.mask);
+        PatternExpression_saveXml(cc->op.patexp, o);
+        fprintf(o, "</context_op>\n");
+    }
+    else { // context_commit
+        fprintf(o, "<commit ");
+        a_v_u(o, "id", cc->commit.sym->id);
+        a_v_i(o, "num", cc->commit.num);
+        a_v_u(o, "mask", cc->commit.mask);
+        a_v_b(o, "flow", cc->commit.flow);
+        fprintf(o, "/>\n");
+    }
+}
+
 void            SleighSymbol_saveXmlHeaderAttr(SleighSymbol *s, FILE *o)
 {
     fprintf(o, " name=\"%s\"", s->name);
@@ -739,25 +792,26 @@ void            SleighSymbol_saveXmlHeaderAttr(SleighSymbol *s, FILE *o)
 
 void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o)
 {
-    fprintf(o, "<");
     switch (s->type) {
-    case userop_symbol:         fprintf(o, "userop_head");          break;
-    case epsilon_symbol:        fprintf(o, "epsilon_sym_head");     break;
-    case value_symbol:          fprintf(o, "value_sym_head");       break;
-    case valuemap_symbol:       fprintf(o, "valuemap_sym_head");    break;
-    case name_symbol:           fprintf(o, "name_sym_head");        break;
-    case varnode_symbol:        fprintf(o, "varnode_sym_head");     break;
-    case context_symbol:        fprintf(o, "context_sym_head");     break;
-    case varnodelist_symbol:    fprintf(o, "varlist_sym_head");     break;
-    case operand_symbol:        fprintf(o, "operand_sym_head");     break;
-    case start_symbol:          fprintf(o, "start_sym_head");       break;
-    case end_symbol:            fprintf(o, "end_sym_head");         break;
-    case flow_dest_symbol:      fprintf(o, "flowdest_sym_head");    break;
-    case flow_ref_symbol:       fprintf(o, "flowref_sym_head");     break;
-    case subtable_symbol:       fprintf(o, "subtable_sym_head");    break;
-
-    default:
-        vm_error("un-support sym type[%d]", s->type);
+    case space_symbol:          fprintf(o, "<space_sym_head");      break;
+    case userop_symbol:         fprintf(o, "<userop_head");         break;
+    case epsilon_symbol:        fprintf(o, "<epsilon_sym_head");    break;
+    case value_symbol:          fprintf(o, "<value_sym_head");      break;
+    case valuemap_symbol:       fprintf(o, "<valuemap_sym_head");   break;
+    case name_symbol:           fprintf(o, "<name_sym_head");       break;
+    case varnode_symbol:        fprintf(o, "<varnode_sym_head");    break;
+    case context_symbol:        fprintf(o, "<context_sym_head");    break;
+    case varnodelist_symbol:    fprintf(o, "<varlist_sym_head");    break;
+    case operand_symbol:        fprintf(o, "<operand_sym_head");    break;
+    case start_symbol:          fprintf(o, "<start_sym_head");      break;
+    case end_symbol:            fprintf(o, "<end_sym_head");        break;
+    case flow_dest_symbol:      fprintf(o, "<flowdest_sym_head");   break;
+    case flow_ref_symbol:       fprintf(o, "<flowref_sym_head");    break;
+    case subtable_symbol:       fprintf(o, "<subtable_sym_head");   break;
+    default: 
+        //vm_error("unknown symbol type[%d]", s->type);
+        //break;
+        return;
     }
 
     SleighSymbol_saveXmlHeaderAttr(s, o);
@@ -769,18 +823,34 @@ void        Constructor_saveXml(Constructor *ct, FILE *o)
 {
     int i;
     fprintf(o, "<constructor");
-    fprintf(o, " parent=\"0x%x\"", ct->parent->id);
+    fprintf(o, "parent=\"0x%x\"", ct->parent->id);
     fprintf(o, " first=\"%d\"", ct->firstwhitespace);
     fprintf(o, " lenght=\"%d\"", ct->minimumlength);
     fprintf(o, " line=\"%d\"", ct->lineno);
+    fprintf(o, " filename=\"%s\">\n", ct->filename);
     for (i = 0; i < ct->operands.len; i++) {
         OperandSymbol *sym = ct->operands.ptab[i];
-        fprintf(o, "<oper id=\"0x%x\" />\n", sym->id);
+        fprintf(o, "\t<operand id=\"0x%x\" name=\"%s\"/>\n", sym->id, sym->name);
     }
 
     for (i = 0; i < ct->printpiece.len; i++) {
         CString *cs = ct->printpiece.ptab[i];
+
+        if (cs->data[0] == '\n') {
+            int index = cs->data[1] - 'A';
+            fprintf(o, "\t<opprint id=\"%d\" />\n", index);
+        }
+        else {
+            fprintf(o, "\t<print piece=\"");
+            xml_escape_out(o, cs->data);
+            fprintf(o, "\"/>\n");
+        }
     }
+    for (i = 0; i < ct->context->size; i++) {
+        struct ContextChange *cc = ct->context->ptab[i];
+        ContextChange_saveXml(cc, o);
+    }
+    fprintf(o, "</constructor>\n");
 }
 
 void        DecisionNode_saveXml(DecisionNode *d, FILE *o)
@@ -790,34 +860,39 @@ void        DecisionNode_saveXml(DecisionNode *d, FILE *o)
 void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
 {
     int i;
-    fprintf(o, "<");
     switch (s->type) {
+    case space_symbol:
+        fprintf(o, "<space_sym");       
+        SleighSymbol_saveXmlHeaderAttr(s, o);
+        fprintf(o, "/>\n");
+        break;
+
     case userop_symbol:     
-        fprintf(o, "userop");       
+        fprintf(o, "<userop");       
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case epsilon_symbol:    
-        fprintf(o, "epsilon_sym");  
+        fprintf(o, "<epsilon_sym");  
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case value_symbol:
-        fprintf(o, "value_sym");
+        fprintf(o, "<value_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, ">\n");
 
-        SleighSymbol_saveXml(s->value.patval, o);
+        PatternExpression_saveXml(s->value.patval, o);
         fprintf(o, "</value_sym>\n");
         break;
 
     case valuemap_symbol:
-        fprintf(o, "valuemap_sym");
+        fprintf(o, "<valuemap_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, ">\n");
-        SleighSymbol_saveXml(s->valuemap.patval, o);
+        PatternExpression_saveXml(s->valuemap.patval, o);
         for (i = 0; i < s->valuemap.valuetable.len; i++) {
             fprintf(o, "<valuetab val=\"%lld\"/>\n", *((intb *)(s->valuemap.valuetable.ptab[i])));
         }
@@ -825,10 +900,10 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         break;
 
     case name_symbol:
-        fprintf(o, "name_sym");
+        fprintf(o, "<name_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, ">\n");
-        SleighSymbol_saveXml(s->nameS.patval, o);
+        PatternExpression_saveXml(s->nameS.patval, o);
         for (i = 0; i < s->nameS.nametable->len; i++) {
             CString *cs = s->nameS.nametable->ptab[i];
             if (cs && cs->size) {
@@ -842,7 +917,7 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         break;
 
     case varnode_symbol:
-        fprintf(o, "varnode_sym");
+        fprintf(o, "<varnode_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, " space=\"%s\"", s->varnode.fix.space->name);
         fprintf(o, " offset=\"0x%llx\"", s->varnode.fix.offset);
@@ -852,26 +927,26 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         break;
 
     case context_symbol:
-        fprintf(o, "context_sym");
+        fprintf(o, "<context_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
-        fprintf(o, " varnode=\"0x%llx\"", s->context.vn->id);
+        fprintf(o, " varnode=\"0x%x\"", s->context.vn->id);
         fprintf(o, " low=\"%d\"", s->context.low);
         fprintf(o, " high=\"%d\"", s->context.high);
         a_v_b(o, "flow", s->context.flow);
         fprintf(o, ">\n");
-        SleighSymbol_saveXml(s->context.patval, o);
+        PatternExpression_saveXml(s->context.patval, o);
         fprintf(o, "</context_sym>\n");
         break;
 
     case varnodelist_symbol:
-        fprintf(o, "varlist_sym");
+        fprintf(o, "<varlist_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, ">\n");
-        SleighSymbol_saveXml(s->varnodeList.patval, o);
+        PatternExpression_saveXml(s->varnodeList.patval, o);
         for (i = 0; i < s->varnodeList.varnode_table.len; i++) {
             VarnodeSymbol *var = s->varnodeList.varnode_table.ptab[i];
             if (var)
-                fprintf(o, "<var id=\"0x%llx\" />\n", s->varnodeList.varnode_table.ptab[i]);
+                fprintf(o, "<var id=\"0x%x\" />\n", var->id);
             else
                 fprintf(o, "<null/>\n");
         }
@@ -879,47 +954,47 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         break;
 
     case operand_symbol:
-        fprintf(o, "operand_sym");
+        fprintf(o, "<operand_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         if (s->operand.triple)
-            fprintf(o, " subsym=\"0x%llx\"", s->operand.triple->id);
+            fprintf(o, " subsym=\"0x%x\"", s->operand.triple->id);
         fprintf(o, " off=\"%d\"", s->operand.reloffset);
         fprintf(o, " base=\"%d\"", s->operand.offsetbase);
         fprintf(o, " minlen=\"%d\"", s->operand.minimumlength);
         a_v_b(o, "code", OperandSymbol_isCodeAddress(s));
-        fprintf(s, " index=\"%d\"", s->operand.hand);
-        SleighSymbol_saveXml(s->operand.localexp, o);
+        fprintf(o, " index=\"%d\"", s->operand.hand);
+        PatternExpression_saveXml(s->operand.localexp, o);
         if (s->operand.defexp)
-            SleighSymbol_saveXml(s->operand.defexp, o);
-        fprintf(s, "</operand_sym>");
+            PatternExpression_saveXml(s->operand.defexp, o);
+        fprintf(o, "</operand_sym>");
         break;
 
     case start_symbol:
-        fprintf(o, "start_sym");
+        fprintf(o, "<start_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case end_symbol:
-        fprintf(o, "end_sym");
+        fprintf(o, "<end_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case flow_dest_symbol:
-        fprintf(o, "flowdest_sym");
+        fprintf(o, "<flowdest_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case flow_ref_symbol:
-        fprintf(o, "flowref_sym");
+        fprintf(o, "<flowref_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, "/>\n");
         break;
 
     case subtable_symbol:
-        fprintf(o, "subtable_sym");
+        fprintf(o, "<subtable_sym");
         SleighSymbol_saveXmlHeaderAttr(s, o);
         fprintf(o, " numct=\"%d\" >\n", s->subtable.construct.len);
         for (i = 0; i < s->subtable.construct.len; i++) {
@@ -930,6 +1005,8 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         break;
 
     default:
-        vm_error("un-support sym type[%d]", s->type);
+        return;
+        //vm_error("unknown sym type[%d]", s->type);
+        //break;
     }
 }

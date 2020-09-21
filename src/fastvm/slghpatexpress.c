@@ -58,6 +58,12 @@ void                PatternExpression_delete(PatternExpression *p)
     vm_free(p);
 }
 
+void                PatternExpression_saveXml(PatternExpression *p, FILE *o)
+{
+    switch (p->type) {
+    }
+}
+
 PatternEquation*    PatternEquation_new(int type, ...)
 {
     PatternEquation *pe = vm_mallocz(sizeof(pe[0]));

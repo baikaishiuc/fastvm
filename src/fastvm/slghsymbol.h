@@ -228,6 +228,7 @@ VarnodeTpl*     EndSymbol_getVarnode(EndSymbol *sym);
 VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
 
 void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o);
+void            SleighSymbol_saveXml(SleighSymbol *s, FILE *o);
 
 #define OperandSymbol_getDefiningSymbol(s) (((s)->type == operand_symbol) ? s->operand.triple:NULL)
 
@@ -309,6 +310,7 @@ struct Constructor {
     int firstwhitespace;
     int flowthruindex;
     int lineno;
+    char *filename;
     bool inerror;
 };
 
@@ -323,6 +325,7 @@ void            Constructor_addEquation(Constructor *c, PatternEquation *pe);
 void            Constructor_removeTrailingSpace(Constructor *c);
 void            Constructor_addInvisibleOperand(Constructor *c, OperandSymbol *sym);
 void            Constructor_addOperand(Constructor *c, OperandSymbol *sym);
+void            Constructor_saveXml(Constructor *ct, FILE *o);
 #define Constructor_getParent(ct)           (ct)->parent
 #define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
 
@@ -355,9 +358,9 @@ ContextCommit*  ContextCommit_new(TripleSymbol *s, int sbit, int ebit, bool fl);
 
 ContextChange*  ContextChange_clone(ContextChange *cc);
 
-
 void            ContextChange_delete(ContextChange *cc);
 
+void            ContextChange_saveXml(ContextChange *cc, FILE *o);
 
 
 #ifdef __cplusplus
