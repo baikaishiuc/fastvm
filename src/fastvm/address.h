@@ -82,7 +82,10 @@ inline Address* Address_add(Address *op1, int off)
     return Address_new1(op1->base, AddrSpace_wrapOffset(op1->base, off));
 }
 
+
+void        sign_extend(intb *val, int bit);
 void        zero_extend(intb *val, int bit);
+void        byte_swap(intb *val, int size);
 
 #ifdef __cplusplus
 }

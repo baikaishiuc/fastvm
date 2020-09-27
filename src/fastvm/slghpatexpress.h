@@ -9,7 +9,6 @@ extern "C" {
 #include "slghpattern.h"
 #include "slghsymbol.h"
 
-typedef struct Constructor  Constructor;
 typedef struct TokenPattern TokenPattern;
 
 struct TokenPattern {
@@ -75,6 +74,7 @@ struct PatternExpression {
 
         PatternValue *value;
 
+        /* tokenField看起来不允许超过64位 */
         struct {
             Token *tok;
             bool bigendian;
@@ -113,6 +113,7 @@ struct PatternExpression {
 PatternExpression*  PatternExpression_new(int type, ...);
 void                PatternExpression_delete(PatternExpression *p);
 void                PatternExpression_saveXml(PatternExpression *p, FILE *o);
+intb                PatternExpression_getValue(PatternExpression *pe, ParserWalker *walker);
 
 ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
@@ -120,6 +121,7 @@ ConstantValue*      ConstantValue_newB(intb b);
 ContextField*       ContextField_new(bool s, int sbit, int ebit);
 
 TokenField*         TokenField_new(Token *tk, bool s, int bstart, int bend);
+#define TokenField_getValue     PatternExpression_getValue
 
 
 StartInstructionValue*  StartInstructionValue_new();

@@ -233,6 +233,153 @@ TokenField*         TokenField_new(Token *tk, bool s, int bstart, int bend)
     return t;
 }
 
+static intb     getInstructionBytes(ParserWalker *walker, int bytestart, int byteend, bool bigendian)
+{
+    intb res = 0;
+    uintm tmp;
+    int size, tmpsize;
+
+    size = byteend - bytestart + 1;
+    tmpsize = size;
+
+    while (tmpsize >= sizeof(uintm)) {
+        tmp = ParserWalker_getInstructionBytes(walker, bytestart, sizeof(uintm));
+        res <<= 8 * sizeof(uintm);
+        res |= tmp;
+        bytestart += sizeof(uintm);
+        tmpsize -= sizeof(uintm);
+    }
+    if (tmpsize > 0) {
+        tmp = ParserWalker_getInstructionBytes(walker, bytestart, tmpsize);
+        res <<= 8 * tmpsize;
+        res |= tmp;
+    }
+
+    if (!bigendian)
+        byte_swap(&res, size);
+
+    return res;
+}
+
+static intb getContextBytes(ParserWalker *walker, int bytestart, int byteend)
+{
+    intb res = 0;
+    uintm tmp = 0;
+    int size;
+
+    size = byteend - bytestart + 1;
+    while (size >= sizeof(uintm)) {
+        tmp = ParserWalker_getContextBytes(walker, bytestart, sizeof(uintm));
+        res <<= 8 * sizeof(uintm);
+        res |= tmp;
+        bytestart += sizeof(uintm);
+        size = byteend - bytestart + 1;
+    }
+    if (size > 0) {
+        tmp = ParserWalker_getContextBytes(walker, bytestart, size);
+        res <<= 8 * size;
+        res |= tmp;
+    }
+
+    return res;
+}
+
+intb                PatternExpression_getValue(PatternExpression *pe, ParserWalker *walker)
+{
+    intb res, left, right;
+    OperandSymbol *sym;
+
+    switch (pe->type) {
+    case a_tokenField:
+        res = getInstructionBytes(walker, pe->tokenField.bytestart, pe->tokenField.byteend, pe->tokenField.bigendian);
+
+        res >>= pe->tokenField.shift;
+        if (pe->tokenField.signbit)
+            sign_extend(&res, pe->tokenField.bitend - pe->tokenField.bitstart);
+        else
+            zero_extend(&res, pe->tokenField.bitend - pe->tokenField.bitstart);
+
+        return res;
+
+    case a_contextField:
+        res = getContextBytes(walker, pe->contextField.startbyte, pe->contextField.endbyte);
+        res >>= pe->contextField.shift;
+        if (pe->contextField.shift)
+            sign_extend(&res, pe->contextField.endbit - pe->contextField.startbit);
+        else
+            zero_extend(&res, pe->contextField.endbit - pe->contextField.startbit);
+        return res;
+
+    case a_operandValue:
+        sym = pe->operandValue.ct->operands.ptab[pe->operandValue.index];
+        PatternExpression *patexp = sym->operand.defexp;
+        if (!patexp) {
+            TripleSymbol *defsym = sym->operand.triple;
+            if (defsym)
+                patexp = SleighSymbol_getPatternExpression(defsym);
+            if (!patexp)
+                return 0;
+        }
+        ConstructState tempstate;
+        ParserWalker *newwalker = ParserWalker_new(walker->const_context);
+        ParserWalker_setOutOfBandState(newwalker, pe->operandValue.ct, pe->operandValue.index, &tempstate, walker);
+        intb res = PatternExpression_getValue(patexp, newwalker);
+        return res;
+
+    case a_subExp:
+        left = PatternExpression_getValue(pe->sub.left, walker);
+        right = PatternExpression_getValue(pe->sub.right, walker);
+        return left - right;
+
+    case a_multExp:
+        left = PatternExpression_getValue(pe->mult.left, walker);
+        right = PatternExpression_getValue(pe->mult.right, walker);
+        return left * right;
+
+    case a_leftShiftExp:
+        left = PatternExpression_getValue(pe->leftShift.left, walker);
+        right = PatternExpression_getValue(pe->leftShift.right, walker);
+        return left << right;
+
+    case a_rightShiftExp:
+        left = PatternExpression_getValue(pe->rightShfit.left, walker);
+        right = PatternExpression_getValue(pe->rightShfit.right, walker);
+        return left << right;
+
+    case a_andExp:
+        left = PatternExpression_getValue(pe->and.left, walker);
+        right = PatternExpression_getValue(pe->and.right, walker);
+        return left & right;
+
+    case a_orExp:
+        left = PatternExpression_getValue(pe->or.left, walker);
+        right = PatternExpression_getValue(pe->or.right, walker);
+        return left | right;
+
+    case a_xorExp:
+        left = PatternExpression_getValue(pe->xor.left, walker);
+        right = PatternExpression_getValue(pe->xor.right, walker);
+        return left ^ right;
+
+    case a_divExp:
+        left = PatternExpression_getValue(pe->div.left, walker);
+        right = PatternExpression_getValue(pe->div.right, walker);
+        return left / right;
+
+    case a_minusExp:
+        res = PatternExpression_getValue(pe->minus.unary, walker);
+        return -res;
+
+    case a_notExp:
+        res = PatternExpression_getValue(pe->not.unary, walker);
+        return ~res;
+
+    default:
+        vm_error("not support expression type[%d]", pe->type);
+        return 0;
+    }
+}
+
 OperandEquation*    OperandEquation_new(int index)
 {
     OperandEquation *eq = vm_mallocz(sizeof(eq[0]));

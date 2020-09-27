@@ -14,15 +14,16 @@ extern "C" {
 #define VARIABLE_LEN            0x04
 #define MARKED                  0x08
 
-typedef struct SleighSymbol SleighSymbol, SpaceSymbol, TokenSymbol, SectionSymbol, UserOpSymbol, TripleSymbol, FamilySymbol,
-PatternlessSymbol, EpsilonSymbol, ValueSymbol, ValueMapSymbol, NameSymbol, VarnodeSymbol, BitRangeSymbol,
-ContextSymbol, VarnodeListSymbol, OperandSymbol, StartSymbol, EndSymbol, MacroSymbol, SubtableSymbol, LabelSymbol,
-BitrangeSymbol, SpecificSymbol;
-
 typedef struct SymbolTable  SymbolTable;
 typedef struct SymbolScope  SymbolScope;
 typedef struct DecisionNode DecisionNode;
 typedef struct ContextChange ContextChange, ContextOp, ContextCommit;
+typedef struct DecisionProperties DecisionProperties;
+
+struct DecisionProperties {
+    struct dynarray         identerrors;
+    struct dynarray         conflicterrors;
+};
 
 struct DecisionNode {
     struct dynarray list;
@@ -190,6 +191,7 @@ SleighSymbol*   SectionSymbol_new(const char *name, int id);
 
 SleighSymbol*   SubtableSymbol_new(const char *name);
 void            SubtableSymbol_addConstructor(SubtableSymbol *sym, Constructor *ct);
+void            SubtableSymbol_buildDecisionTree(SubtableSymbol *sym, DecisionProperties *props);
 
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc);
 EndSymbol*      EndSymbol_new(const char *name, AddrSpace *spc);
@@ -229,6 +231,8 @@ VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
 
 void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o);
 void            SleighSymbol_saveXml(SleighSymbol *s, FILE *o);
+
+void            SleighSymbol_print(SleighSymbol *s, CString *cs, ParserWalker *walker);
 
 #define OperandSymbol_getDefiningSymbol(s) (((s)->type == operand_symbol) ? s->operand.triple:NULL)
 
@@ -307,6 +311,7 @@ struct Constructor {
     struct dynarray namedtempl;
     int minimumlength;
     uintm id;
+    /* slgh 的反汇编区域，靠空格来区分operand，假如为-1，则只有一个操作数 */
     int firstwhitespace;
     int flowthruindex;
     int lineno;
@@ -326,6 +331,9 @@ void            Constructor_removeTrailingSpace(Constructor *c);
 void            Constructor_addInvisibleOperand(Constructor *c, OperandSymbol *sym);
 void            Constructor_addOperand(Constructor *c, OperandSymbol *sym);
 void            Constructor_saveXml(Constructor *ct, FILE *o);
+void            Constructor_printMnemonic(Constructor *ct, CString *cs, ParserWalker *walker);
+void            Constructor_printBody(Constructor *ct, CString *s, ParserWalker *walker);
+void            Constructor_print(Constructor *ct, CString *cs, ParserWalker *walker);
 #define Constructor_getParent(ct)           (ct)->parent
 #define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
 

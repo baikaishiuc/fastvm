@@ -1,6 +1,27 @@
 ﻿#include "vm.h"
 #include "slghsymbol.h"
 
+DecisionNode*   DecisionNode_new(DecisionNode *p)
+{
+    DecisionNode *dn = vm_mallocz(sizeof(dn[0]));
+
+    dn->parent = p;
+
+    return dn;
+}
+
+void            DecisionNode_delete(DecisionNode *d)
+{
+}
+
+void            DecisionNode_addConstructorPair(DecisionNode *dnode, DisjointPattern *pat, Constructor *ct)
+{
+}
+
+void            DecisionNode_split(DecisionNode *node, DecisionProperties *props)
+{
+}
+
 char*           SymbolTypeStr(int type)
 {
     switch (type) {
@@ -235,6 +256,29 @@ void            SubtableSymbol_addConstructor(SubtableSymbol *sym, Constructor *
 {
     ct->id = sym->subtable.construct.len;
     dynarray_add(&sym->subtable.construct, ct);
+}
+
+void            SubtableSymbol_buildDecisionTree(SubtableSymbol *sym, DecisionProperties *props)
+{
+    int i, j;
+    if (!sym->subtable.pattern) return;
+
+    Pattern *pat;
+
+    sym->subtable.decisiontree = DecisionNode_new(NULL);
+    for (i = 0; i < sym->subtable.construct.len; i++) {
+        Constructor *ct = sym->subtable.construct.ptab[i];
+        pat = ct->pattern->pattern;
+        if (Pattern_numDisjoint(pat) == 0)
+            DecisionNode_addConstructorPair(sym->subtable.decisiontree, pat, ct);
+        else { // 假如不为0，则一定是orlist
+            for (j = 0; j < pat->or.orlist.len; j++) {
+                DecisionNode_addConstructorPair(sym->subtable.decisiontree, pat->or.orlist.ptab[j], ct);
+            }
+        }
+    }
+
+    DecisionNode_split(sym->subtable.decisiontree, props);
 }
 
 StartSymbol*    StartSymbol_new(const char *name, AddrSpace *spc)
@@ -853,6 +897,75 @@ void        Constructor_saveXml(Constructor *ct, FILE *o)
     fprintf(o, "</constructor>\n");
 }
 
+void            Constructor_printMnemonic(Constructor *ct, CString *s, ParserWalker *walker)
+{
+    if (ct->flowthruindex) {
+        SubtableSymbol *sym = ((OperandSymbol *)ct->operands.ptab[ct->flowthruindex])->operand.triple;
+        if (sym->type == subtable_symbol) {
+            ParserWalker_pushOperand(walker, ct->flowthruindex);
+            Constructor_printBody(walker->point->ct, s, walker);
+            ParserWalker_popOperand(walker);
+            return;
+        }
+    }
+
+    if (ct->firstwhitespace == -1)
+        return;         
+
+    int i;
+    for (i = ct->firstwhitespace + 1; i < ct->printpiece.len; i++) {
+        CString *p = ct->printpiece.ptab[i];
+        if (p->data[0] == '\n') {
+            int index = p->data[1] - 'A';
+            SleighSymbol_print(ct->operands.ptab[index], s, walker);
+        }
+        else
+            cstr_cat(s, p->data, p->size);
+    }
+}
+
+void            Constructor_printBody(Constructor *ct, CString *s, ParserWalker *walker)
+{
+    if (ct->flowthruindex == -1) {
+        SubtableSymbol *sym = ((OperandSymbol *)ct->operands.ptab[ct->flowthruindex])->operand.triple;
+        if (sym->type == subtable_symbol) {
+            ParserWalker_pushOperand(walker, ct->flowthruindex);
+            Constructor_printBody(walker->point->ct, s, walker);
+            ParserWalker_popOperand(walker);
+            return;
+        }
+    }
+
+    if (ct->firstwhitespace == -1)
+        return;
+
+    int i;
+    for (i = ct->firstwhitespace + 1; i < ct->printpiece.len; i++) {
+        CString *p = ct->printpiece.ptab[i];
+        if (p->data[0] == '\n') {
+            int index = p->data[1] - 'A';
+            SleighSymbol_print(ct->operands.ptab[index], s, walker);
+        }
+        else
+            cstr_cat(s, p->data, p->size);
+    }
+}
+
+void            Constructor_print(Constructor *ct, CString *cs, ParserWalker *walker)
+{
+    int i;
+    for (i = 0; i < ct->printpiece.len; i++) {
+        CString *cs1 = ct->printpiece.ptab[i];
+        if (cs1->data[0] == '\n') {
+            int index = cs1->data[1] - 'A';
+            SleighSymbol_print(ct->operands.ptab[index], cs, walker);
+        }
+        else {
+            cstr_cat(cs, cs1->data, cs1->size);
+        }
+    }
+}
+
 void        DecisionNode_saveXml(DecisionNode *d, FILE *o)
 {
 }
@@ -1008,5 +1121,61 @@ void        SleighSymbol_saveXml(SleighSymbol *s, FILE *o)
         return;
         //vm_error("unknown sym type[%d]", s->type);
         //break;
+    }
+}
+
+void            SleighSymbol_print(SleighSymbol *s, CString *cs, ParserWalker *walker)
+{
+    char buf[32];
+    intb val;
+    int ind;
+    CString *cs1;
+
+    switch(s->type) {
+    case epsilon_symbol:
+        cstr_cat(cs, "0", 0);
+        break;
+
+    case value_symbol:
+        val = TokenField_getValue(s->value.patval, walker);
+        sprintf(buf, "%s%llx", val > 0?"0x":"-0x", val > 0?val:-val);
+        cstr_cat(cs, buf, 0);
+        break;
+
+    case valuemap_symbol:
+        ind = (int)TokenField_getValue(s->valuemap.patval, walker);
+        val = *((intb *)s->valuemap.valuetable.ptab[ind]);
+        sprintf(buf, "%s%llx", val > 0?"0x":"-0x", val > 0?val:-val);
+        cstr_cat(cs, buf, 0);
+        break;
+
+    case name_symbol:
+        ind = (int)TokenField_getValue(s->nameS.patval, walker);
+        cs1 = s->nameS.nametable->ptab[ind];
+        cstr_cat(cs, cs1->data, cs1->size);
+        break;
+
+    case varnodelist_symbol:
+        ind = (int)TokenField_getValue(s->varnodeList.patval, walker);
+        if (ind >= s->varnodeList.varnode_table.len)
+            vm_error("Value out of range for varnode table");
+        cs1 = s->varnodeList.varnode_table.ptab[ind];
+        cstr_cat(cs, cs1->data, cs1->size);
+        break;
+
+    case operand_symbol:
+        ParserWalker_pushOperand(walker, s->operand.hand);
+        if (s->operand.triple) {
+            if (s->operand.triple->type == subtable_symbol) {
+                Constructor_print(walker->point->ct, cs, walker);
+            }
+            else
+                SleighSymbol_print(s->operand.triple, cs, walker);
+        }
+        else {
+            val = TokenField_getValue(s->operand.defexp, walker);
+        }
+        ParserWalker_popOperand(walker);
+        break;
     }
 }
