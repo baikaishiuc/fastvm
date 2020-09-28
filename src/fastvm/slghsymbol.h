@@ -279,7 +279,7 @@ struct SymbolTable {
     SymbolScope *skipScope;
 };
 
-SymbolTable*    SymbolTable_new(void);
+int             SymbolTable_new(SymbolTable *s);
 void            SymbolTable_delete(SymbolTable *s);
 
 SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scope, const char *name);

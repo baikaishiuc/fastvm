@@ -70,6 +70,7 @@
 /* Line 189 of yacc.c  */
 #line 16 "slghparse.y"
 
+#include "vm.h"
 #include "slgh_compile.h"
 
 #define YYERROR_VERBOSE

@@ -1,5 +1,5 @@
 ﻿
-#include "slgh_compile.h"
+#include "vm.h"
 #include "mxml/mxml.h"
 
 #define SLA_FORMAT_VERSION      2
@@ -152,17 +152,17 @@ void            SectionVector_append(SectionVector *sv, ConstructTpl *rtl, Symbo
 
 }
 
-SleighCompile*  SleighCompile_new(int debug)
+int     SleighCompile_new(SleighCompile *slgh, int debug)
 {
-    SleighCompile *slgh = vm_mallocz(sizeof (slgh[0]));
+    memset(slgh, 0, sizeof(slgh[0]));
 
-    slgh->symtab = SymbolTable_new();
+    SymbolTable_new(&slgh->symtab);
 
     slgh->pcode = PcodeCompile_new(slgh, SleighCompile_getUniqueAddr, SleighCompile_addSymbol);
 
     slgh->debug.parse = debug;
 
-    return slgh;
+    return 0;
 }
 
 void            SleighCompile_delete(SleighCompile *slgh)
@@ -173,8 +173,6 @@ void            SleighCompile_delete(SleighCompile *slgh)
         mlist_del(slgh->defines, macro, in_list);
         free(macro);
     }
-
-    free(slgh);
 }
 
 SleighCompile*  SleighArch_register()
@@ -286,32 +284,32 @@ void            SleighCompile_insertSpace(SleighCompile *s, AddrSpace *spc)
 
 void            SleighCompile_predefinedSymbols(SleighCompile *s)
 {
-    SymbolTable_addScope(s->symtab);
+    SymbolTable_addScope(&s->symtab);
 
     s->root = SubtableSymbol_new("instruction");
-    SymbolTable_addSymbol(s->symtab, s->root);
+    SymbolTable_addSymbol(&s->symtab, s->root);
     SleighCompile_insertSpace(s, ConstantSpace_new(s, "const", constant_space_index));
 
     SpaceSymbol *spacesym = SpaceSymbol_new(s->constantspace);
-    SymbolTable_addSymbol(s->symtab, spacesym);
+    SymbolTable_addSymbol(&s->symtab, spacesym);
 
     OtherSpace *otherSpace = OtherSpace_new(s, "OTHER", other_space_index);
     SleighCompile_insertSpace(s, otherSpace);
     spacesym = SpaceSymbol_new(otherSpace);
-    SymbolTable_addSymbol(s->symtab, spacesym);
+    SymbolTable_addSymbol(&s->symtab, spacesym);
 
     SleighCompile_insertSpace(s, UniqueSpace_new(s, "unique", s->baselist.len, 0));
     spacesym = SpaceSymbol_new(s->uniqspace);
-    SymbolTable_addSymbol(s->symtab, spacesym);
+    SymbolTable_addSymbol(&s->symtab, spacesym);
 
     StartSymbol *startsym = StartSymbol_new("inst_start", s->constantspace);
-    SymbolTable_addSymbol(s->symtab, startsym);
+    SymbolTable_addSymbol(&s->symtab, startsym);
 
     EndSymbol *endsym = EndSymbol_new("inst_next", s->constantspace);
-    SymbolTable_addSymbol(s->symtab, endsym);
+    SymbolTable_addSymbol(&s->symtab, endsym);
 
     EpsilonSymbol *epsilon = EpsilonSymbol_new("epsilon", s->constantspace);
-    SymbolTable_addSymbol(s->symtab, epsilon);
+    SymbolTable_addSymbol(&s->symtab, epsilon);
 
     PcodeCompile_setConstantSpace(s->pcode, s->constantspace);
     PcodeCompile_setUniqueSpace(s->pcode, s->uniqspace);
@@ -377,7 +375,7 @@ void            SleighCompile_addSymbol(SleighCompile *s, SleighSymbol *sym)
     sym->lineno = proc->lineno;
 
     //print_info("AddSymbol [%s] %s:%d\n", sym->name, basename(sym->filename), sym->lineno);
-    SymbolTable_addSymbol(s->symtab, sym);
+    SymbolTable_addSymbol(&s->symtab, sym);
 }
 
 void            SleighCompile_newSpace(SleighCompile *s, SpaceQuality *quad)
@@ -506,20 +504,20 @@ void            SleighCompile_attachVarnodes(SleighCompile *s, struct dynarray *
             }
         }
 
-        SymbolTable_replaceSymbol(s->symtab, sym, VarnodeListSymbol_new(sym->name, patval, varlist));
+        SymbolTable_replaceSymbol(&s->symtab, sym, VarnodeListSymbol_new(sym->name, patval, varlist));
     }
 }
 
 void            SleighCompile_buildMacro(SleighCompile *s, MacroSymbol *sym, ConstructTpl *rtl)
 {
-    SleighCompile_checkSymbols(s, s->symtab->curscope);
+    SleighCompile_checkSymbols(s, s->symtab.curscope);
 
     if (!SleighCompile_expandMacros(s, rtl, &s->macrotable))
         vm_error("%s:%d Could not expand submacro in defintion of macro %s", slgh_filename(s), slgh_lineno(s), sym->name);
 
     PcodeCompile_propagateSize(s->pcode, rtl);
     sym->macro.construct = rtl;
-    SymbolTable_popScope(s->symtab);
+    SymbolTable_popScope(&s->symtab);
     dynarray_add(&s->macrotable, rtl);
 }
 
@@ -550,7 +548,7 @@ MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, st
 
     SleighCompile_addSymbol(s, s->curmacro);
 
-    SymbolTable_addScope(s->symtab);
+    SymbolTable_addScope(&s->symtab);
     PcodeCompile_resetLabelCount(s->pcode);
 
     for (i = 0; i < params->len; i++) {
@@ -565,7 +563,7 @@ MacroSymbol*    SleighCompile_createMacro(SleighCompile *s, const char *name, st
 
 SectionVector*  SleighCompile_standaloneSection(SleighCompile *s, ConstructTpl *main)
 {
-    SectionVector *res = SectionVector_new(main, SymbolTable_getCurrentScope(s->symtab));
+    SectionVector *res = SectionVector_new(main, SymbolTable_getCurrentScope(&s->symtab));
     return res;
 }
 
@@ -871,7 +869,7 @@ void            SleighCompile_buildConstructor(SleighCompile *s, Constructor *bi
         }
     }
 
-    SymbolTable_popScope(s->symtab);
+    SymbolTable_popScope(&s->symtab);
 }
 
 void            SleighCompile_newOperand(SleighCompile *s, Constructor *c, const char *name)
@@ -1008,7 +1006,7 @@ Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSy
     s->curct->filename = basename(slgh_filename(s));
     // ctorLocationMap[curct] = *getCurrentLocation();
     SubtableSymbol_addConstructor(sym, s->curct);
-    SymbolTable_addScope(s->symtab);
+    SymbolTable_addScope(&s->symtab);
     s->pcode->local_labelcount = 0;
 
     return s->curct;
@@ -1016,7 +1014,7 @@ Constructor*        SleighCompile_createConstructor(SleighCompile *s, SubtableSy
 
 void        SleighCompile_resetConstructors(SleighCompile *s)
 {
-    SymbolTable_setCurrentScope(s->symtab, SymbolTable_getGlobalScope(s->symtab));
+    SymbolTable_setCurrentScope(&s->symtab, SymbolTable_getGlobalScope(&s->symtab));
 }
 
 PatternEquation*    SleighCompile_constrainOperand(SleighCompile *s, OperandSymbol *sym, PatternExpression *patexp)
@@ -1026,7 +1024,7 @@ PatternEquation*    SleighCompile_constrainOperand(SleighCompile *s, OperandSymb
 
 void                SleighCompile_selfDefine(SleighCompile *s, OperandSymbol *sym)
 {
-    TripleSymbol *glob = SymbolTable_findSymbolSkip(s->symtab, sym->name, 1);
+    TripleSymbol *glob = SymbolTable_findSymbolSkip(&s->symtab, sym->name, 1);
     if (!glob)
         vm_error("%s:%d No matching global symbol %s", basename(slgh_filename(s)), slgh_lineno(s), sym->name);
 
@@ -1233,7 +1231,7 @@ char*               SleighCompile_grabCurrentFilePath(SleighCompile *s)
 
 SleighSymbol*       SleighCompile_findSymbol(SleighCompile *s, char *name)
 {
-    SleighSymbol *sym = SymbolTable_findSymbol(s->symtab, name);
+    SleighSymbol *sym = SymbolTable_findSymbol(&s->symtab, name);
 
     if (s->debug.parse) {
         if (sym && sym->filename)
@@ -1385,8 +1383,8 @@ int                     FieldContext_cmp(void const *a, void const *b)
 
 SectionVector*  SleighCompile_finalNamedSection(SleighCompile *s, SectionVector *vec, ConstructTpl *section)
 {
-    SectionVector_append(vec, section, s->symtab->curscope);
-    SymbolTable_popScope(s->symtab);
+    SectionVector_append(vec, section, s->symtab.curscope);
+    SymbolTable_popScope(&s->symtab);
     return vec;
 }
 
@@ -1438,7 +1436,7 @@ void    SleighCompile_saveXml(SleighCompile *s, FILE *o)
         AddrSpace_saveXml(spc, o);
     }
     fprintf(o, "</spaces>\n");
-    SymbolTable_saveXml(s->symtab, o);
+    SymbolTable_saveXml(&s->symtab, o);
     fprintf(o, "</sleigh>\n");
 }
 
@@ -1489,7 +1487,8 @@ int                 main(int argc, char **argv)
 {
     int i;
     bool compileAll = false;
-    SleighCompile *slgh = SleighCompile_new(0);
+    SleighCompile slgh; 
+    SleighCompile_new(&slgh, 0);
     char *p, *newstr, *sym, *val;
 
     if (argc < 2) {
@@ -1510,22 +1509,22 @@ int                 main(int argc, char **argv)
                 *val = 0;
                 val++;
             }
-            slgh_define_macro(slgh, sym, val);
+            slgh_define_macro(&slgh, sym, val);
 
             free(p);
         }
         else if (p[1] == 'u')
-            slgh->warnunnecessarypcode = true;
+            slgh.warnunnecessarypcode = true;
         else if (p[1] == 'l')
-            slgh->lenientconfliciterros = true;
+            slgh.lenientconfliciterros = true;
         else if (p[1] == 'c')
-            slgh->warnallocalcollisions = true;
+            slgh.warnallocalcollisions = true;
         else if (p[1] == 'n')
-            slgh->warnallnops = true;
+            slgh.warnallnops = true;
         else if (p[1] == 't')
-            slgh->warndeadtemps = true;
+            slgh.warndeadtemps = true;
         else if (p[1] == 'e')
-            PcodeCompile_setEnforceLocalKey(slgh->pcode, true);
+            PcodeCompile_setEnforceLocalKey(slgh.pcode, true);
         else if (p[1] == 'x')
             yydebug = 1;
         else {
@@ -1546,7 +1545,7 @@ int                 main(int argc, char **argv)
         if (!strcmp(ext, ".xml")) {
         }
         else if (!strcmp(ext, ".slaspec")) {
-            return slgh_run(slgh, filein, cs.data);
+            return slgh_run(&slgh, filein, cs.data);
         }
         else {
             printf("Unkown file %s\n", filein);
@@ -1555,7 +1554,7 @@ int                 main(int argc, char **argv)
     }
     cstr_free(&cs);
 
-    SleighCompile_delete(slgh);
+    SleighCompile_delete(&slgh);
 
     return 0;
 }

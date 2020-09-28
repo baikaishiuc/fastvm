@@ -233,16 +233,6 @@ void dobc_delete(VMState *s)
     free(s);
 }
 
-DisassemblyCache *DisassemblyCache_new(ContextCache *cc, AddrSpace *cspace, int cachesize, int windowsize)
-{
-    DisassemblyCache *discache = vm_mallocz(sizeof(discache[0]));
-
-    discache->contxtcache = cc;
-    discache->constspace = cspace;
-
-    return discache;
-}
-
 int dobc_load_file(VMState *s1)
 {
     int obj_type;

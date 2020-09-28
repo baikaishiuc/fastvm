@@ -19,6 +19,20 @@ void            Token_delete(Token *t)
     vm_free(t);
 }
 
+ParserContext*  ParserContext_new(ContextCache *ccache)
+{
+    ParserContext *pc = vm_mallocz(sizeof(pc[0]));
+
+    pc->parsestate = 0;
+    pc->contcache = ccache;
+    if (ccache) {
+    }
+
+    return pc;
+}
+
+void            ParserContext_delete(ParserContext *pc);
+
 uintm       ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off)
 {
     off += bytestart;

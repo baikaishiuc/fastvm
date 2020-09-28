@@ -70,14 +70,12 @@ static partnode*   partmap_find(partmap *p, linetype key)
     return NULL;
 }
 
-partmap*    partmap_new(partmap_cmp cmp, valuetype defaultvalue)
+int         partmap_new(partmap *p, partmap_cmp cmp, valuetype defaultvalue)
 {
-    partmap *p;
-    p = vm_mallocz(sizeof(p[0]));
-
     p->cmp = cmp;
+    p->defaultvalue = defaultvalue;
 
-    return p;
+    return 0;
 }
 
 void        partmap_delete(partmap *p)

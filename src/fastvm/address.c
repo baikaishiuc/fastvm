@@ -32,3 +32,15 @@ void    byte_swap(intb *val, int size)
 
     val[0] = res;
 }
+
+uintb       coveringmask(uintb val)
+{
+    uintb res = val;
+    int sz = 1;
+    while (sz < 8 * sizeof(uintb)) {
+        res = res | (res >> sz);
+        sz <<= 1;
+    }
+
+    return res;
+}

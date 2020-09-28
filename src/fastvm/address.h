@@ -82,10 +82,27 @@ inline Address* Address_add(Address *op1, int off)
     return Address_new1(op1->base, AddrSpace_wrapOffset(op1->base, off));
 }
 
+inline uintb calc_mask(int size) {
+    uintb uintbmasks[9] = { 
+        0, 
+        0xff, 
+        0xffff, 
+        0xffffff, 
+        0xffffffff, 
+        0xffffffffffLL, 
+        0xffffffffffffLL, 
+        0xffffffffffffffLL, 
+        0xffffffffffffffffLL 
+    };
+
+    return uintbmasks[(size < 8) ? size : 8];
+}
+
 
 void        sign_extend(intb *val, int bit);
 void        zero_extend(intb *val, int bit);
 void        byte_swap(intb *val, int size);
+uintb       coveringmask(uintb val);
 
 #ifdef __cplusplus
 }

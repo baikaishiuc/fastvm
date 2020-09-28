@@ -557,11 +557,9 @@ void SymbolScope_delete(SymbolScope *p)
     vm_free(p);
 }
 
-SymbolTable*    SymbolTable_new(void)
+int         SymbolTable_new(SymbolTable *s)
 {
-    SymbolTable *tab = vm_mallocz(sizeof(tab[0]));
-
-    return tab;
+    return 0;
 }
 
 void            SymbolTable_delete(SymbolTable *s)
@@ -569,7 +567,6 @@ void            SymbolTable_delete(SymbolTable *s)
     int i;
     for (i = 0; i < s->table.len; i++) {
     }
-    vm_free(s);
 }
 
 SleighSymbol*   SymbolTable_findSymbolInternal(SymbolTable *s, SymbolScope *scope, const char *name)

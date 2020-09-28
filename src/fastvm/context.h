@@ -63,13 +63,22 @@ struct ParserContext {
     uintm *context; 
     int contextsize;
     ContextCache *contcache;
+    struct dynarray contextcommit;  // ContextSet
+
+    Address *addr;
+    Address *naddr;
+    Address *calladdr;
+
+    struct dynarray     state;  // ConstructState;
     ConstructState *base_state;
     int alloc;
     int delayslot;
 };
 
-uintm       ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
-uintm       ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
+ParserContext*  ParserContext_new(ContextCache *ccache);
+void            ParserContext_delete(ParserContext *pc);
+uintm           ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
+uintm           ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
 
 struct ParserWalker {
     ParserContext   *const_context;

@@ -6,7 +6,6 @@
 extern "C" {
 #endif
 
-#include "vm.h"
 #include "pcodecompile.h"
 #include "slghsymbol.h"
 
@@ -158,7 +157,7 @@ struct SleighCompile {
     PcodeCompile *pcode;
 
     SubtableSymbol *root;
-    SymbolTable *symtab;
+    SymbolTable symtab;
     uint32_t maxdelayslotbytes;
     uint32_t unique_allocatemask;
     uint32_t numSections;
@@ -199,7 +198,7 @@ typedef struct SleighCompileClass {
     char name[1];
 } SleighCompileClass;
 
-SleighCompile*  SleighCompile_new(int debug);
+int             SleighCompile_new(SleighCompile *s, int debug);
 void            SleighCompile_delete(SleighCompile *s);
 
 SleighCompile*  SleighArch_register();

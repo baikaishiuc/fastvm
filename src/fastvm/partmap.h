@@ -21,7 +21,7 @@ typedef struct partmap{
 } partmap;
 
 
-partmap*    partmap_new(partmap_cmp cmp, valuetype defaultvalue);
+int         partmap_new(partmap *p, partmap_cmp cmp, valuetype defaultvalue);
 void        partmap_delete(partmap *);
 
 valuetype   partmap_getValue(partmap *, linetype key);
