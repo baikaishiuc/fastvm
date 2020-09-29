@@ -96,6 +96,20 @@ uintm       ParserContext_getContextBytes(ParserContext *pc, int bytestart, int 
     return res;
 }
 
+void            ParserContext_clearCommits(ParserContext *pc)
+{
+    int i;
+    for (i = 0; i < pc->contextcommit.len; i++) {
+    }
+}
+
+void     PaserContext_deallocateState(ParserContext *pc, ParserWalker *walker) 
+{
+    pc->alloc = 1;
+    walker->context = pc;
+    ParserWalker_baseState(walker);
+}
+
 uintm       PaserContext_getInstructionBits(ParserContext *pc, int startbit, int size, int off)
 {
     off += (startbit / 8);
@@ -161,6 +175,13 @@ ParserWalker*           ParserWalker_new2(ParserContext *c, ParserContext *cross
 void                    ParserWalker_delete(ParserWalker *p)
 {
     vm_free(p);
+}
+
+void                    ParserWalker_baseState(ParserWalker *p)
+{
+    p->point = p->const_context->base_state;
+    p->depth = 0;
+    p->breadcrumb[0] = 0;
 }
 
 void                    ParserWalker_pushOperand(ParserWalker *p, int i)

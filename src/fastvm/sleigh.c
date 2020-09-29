@@ -206,8 +206,52 @@ void            Sleigh_initialize(VMState *vm)
 {
 }
 
-
-ParserContext*  Sleigh_obtainContext(Address *addr, int state)
+void            Sleigh_resolve(VMState *vm, ParserContext *pos)
 {
+    vm->binload(vm, pos->buf, sizeof(pos->buf), pos->addr);
+
+    ParserWalker *walker = ParserWalker_new(pos);
+    PaserContext_deallocateState(pos, walker);
+    //Constructor *ct, *subct;
+    //uint4 off;
+    //int oper, numoper;
+
+    pos->delayslot = 0;
+    ParserWalker_setOffset(walker, 0);
+}
+
+ParserContext*  Sleigh_obtainContext(VMState *vm, Address *addr, int state)
+{
+    ParserContext *pos = DisassemblyCache_getParserContext(vm->discache, addr);
+    int curstate = pos->parsestate;
+    if (curstate >= state)
+        return pos;
+
+    if (curstate == uninitialized) {
+        Sleigh_resolve(vm, pos);
+    }
+
     return NULL;
+}
+
+int     Sleigh_printAssembly(VMState *vm, Address *addr)
+{
+    ParserContext *pos = Sleigh_obtainContext(vm, addr, disassembly);
+    ParserWalker *walker = ParserWalker_new(pos);
+    ParserWalker_baseState(walker);
+
+    Constructor *ct = ParserWalker_getConstructor(walker);
+    CString cs = { 0 };
+    Constructor_printMnemonic(ct, &cs, walker);
+    cstr_ccat(&cs, ' ');
+    Constructor_printBody(ct, &cs, walker);
+
+    printf("[%s]\n", cs.data);
+
+    return ParserContext_getLength(pos);
+}
+
+int     Sleigh_instructionLength(VMState *vm, Address *addr)
+{
+    return 0;
 }

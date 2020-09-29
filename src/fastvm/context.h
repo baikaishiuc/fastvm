@@ -83,10 +83,15 @@ void            ParserContext_delete(ParserContext *pc);
 void            ParserContext_initialize(ParserContext *pc, int maxstate, int maxparam, AddrSpace *spc);
 uintm           ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
 uintm           ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
+void            ParserContext_clearCommits(ParserContext *pc);
+#define ParserContext_getLength(p)      p->base_state->length
+
+void     PaserContext_deallocateState(ParserContext *pc, ParserWalker *walker);
 
 struct ParserWalker {
     ParserContext   *const_context;
     ParserContext   *cross_context;
+    ParserContext   *context;
 
     ConstructState *point;
     int depth;
@@ -96,6 +101,10 @@ struct ParserWalker {
 ParserWalker*           ParserWalker_new(ParserContext *c);
 ParserWalker*           ParserWalker_new2(ParserContext *c, ParserContext *cross);
 void                    ParserWalker_delete(ParserWalker *p);
+void                    ParserWalker_baseState(ParserWalker *p);
+#define ParserWalker_getConstructor(p)      (p)->point->ct
+#define ParserWalker_setOffset(p,v)         (p)->point->offset = v
+
 void                    ParserWalker_pushOperand(ParserWalker *p, int i);
 void                    ParserWalker_popOperand(ParserWalker *p);
 void                    ParserWalker_setOutOfBandState(ParserWalker *p, Constructor *ct, int index,

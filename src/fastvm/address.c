@@ -1,4 +1,5 @@
 ﻿
+#include "vm.h"
 #include "address.h"
 
 void    sign_extend(intb *val, int bit)
@@ -44,3 +45,39 @@ uintb       coveringmask(uintb val)
 
     return res;
 }
+
+Address*        Address_newV(void) 
+{
+    return vm_mallocz(sizeof(Address));
+}
+
+Address*        Address_clone(Address *op2) 
+{
+    Address *a = vm_mallocz(sizeof(a[0]));
+
+    a->base = op2->base;
+    a->offset = op2->offset;
+
+    return a;
+}
+
+Address*        Address_new1(int ex) 
+{
+    return NULL;
+}
+
+Address*        Address_new2(AddrSpace *id, uintb off) 
+{
+    Address *a = vm_mallocz(sizeof(a[0]));
+
+    a->base = id;
+    a->offset = off;
+
+    return a;
+}
+
+void            Address_delete(Address *op) 
+{
+    vm_free(op);
+}
+

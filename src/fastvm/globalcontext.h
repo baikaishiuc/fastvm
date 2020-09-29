@@ -53,7 +53,8 @@ ContextDatabase*    ContextDatabase_new();
 void                ContextDatabase_delete(ContextDatabase *cd);
 
 void                ContextDatabase_registerVariable(ContextDatabase *cd, char *name, int sbit, int ebit);
-uintm*              ContextDatabase_getContext(Address *addr);
+uintm*              ContextDatabase_getContext(ContextDatabase *cd, Address *addr);
+uintm*              ContextDatabase_getContext2(ContextDatabase *cd, Address *addr, uintb *first, uintb *last);
 
 struct ContextCache {
     ContextDatabase *database;

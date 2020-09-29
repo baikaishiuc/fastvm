@@ -73,7 +73,23 @@ void            FreeArray_reset(FreeArray *f, int sz)
     if (sz) {
         newarray = vm_mallocz(sizeof(newarray[0]) * sz);
         newmask = vm_mallocz(sizeof(newmask[0]) * sz);
+
+        int min;
+
+        min = (sz > f->size) ? f->size : sz;
+
+        memcpy(newarray, f->array, sizeof(f->array[0]) * min);
+        memcpy(newmask, f->mask, sizeof(f->mask[0]) * min);
     }
+
+    if (f->size) {
+        vm_free(f->array);
+        vm_free(f->mask);
+    }
+
+    f->array = newarray;
+    f->mask = newmask;
+    f->size = sz;
 }
 
 
@@ -101,7 +117,28 @@ void            ContextDatabase_registerVariable(ContextDatabase *cd, char *name
     }
 }
 
-uintm*              ContextDatabase_getContext(Address *addr)
+uintm*              ContextDatabase_getContext(ContextDatabase *cd, Address *addr)
 {
-    return NULL;
+    FreeArray *f;
+    f = partmap_getValue(&cd->database, addr);
+
+    return f->array;
+}
+
+uintm*              ContextDatabase_getContext2(ContextDatabase *cd, Address *addr, uintb *first, uintb *last)
+{
+    int valid;
+    Address before, after;
+    uintm *res = (uintm *)partmap_bounds(&cd->database, addr, &before, &after, &valid);
+    if ((valid & 1) || Address_unequal(&before, addr))
+        first[0] = 0;
+    else
+        first[0] = before.offset;
+
+    if ((valid & 2) || Address_unequal(&after, addr))
+        last[0] = addr->base->highest;
+    else
+        last[0] = after.offset - 1;
+
+    return res;
 }

@@ -271,7 +271,12 @@ struct VMState {
     DisassemblyCache *discache;
 
     SleighCompile slgh;
+
+    int(*binload)(VMState *vm, char *buf, int len, Address *addr);
 };
+
+int     Sleigh_printAssembly(VMState *vm, Address *addr);
+int     Sleigh_instructionLength(VMState *vm, Address *addr);
 
 #define VM_SET_STATE(fn)    fn        
 

@@ -12,7 +12,7 @@ typedef struct Address      Address;
 
 struct Address {
     AddrSpace *base;
-    int offset;
+    intb offset;
 
     enum {
         m_minimal,
@@ -20,9 +20,10 @@ struct Address {
     } mach_extreme;
 };
 
-Address*        Address_new(void);
-Address*        Address_new1(AddrSpace *id, uintb off);
-Address*        Address_new2(Address *op2);
+Address*        Address_newV(void);
+Address*        Address_clone(Address *op2);
+Address*        Address_new1(int ex);
+Address*        Address_new2(AddrSpace *id, uintb off);
 void            Address_delete(Address *op);
 
 #define Address_isInvalid(a)    (a->base == NULL)
@@ -79,7 +80,11 @@ inline bool Address_lessThan(Address *op1, Address *op2)
 
 inline Address* Address_add(Address *op1, int off)
 {
-    return Address_new1(op1->base, AddrSpace_wrapOffset(op1->base, off));
+    /* 这里的意义已经和原始的代码不一致了，在原先的Ghidra中有涉及拷贝函数，
+    他在这里重新new了一个对象，然后赋值给外面 */
+    op1->offset = AddrSpace_wrapOffset(op1->base, off);
+
+    return op1;
 }
 
 inline uintb calc_mask(int size) {
