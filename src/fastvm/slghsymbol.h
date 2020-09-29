@@ -20,6 +20,8 @@ typedef struct DecisionNode DecisionNode;
 typedef struct ContextChange ContextChange, ContextOp, ContextCommit;
 typedef struct DecisionProperties DecisionProperties;
 
+#define scope_container_of(_node)    (SleighSymbol *)((char *)(_node) - offsetof(SleighSymbol, in_scope))
+
 struct DecisionProperties {
     struct dynarray         identerrors;
     struct dynarray         conflicterrors;

@@ -1,8 +1,10 @@
-
+﻿
 #include "vm.h"
 
 int         dc_initialize(DisassemblyCache *dc, int min, int hashsize)
 {
+    int i;
+    ParserContext *pos;
     dc->minimumresue = min;
     dc->mask = hashsize - 1;
     if (dc->mask & hashsize)
@@ -11,9 +13,15 @@ int         dc_initialize(DisassemblyCache *dc, int min, int hashsize)
     dc->list = vm_mallocz(sizeof(ParserContext *) * dc->minimumresue);
     dc->nextfree = 0;
     dc->hashtable = vm_mallocz(sizeof(ParserContext *) * hashsize);
-    int i;
     for (i = 0; i < dc->minimumresue; ++i) {
+        pos = ParserContext_new(dc->contxtcache);
+        ParserContext_initialize(pos, 75, 20, dc->constspace);
+        dc->list[i] = pos;
     }
+
+    pos = dc->list[0];
+    for (i = 0; i < hashsize; i++)
+        dc->hashtable[i] = pos;
 
     return 0;
 }
@@ -25,6 +33,7 @@ int         DisassemblyCache_new(DisassemblyCache *dc,
 
     dc->contxtcache = ccache;
     dc->constspace = cspace;
+    dc_initialize(dc, cachesize, windowsize);
 
     return 0;
 }
@@ -173,6 +182,24 @@ void            PcodeCacher_resolveRelatives(PcodeCacher *p)
 
 void            Sleigh_reset(VMState *vm)
 {
+}
+
+void            Sleigh_registerContext(VMState *vm, const char *name, int startbit, int endbit)
+{
+}
+
+void            Sleigh_reregisterContext(VMState *vm)
+{
+    SymbolScope *glb = SymbolTable_getGlobalScope(&vm->slgh.symtab);
+    struct rb_node *iter;
+    SleighSymbol *sym;
+
+    for (iter = rb_first(&glb->tree); iter; iter = rb_next(iter)) {
+        sym = scope_container_of(iter);
+        if (sym->type == context_symbol) {
+            ContextField *field = SleighSymbol_getPatternValue(sym);
+        }
+    }
 }
 
 void            Sleigh_initialize(VMState *vm)

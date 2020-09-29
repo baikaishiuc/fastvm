@@ -599,7 +599,6 @@ SymbolScope*    SymbolTable_skipScope(SymbolTable *s, int i)
     return res;
 }
 
-#define _container_of(_node)    (SleighSymbol *)((char *)(_node) - offsetof(SleighSymbol, in_scope))
 
 SleighSymbol*   SymbolScope_addSymbol(SymbolScope *scope, SleighSymbol *a)
 {
@@ -607,7 +606,7 @@ SleighSymbol*   SymbolScope_addSymbol(SymbolScope *scope, SleighSymbol *a)
     int ret;
 
     while (*n) {
-        SleighSymbol *t = _container_of(*n);
+        SleighSymbol *t = scope_container_of(*n);
         ret = strcmp(a->name, t->name);
         parent = *n;
         if (ret < 0)
@@ -629,7 +628,7 @@ SleighSymbol*   SymbolScope__findSymbol(SymbolScope *s, const char *name)
     int ret;
 
     while (n) {
-        SleighSymbol *t = _container_of(n);
+        SleighSymbol *t = scope_container_of(n);
         ret = strcmp(name, t->name);
         if (ret < 0)
             n = n->rb_left;

@@ -35,6 +35,7 @@ extern "C" {
     int dynarray_exist(struct dynarray *d, int i);
     void dynarray_insert(struct dynarray *d, struct dynarray *s);
     void* dynarray_erase(struct dynarray *d, int first, int last);
+    void  dynarray_resize(struct dynarray *d, int size);
     /* insert Before,
     after insert element before [before], now the element index is [before]
     */

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 %{
-#include "slgh_compile.h"
+#include "vm.h"
 
 #define YYERROR_VERBOSE
 #define YYMALLOC

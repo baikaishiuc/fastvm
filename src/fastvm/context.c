@@ -19,6 +19,16 @@ void            Token_delete(Token *t)
     vm_free(t);
 }
 
+ConstructState*         ConstructState_newV(void)
+{
+    return vm_mallocz(sizeof(ConstructState));
+}
+
+void                    ConstructState_delete(ConstructState *cs)
+{
+    vm_free(cs);
+}
+
 ParserContext*  ParserContext_new(ContextCache *ccache)
 {
     ParserContext *pc = vm_mallocz(sizeof(pc[0]));
@@ -31,7 +41,24 @@ ParserContext*  ParserContext_new(ContextCache *ccache)
     return pc;
 }
 
-void            ParserContext_delete(ParserContext *pc);
+void            ParserContext_delete(ParserContext *pc)
+{
+    vm_free(pc);
+}
+
+void            ParserContext_initialize(ParserContext *pc, int maxstate, int maxparam, AddrSpace *spc)
+{
+    pc->const_space = spc;
+    pc->state = vm_mallocz(maxstate * sizeof(pc->state[0]));
+
+    int i;
+    for (i = 0; i < maxstate; i++) {
+        ConstructState *cs = &pc->state[i];
+        dynarray_resize(&cs->resolve, maxparam);
+    }
+
+    pc->base_state = &pc->state[0];
+}
 
 uintm       ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off)
 {

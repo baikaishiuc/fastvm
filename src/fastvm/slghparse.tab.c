@@ -71,7 +71,6 @@
 #line 16 "slghparse.y"
 
 #include "vm.h"
-#include "slgh_compile.h"
 
 #define YYERROR_VERBOSE
 #define YYMALLOC

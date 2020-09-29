@@ -42,6 +42,9 @@ struct ConstructState {
     uint4 offset;
 };
 
+ConstructState*         ConstructState_newV(void);
+void                    ConstructState_delete(ConstructState *cs);
+
 struct ContextSet {
     TripleSymbol *sym;
     ConstructState *point;
@@ -69,7 +72,7 @@ struct ParserContext {
     Address *naddr;
     Address *calladdr;
 
-    struct dynarray     state;  // ConstructState;
+    ConstructState *state;
     ConstructState *base_state;
     int alloc;
     int delayslot;
@@ -77,6 +80,7 @@ struct ParserContext {
 
 ParserContext*  ParserContext_new(ContextCache *ccache);
 void            ParserContext_delete(ParserContext *pc);
+void            ParserContext_initialize(ParserContext *pc, int maxstate, int maxparam, AddrSpace *spc);
 uintm           ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
 uintm           ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
 

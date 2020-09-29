@@ -1,4 +1,4 @@
-
+﻿
 #include "vm.h"
 
 ContextBitRange*    ContextBitRange_newV(void)
@@ -45,8 +45,6 @@ void            FreeArray_delete(FreeArray *fa)
 
 int             FreeArray_assign(FreeArray *op1, FreeArray *op2)
 {
-    int i;
-
     if (op1->size) {
         vm_free(op1->array);
         vm_free(op1->mask);
@@ -105,4 +103,5 @@ void            ContextDatabase_registerVariable(ContextDatabase *cd, char *name
 
 uintm*              ContextDatabase_getContext(Address *addr)
 {
+    return NULL;
 }

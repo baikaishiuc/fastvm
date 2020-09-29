@@ -16,7 +16,7 @@
  */
 %option never-interactive
 %{
-#include "slgh_compile.h"
+#include "vm.h"
 #include "slghparse.tab.h"
 #define yywrap() 1
 #define YY_SKIP_YYWRAP

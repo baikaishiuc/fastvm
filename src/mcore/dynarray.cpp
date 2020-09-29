@@ -141,6 +141,12 @@ void* dynarray_erase(struct dynarray *d, int first, int last)
     return (first1 < d->len) ? d->ptab[first1] : NULL;
 }
 
+void  dynarray_resize(struct dynarray *d, int size)
+{
+    while (d->len < size)
+        dynarray_push(d, NULL);
+}
+
 void dynarray_insertB(struct dynarray *d, int before, void *elm)
 {
     int i;

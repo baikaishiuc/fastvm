@@ -778,7 +778,6 @@ char *yytext;
 #define YY_NEVER_INTERACTIVE 1
 #line 19 "slghscan.l"
 #include "vm.h"
-#include "slgh_compile.h"
 #include "slghparse.tab.h"
 #define yywrap() 1
 #define YY_SKIP_YYWRAP
