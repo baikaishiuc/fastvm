@@ -20,7 +20,6 @@ typedef struct partmap{
     int count;
 } partmap;
 
-
 int         partmap_new(partmap *p, partmap_cmp cmp, valuetype defaultvalue);
 void        partmap_delete(partmap *);
 

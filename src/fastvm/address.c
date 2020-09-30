@@ -81,3 +81,11 @@ void            Address_delete(Address *op)
     vm_free(op);
 }
 
+char*           Address_printRaw(Address *a, CString *s)
+{
+    char buf[128];
+
+    sprintf(buf, "0x%-8x", a->offset);
+    cstr_cat(s, buf, 0);
+    return s->data;
+}

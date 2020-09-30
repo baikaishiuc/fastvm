@@ -78,6 +78,10 @@ UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl)
     return spc;
 }
 
+void                AddrSpace_printRaw(AddrSpace *a, uintb offset, CString *s)
+{
+}
+
 void                AddrSpace_saveXmlAttr(AddrSpace *a, FILE *o)
 {
     a_v(o, "name", a->name);

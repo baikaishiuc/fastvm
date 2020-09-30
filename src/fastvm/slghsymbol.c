@@ -12,6 +12,7 @@ DecisionNode*   DecisionNode_new(DecisionNode *p)
 
 void            DecisionNode_delete(DecisionNode *d)
 {
+    vm_free(d);
 }
 
 Constructor*    DecisionNode_resolve(DecisionNode *d, ParserWalker *walker)
@@ -29,8 +30,12 @@ Constructor*    DecisionNode_resolve(DecisionNode *d, ParserWalker *walker)
     }
 
     uintm val;
+    if (d->contextdecision)
+        val = ParserWalker_getContextBits(walker, d->startbit, d->bitsize);
+    else
+        val = ParserWalker_getInstructionBits(walker, d->startbit, d->bitsize);
 
-    return NULL;
+    return DecisionNode_resolve(d->children.ptab[val], walker);;
 }
 
 void            DecisionNode_addConstructorPair(DecisionNode *dnode, DisjointPattern *pat, Constructor *ct)
@@ -101,7 +106,7 @@ PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
 
 Constructor*    SubtableSymbol_resolve(SleighSymbol *sym, ParserWalker *walker)
 {
-    return NULL;
+    return DecisionNode_resolve(sym->subtable.decisiontree, walker);
 }
 
 
@@ -848,6 +853,21 @@ void            ContextChange_saveXml(ContextChange *cc, FILE *o)
     }
 }
 
+void            ContextChange_apply(ContextChange *cc, ParserWalker *walker)
+{
+    if (cc->type == context_op) {
+        uintm val = PatternExpression_getValue(cc->op.patexp, walker);
+        val <<= cc->op.shift;
+        ParserContext_setContextWord(walker->context, cc->op.num, val, cc->op.mask);
+    }
+    else if (cc->type == context_commit) {
+        ParserContext_addCommit(walker->context, cc->commit.sym, cc->commit.num, cc->commit.mask, cc->commit.flow, walker->point);
+    }
+    else {
+        assert(0);
+    }
+}
+
 void            SleighSymbol_saveXmlHeaderAttr(SleighSymbol *s, FILE *o)
 {
     fprintf(o, " name=\"%s\"", s->name);
@@ -984,6 +1004,14 @@ void            Constructor_print(Constructor *ct, CString *cs, ParserWalker *wa
         else {
             cstr_cat(cs, cs1->data, cs1->size);
         }
+    }
+}
+
+void            Constructor_applyContext(Constructor *ct, ParserWalker *walker)
+{
+    int i;
+
+    for (i = 0; i < ct->context->len; i++) {
     }
 }
 
@@ -1198,5 +1226,28 @@ void            SleighSymbol_print(SleighSymbol *s, CString *cs, ParserWalker *w
         }
         ParserWalker_popOperand(walker);
         break;
+    }
+}
+
+Constructor*    SleighSymbol_resolve(SleighSymbol *s, ParserWalker *walker)
+{
+    Address *addr;
+    switch (s->type) {
+    case valuemap_symbol:
+        if (!s->valuemap.tableisfilled) {
+            intb ind = PatternExpression_getValue(s->valuemap.patval, walker);
+            if ((ind >= s->valuemap.valuetable.len || ind < 0) || (s->valuemap.valuetable.ptab[ind] == (void *)0xBADBEEF)) {
+                addr = ParserWalker_getAddr(walker);
+                vm_error("0x%-8x: No corresponding entry in valuetable", addr->offset);
+            }
+        }
+        return NULL;
+
+    case name_symbol:
+        if (!s->nameS.tableisfilled) {
+        }
+
+    default:
+        return NULL;
     }
 }

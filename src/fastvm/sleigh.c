@@ -221,6 +221,25 @@ void            Sleigh_resolve(VMState *vm, ParserContext *pos)
     ParserContext_clearCommits(pos);
     ParserContext_loadContext(pos);
     ct = SubtableSymbol_resolve(vm->slgh.root, walker);
+    walker->point->ct = ct;
+
+    while (walker->point) {
+        ct = walker->point->ct;
+        oper = walker->breadcrumb[walker->depth];
+        numoper = ct->operands.len;
+        while (oper < numoper) {
+            OperandSymbol *sym = ct->operands.ptab[oper];
+            off = ParserWalker_getOffset(walker, sym->operand.offsetbase) + sym->operand.reloffset;
+            walker->point->offset = off;
+            TripleSymbol *tsym = sym->operand.triple;
+            if (tsym) {
+            }
+        }
+    }
+}
+
+void            Sleigh_resolveHandles(VMState *vm, ParserContext *pos)
+{
 }
 
 ParserContext*  Sleigh_obtainContext(VMState *vm, Address *addr, int state)
@@ -232,9 +251,14 @@ ParserContext*  Sleigh_obtainContext(VMState *vm, Address *addr, int state)
 
     if (curstate == uninitialized) {
         Sleigh_resolve(vm, pos);
+
+        if (state == disassembly)
+            return pos;
     }
 
-    return NULL;
+    Sleigh_resolveHandles(vm, pos);
+
+    return pos;
 }
 
 int     Sleigh_printAssembly(VMState *vm, Address *addr)

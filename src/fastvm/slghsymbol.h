@@ -243,6 +243,7 @@ void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o);
 void            SleighSymbol_saveXml(SleighSymbol *s, FILE *o);
 
 void            SleighSymbol_print(SleighSymbol *s, CString *cs, ParserWalker *walker);
+Constructor*    SleighSymbol_resolve(SleighSymbol *s, ParserWalker *walker);
 
 #define OperandSymbol_getDefiningSymbol(s) (((s)->type == operand_symbol) ? s->operand.triple:NULL)
 
@@ -344,6 +345,7 @@ void            Constructor_saveXml(Constructor *ct, FILE *o);
 void            Constructor_printMnemonic(Constructor *ct, CString *cs, ParserWalker *walker);
 void            Constructor_printBody(Constructor *ct, CString *s, ParserWalker *walker);
 void            Constructor_print(Constructor *ct, CString *cs, ParserWalker *walker);
+void            Constructor_applyContext(Constructor *ct, ParserWalker *walker);
 #define Constructor_getParent(ct)           (ct)->parent
 #define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
 
@@ -379,6 +381,8 @@ ContextChange*  ContextChange_clone(ContextChange *cc);
 void            ContextChange_delete(ContextChange *cc);
 
 void            ContextChange_saveXml(ContextChange *cc, FILE *o);
+
+void            ContextChange_apply(ContextChange *cc, ParserWalker *walker);
 
 
 #ifdef __cplusplus

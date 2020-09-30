@@ -100,6 +100,25 @@ void            ParserContext_loadContext(ParserContext *pc)
 {
 }
 
+void            ParserContext_setContextWord(ParserContext *pc, int i, uintm val, uintm mask)
+{
+    pc->context[i] = (pc->context[i] & ~mask) | (mask & val);
+}
+
+void            ParserContext_addCommit(ParserContext *pc, SleighSymbol *sym, int num, int mask, bool flow, ConstructState *point)
+{
+    ContextSet *cs = vm_mallocz(sizeof(cs[0]));
+
+    cs->sym = sym;
+    cs->point = point;
+    cs->num = num;
+    cs->mask = mask;
+    cs->value = pc->context[num] & mask;
+    cs->flow = flow;
+
+    dynarray_add(&pc->contextcommit, cs);
+}
+
 uintm           ParserContext_getInstructionBits(ParserContext *pc, int startbit, int size, int off)
 {
     off += (startbit / 8);
@@ -118,6 +137,27 @@ uintm           ParserContext_getInstructionBits(ParserContext *pc, int startbit
 
     res <<= 8 * (sizeof(uintm) - bytesize) + startbit;
     res >>= 8 * sizeof(uintm) - size;
+    return res;
+}
+
+#define uintm_bits      (sizeof(uintm) * 8)
+
+uintm           ParserContext_getContextBits(ParserContext *pc, int startbit, int size)
+{
+    int intstart = startbit / uintm_bits;
+    uintm res = pc->context[intstart];
+    int bitOffset = startbit % uintm_bits;
+    int unusedBits = uintm_bits - size;
+    res <<= bitOffset;
+    res >>= unusedBits;
+    int remaining = size - uintm_bits + bitOffset;
+    if ((remaining > 0) && (++intstart < pc->contextsize)) {
+        uintm res2 = pc->context[intstart];
+        unusedBits = uintm_bits - remaining;
+        res2 >>= unusedBits;
+        res |= res2;
+    }
+
     return res;
 }
 
@@ -247,4 +287,46 @@ void                    ParserWalker_setOutOfBandState(ParserWalker *p, Construc
     p->point = tempstate;
     p->depth = 0;
     p->breadcrumb[0] = 0;
+}
+
+uint4                   ParserWalker_getOffset(ParserWalker *walker, int i)
+{
+    if (i < 0)  return walker->point->offset;
+
+    ConstructState *op = walker->point->resolve.ptab[i];
+
+    return op->offset + op->length;
+}
+
+void                    ParserContext_allocateOperand(ParserContext *pc, int i, ParserWalker *walker)
+{
+    ConstructState *opstate = &pc->state[pc->alloc++];
+    opstate->parent = walker->point;
+    opstate->ct = NULL;
+    walker->point->resolve.ptab[i] = opstate;
+    walker->breadcrumb[walker->depth++] += 1;
+    walker->point = opstate;
+    walker->breadcrumb[walker->depth] = 0;
+}
+
+const Address*  ParserWalker_getAddr(ParserWalker *p)
+{
+    if (p->cross_context)
+        return p->cross_context->addr;
+
+    return p->const_context->addr;
+}
+const Address*  ParserWalker_getNaddr(ParserWalker *p)
+{
+    return p->cross_context ? p->cross_context->naddr : p->const_context->naddr;
+}
+
+const Address*  ParserWalker_getRefAddr(ParserWalker *p)
+{
+    return p->cross_context ? p->cross_context->calladdr : p->const_context->calladdr;
+}
+
+const Address*  ParserWalker_getDestAddr(ParserWalker *p)
+{
+    return p->cross_context ? p->cross_context->calladdr : p->const_context->calladdr;
 }

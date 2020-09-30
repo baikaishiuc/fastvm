@@ -92,6 +92,7 @@ void                AddrSpace_delete(AddrSpace *a);
 ConstantSpace*      ConstantSpace_new(void *m, const char *name, int ind);
 OtherSpace*         OtherSpace_new(void *m, const char *name, int ind);
 UniqueSpace*        UniqueSpace_new(void *m, const char *name, int ind, u4 fl);
+void                AddrSpace_printRaw(AddrSpace *a, uintb offset, CString *s);
 
 void                AddrSpace_saveXml(AddrSpace *a, FILE *o);
 

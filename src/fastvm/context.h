@@ -11,6 +11,7 @@ extern "C" {
 
 typedef struct FixedHandle      FixedHandle;
 typedef struct ConstructState   ConstructState;
+typedef struct ContextSet       ContextSet;
 typedef struct ParserContext    ParserContext;
 typedef struct ParserWalker     ParserWalker;
 typedef struct Constructor  Constructor;
@@ -84,8 +85,11 @@ void            ParserContext_initialize(ParserContext *pc, int maxstate, int ma
 uintm           ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
 uintm           ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
 uintm           ParserContext_getInstructionBits(ParserContext *pc, int startbit, int size, int off);
+uintm           ParserContext_getContextBits(ParserContext *pc, int startbit, int size);
 void            ParserContext_clearCommits(ParserContext *pc);
 void            ParserContext_loadContext(ParserContext *pc);
+void            ParserContext_setContextWord(ParserContext *pc, int i, uintm val, uintm mask);
+void            ParserContext_addCommit(ParserContext *pc, SleighSymbol *sym, int num, int mask, bool flow, ConstructState *point);
 #define ParserContext_getLength(p)      p->base_state->length
 
 void     ParserContext_deallocateState(ParserContext *pc, ParserWalker *walker);
@@ -111,11 +115,17 @@ void                    ParserWalker_pushOperand(ParserWalker *p, int i);
 void                    ParserWalker_popOperand(ParserWalker *p);
 void                    ParserWalker_setOutOfBandState(ParserWalker *p, Constructor *ct, int index,
                     ConstructState *tempstate, ParserWalker *otherwalker);
+uint4                   ParserWalker_getOffset(ParserWalker *walker, int i);
 #define ParserWalker_getInstructionBytes(p, byteoff, numbytes)      ParserContext_getInstructionBytes(p->const_context, byteoff, numbytes, p->point->offset)
 #define ParserWalker_getContextBytes(p, byteoff, numbytes)          ParserContext_getContextBytes(p->const_context, byteoff, numbytes)
 
-#define ParserWalker_getInstructionBits(p, startbit, size)
-#define ParserWalker_getContextBits(p, startbit, size)
+#define ParserWalker_getInstructionBits(p, startbit, size)  ParserContext_getInstructionBits(p->const_context, startbit, size, p->point->offset)
+#define ParserWalker_getContextBits(p, startbit, size)      ParserContext_getContextBits(p->const_context, startbit, size)
+
+const Address*  ParserWalker_getAddr(ParserWalker *p);
+const Address*  ParserWalker_getNaddr(ParserWalker *p);
+const Address*  ParserWalker_getRefAddr(ParserWalker *p);
+const Address*  ParserWalker_getDestAddr(ParserWalker *p);
 
 #ifdef __cplusplus
 }

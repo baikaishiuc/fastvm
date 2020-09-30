@@ -25,6 +25,7 @@ Address*        Address_clone(Address *op2);
 Address*        Address_new1(int ex);
 Address*        Address_new2(AddrSpace *id, uintb off);
 void            Address_delete(Address *op);
+char*           Address_printRaw(Address *a, CString *s);
 
 #define Address_isInvalid(a)    (a->base == NULL)
 #define Address_getAddrSize(a)  AddrSpace_getAddrSize(a->base)
