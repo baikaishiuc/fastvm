@@ -211,13 +211,16 @@ void            Sleigh_resolve(VMState *vm, ParserContext *pos)
     vm->binload(vm, pos->buf, sizeof(pos->buf), pos->addr);
 
     ParserWalker *walker = ParserWalker_new(pos);
-    PaserContext_deallocateState(pos, walker);
-    //Constructor *ct, *subct;
-    //uint4 off;
-    //int oper, numoper;
+    ParserContext_deallocateState(pos, walker);
+    Constructor *ct, *subct;
+    uint4 off;
+    int oper, numoper;
 
     pos->delayslot = 0;
     ParserWalker_setOffset(walker, 0);
+    ParserContext_clearCommits(pos);
+    ParserContext_loadContext(pos);
+    ct = SubtableSymbol_resolve(vm->slgh.root, walker);
 }
 
 ParserContext*  Sleigh_obtainContext(VMState *vm, Address *addr, int state)

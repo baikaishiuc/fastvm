@@ -96,14 +96,41 @@ uintm       ParserContext_getContextBytes(ParserContext *pc, int bytestart, int 
     return res;
 }
 
+void            ParserContext_loadContext(ParserContext *pc)
+{
+}
+
+uintm           ParserContext_getInstructionBits(ParserContext *pc, int startbit, int size, int off)
+{
+    off += (startbit / 8);
+    if (off >= 16)
+        vm_error("Instruction is using more than 16 bytes");
+
+    uint1 *ptr = pc->buf + off;
+    startbit = startbit % 8;
+    int bytesize = (startbit + size - 1) / 8 + 1;
+    uintm res = 0;
+    int i;
+    for (i = 0; i < bytesize; i++) {
+        res <<= 8;
+        res |= ptr[i];
+    }
+
+    res <<= 8 * (sizeof(uintm) - bytesize) + startbit;
+    res >>= 8 * sizeof(uintm) - size;
+    return res;
+}
+
 void            ParserContext_clearCommits(ParserContext *pc)
 {
     int i;
     for (i = 0; i < pc->contextcommit.len; i++) {
+        vm_free(pc->contextcommit.ptab[i]);
     }
+    dynarray_reset(&pc->contextcommit);
 }
 
-void     PaserContext_deallocateState(ParserContext *pc, ParserWalker *walker) 
+void     ParserContext_deallocateState(ParserContext *pc, ParserWalker *walker) 
 {
     pc->alloc = 1;
     walker->context = pc;

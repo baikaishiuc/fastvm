@@ -167,6 +167,42 @@ void                PatternBlock_normalize(PatternBlock *pb)
     }
 }
 
+bool PatternBlock_isInstructionMatch(PatternBlock *pb, ParserWalker *walker)
+{
+    if (pb->nonzerosize <= 0)
+        return (pb->nonzerosize == 0);
+
+    int off = pb->offset, i;
+    for (i = 0; i < pb->maskvec.len; i++) {
+        uintm data = ParserWalker_getInstructionBytes(walker, off, sizeof(uintm));
+        uintm mask = (uintm)pb->maskvec.ptab[i];
+        if ((mask & data) != (uintm)pb->valvec.ptab[i])
+            return false;
+
+        off += sizeof(uintm);
+    }
+
+    return true;
+}
+
+bool    PatternBlock_isContextMatch(PatternBlock *pb, ParserWalker *walker) 
+{
+    if (pb->nonzerosize <= 0)
+        return (pb->nonzerosize == 0);
+
+    int off = pb->offset, i;
+    for (i = 0; i < pb->maskvec.len; i++) {
+        uintm data = ParserWalker_getContextBytes(walker, off, sizeof(uintm));
+        uintm mask = (uintm)pb->maskvec.ptab[i];
+        if ((mask & data) != (uintm)pb->valvec.ptab[i])
+            return false;
+
+        off += sizeof(uintm);
+    }
+
+    return true;
+}
+
 Pattern*            Pattern_new(int type)
 {
     Pattern *p = vm_mallocz(sizeof(p[0]));
@@ -188,6 +224,38 @@ InstructionPattern*     InstructionPattern_newP(PatternBlock *pb)
     p->instruction.maskvalue = pb;
 
     return p;
+}
+
+bool            Pattern_isMatch(Pattern *pat, ParserWalker *walker)
+{
+    int i;
+    switch (pat->type) {
+    case a_combinePattern:
+        if (!Pattern_isMatch(pat->combine.instr, walker))
+            return false;
+
+        if (!Pattern_isMatch(pat->combine.context, walker))
+            return false;
+
+        return true;
+
+    case a_instructionPattern:
+        return PatternBlock_isInstructionMatch(pat->instruction.maskvalue, walker);
+
+    case a_contextPattern:
+        return PatternBlock_isContextMatch(pat->context.maskvalue, walker);
+
+    case a_orPattern:
+        for (i = 0; i < pat->or.orlist.len; i++) {
+            if (Pattern_isMatch(pat->or.orlist.ptab[i], walker)) 
+                return true;
+        }
+        return false;
+
+    default:
+        vm_error("unsupport pattern[%d]", pat->type);
+        return false;
+    }
 }
 
 int     Pattern_numDisjoint(Pattern *pat)

@@ -27,6 +27,11 @@ struct DecisionProperties {
     struct dynarray         conflicterrors;
 };
 
+struct dpair {
+    DisjointPattern *first;
+    Constructor *second;
+};
+
 struct DecisionNode {
     struct dynarray list;
     struct dynarray children;
@@ -39,6 +44,7 @@ struct DecisionNode {
 
 DecisionNode*   DecisionNode_new(DecisionNode *d);
 void            DecisionNode_delete(DecisionNode *d);
+Constructor*    DecisionNode_resolve(DecisionNode *d, ParserWalker *walker);
 
 struct SleighSymbol {
     enum {
@@ -224,6 +230,8 @@ void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
+
+Constructor*    SubtableSymbol_resolve(SleighSymbol *sym, ParserWalker *walker);
 
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym);
 VarnodeTpl*     VarnodeSymbol_getVarnode(SleighSymbol *sym);

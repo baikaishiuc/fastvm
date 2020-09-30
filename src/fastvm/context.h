@@ -83,10 +83,12 @@ void            ParserContext_delete(ParserContext *pc);
 void            ParserContext_initialize(ParserContext *pc, int maxstate, int maxparam, AddrSpace *spc);
 uintm           ParserContext_getInstructionBytes(ParserContext *pc, int bytestart, int size, int off);
 uintm           ParserContext_getContextBytes(ParserContext *pc, int bytestart, int size);
+uintm           ParserContext_getInstructionBits(ParserContext *pc, int startbit, int size, int off);
 void            ParserContext_clearCommits(ParserContext *pc);
+void            ParserContext_loadContext(ParserContext *pc);
 #define ParserContext_getLength(p)      p->base_state->length
 
-void     PaserContext_deallocateState(ParserContext *pc, ParserWalker *walker);
+void     ParserContext_deallocateState(ParserContext *pc, ParserWalker *walker);
 
 struct ParserWalker {
     ParserContext   *const_context;
@@ -111,6 +113,9 @@ void                    ParserWalker_setOutOfBandState(ParserWalker *p, Construc
                     ConstructState *tempstate, ParserWalker *otherwalker);
 #define ParserWalker_getInstructionBytes(p, byteoff, numbytes)      ParserContext_getInstructionBytes(p->const_context, byteoff, numbytes, p->point->offset)
 #define ParserWalker_getContextBytes(p, byteoff, numbytes)          ParserContext_getContextBytes(p->const_context, byteoff, numbytes)
+
+#define ParserWalker_getInstructionBits(p, startbit, size)
+#define ParserWalker_getContextBits(p, startbit, size)
 
 #ifdef __cplusplus
 }

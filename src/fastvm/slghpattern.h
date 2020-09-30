@@ -58,6 +58,7 @@ struct Pattern {
 InstructionPattern*     InstructionPattern_new(void);
 InstructionPattern*     InstructionPattern_newP(PatternBlock *pb);
 
+bool            Pattern_isMatch(Pattern *pat, ParserWalker *walker);
 int             Pattern_numDisjoint(Pattern *pat);
 Pattern*        Pattern_simplifyClone(Pattern *pat);
 

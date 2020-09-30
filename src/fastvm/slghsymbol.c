@@ -14,6 +14,25 @@ void            DecisionNode_delete(DecisionNode *d)
 {
 }
 
+Constructor*    DecisionNode_resolve(DecisionNode *d, ParserWalker *walker)
+{
+    int i;
+    /* 叶子节点 ? */
+    if (d->bitsize == 0) {
+        for (i = 0; i < d->list.len; i++) {
+            struct dpair *dpair = d->list.ptab[i];
+            if (Pattern_isMatch(dpair->first, walker))
+                return dpair->second;
+        }
+
+        vm_error("Unable to resolve constructor");
+    }
+
+    uintm val;
+
+    return NULL;
+}
+
 void            DecisionNode_addConstructorPair(DecisionNode *dnode, DisjointPattern *pat, Constructor *ct)
 {
 }
@@ -79,6 +98,12 @@ PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
             return NULL;
     }
 }
+
+Constructor*    SubtableSymbol_resolve(SleighSymbol *sym, ParserWalker *walker)
+{
+    return NULL;
+}
+
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
 {
