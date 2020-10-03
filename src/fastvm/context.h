@@ -25,7 +25,7 @@ typedef struct Token {
     int index;
     int bigendian;
     char name[1];
-} Token;
+} Token, token;
 
 Token*          Token_new(const char *name, int sz, int be, int index);
 void            Token_delete(Token *t);
@@ -69,9 +69,9 @@ struct ParserContext {
     ContextCache *contcache;
     struct dynarray contextcommit;  // ContextSet
 
-    Address *addr;
-    Address *naddr;
-    Address *calladdr;
+    Address addr;
+    Address naddr;
+    Address calladdr;
 
     ConstructState *state;
     ConstructState *base_state;
@@ -126,6 +126,7 @@ const Address*  ParserWalker_getAddr(ParserWalker *p);
 const Address*  ParserWalker_getNaddr(ParserWalker *p);
 const Address*  ParserWalker_getRefAddr(ParserWalker *p);
 const Address*  ParserWalker_getDestAddr(ParserWalker *p);
+void            ParserWalker_calcCurrentLength(ParserWalker *p, int length, int numopers);
 
 #ifdef __cplusplus
 }

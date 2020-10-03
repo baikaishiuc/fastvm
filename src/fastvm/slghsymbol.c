@@ -1,6 +1,8 @@
 ﻿#include "vm.h"
 #include "slghsymbol.h"
 
+#define OPER(s)             (s)->operand
+
 DecisionNode*   DecisionNode_new(DecisionNode *p)
 {
     DecisionNode *dn = vm_mallocz(sizeof(dn[0]));
@@ -103,12 +105,6 @@ PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s)
             return NULL;
     }
 }
-
-Constructor*    SubtableSymbol_resolve(SleighSymbol *sym, ParserWalker *walker)
-{
-    return DecisionNode_resolve(sym->subtable.decisiontree, walker);
-}
-
 
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s)
 {
@@ -572,6 +568,36 @@ VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym)
     return NULL;
 }
 
+#define SUB(s)              ((s)->subtable)
+
+TokenPattern*   SubtableSymbol_buildPattern(SubtableSymbol *sym, CString *s)
+{
+    assert(sym->type == subtable_symbol);
+    int i;
+
+    if (sym->subtable.pattern)
+        return sym->subtable.pattern;
+
+    sym->subtable.erros = false;
+    sym->subtable.beingbuilt = true;
+    sym->subtable.pattern = TokenPattern_newV();
+
+    if (!SUB(sym).construct.len) {
+        vm_error("Error: There are no construct in table");
+    }
+
+    Constructor *ct = SUB(sym).construct.ptab[0];
+    Constructor_buildPattern(ct, s);
+    SUB(sym).pattern = ct->pattern;
+
+    for (i = 1; i < SUB(sym).construct.len; i++) {
+        ct = SUB(sym).construct.ptab[i];
+        Constructor_buildPattern(ct, s);
+    }
+
+    return SUB(sym).pattern;
+}
+
 SymbolScope *SymbolScope_new(SymbolScope *parent, int id)
 {
     SymbolScope *scope = vm_mallocz(sizeof(scope[0]));
@@ -856,7 +882,7 @@ void            ContextChange_saveXml(ContextChange *cc, FILE *o)
 void            ContextChange_apply(ContextChange *cc, ParserWalker *walker)
 {
     if (cc->type == context_op) {
-        uintm val = PatternExpression_getValue(cc->op.patexp, walker);
+        uintm val = (uintm)PatternExpression_getValue(cc->op.patexp, walker);
         val <<= cc->op.shift;
         ParserContext_setContextWord(walker->context, cc->op.num, val, cc->op.mask);
     }
@@ -1013,6 +1039,69 @@ void            Constructor_applyContext(Constructor *ct, ParserWalker *walker)
 
     for (i = 0; i < ct->context->len; i++) {
     }
+}
+
+TokenPattern*   Constructor_buildPattern(Constructor *ct, CString *s)
+{
+    int i;
+
+    if (ct->pattern)
+        return ct->pattern;
+
+    ct->pattern = TokenPattern_newV();
+    struct dynarray oppattern = { 0 };
+    bool recursion = false;
+    // 对每个操作数都产生pattern，存到oppattern
+
+    for (i = 0; i < ct->operands.len; i++) {
+        OperandSymbol *sym = ct->operands.ptab[i];
+        TripleSymbol *triple = OPER(sym).triple;
+        PatternExpression *defexp = OPER(sym).defexp;
+        if (triple) {
+            if (triple->type == subtable_symbol) {
+                SubtableSymbol *subsym = triple;
+                if (SUB(subsym).beingbuilt) {
+                    if (recursion)
+                        vm_error("Illegal recursion");
+
+                    recursion = true;
+                    dynarray_add(&oppattern, TokenPattern_newV());
+                }
+                else
+                    dynarray_add(&oppattern, SubtableSymbol_buildPattern(subsym, s));
+            }
+            else
+                dynarray_add(&oppattern,
+                    PatternExpression_genMinPattern(SleighSymbol_getPatternExpression(triple), &oppattern));
+        }
+        else if (defexp)
+            dynarray_add(&oppattern, PatternExpression_genMinPattern(defexp, &oppattern));
+        else {
+            vm_error("%s: operand is undefined", sym->name);
+        }
+
+        TokenPattern *sympat = dynarray_back(&oppattern);
+        sym->operand.minimumlength = TokenPattern_getMinimumLength(sympat);
+        if (sympat->leftellipsis || sympat->rightellipsis) {
+            sym->operand.flags |= variable_len;
+        }
+    }
+
+    if (!ct->pateq)
+        vm_error("Missing equation");
+      // Build the entire pattern
+
+    PatternEquation_genPattern(ct->pateq, &oppattern);
+    ct->pattern = ct->pateq->resultpattern;
+    if (TokenPattern_alwaysFalse(ct->pattern))
+        vm_error("impossible pattern");
+    if (recursion)
+        ct->pattern->rightellipsis = true;
+
+    ct->minimumlength = TokenPattern_getMinimumLength(ct->pattern);
+
+
+    return NULL;
 }
 
 void        DecisionNode_saveXml(DecisionNode *d, FILE *o)
@@ -1231,11 +1320,12 @@ void            SleighSymbol_print(SleighSymbol *s, CString *cs, ParserWalker *w
 
 Constructor*    SleighSymbol_resolve(SleighSymbol *s, ParserWalker *walker)
 {
-    Address *addr;
+    intb ind;
+    const Address *addr;
     switch (s->type) {
     case valuemap_symbol:
         if (!s->valuemap.tableisfilled) {
-            intb ind = PatternExpression_getValue(s->valuemap.patval, walker);
+            ind = PatternExpression_getValue(s->valuemap.patval, walker);
             if ((ind >= s->valuemap.valuetable.len || ind < 0) || (s->valuemap.valuetable.ptab[ind] == (void *)0xBADBEEF)) {
                 addr = ParserWalker_getAddr(walker);
                 vm_error("0x%-8x: No corresponding entry in valuetable", addr->offset);
@@ -1245,7 +1335,26 @@ Constructor*    SleighSymbol_resolve(SleighSymbol *s, ParserWalker *walker)
 
     case name_symbol:
         if (!s->nameS.tableisfilled) {
+            ind = PatternExpression_getValue(s->nameS.patval, walker);
+            if ((ind >= s->nameS.nametable->len || ind < 0) || (s->nameS.nametable->ptab[ind] == (void *)0xBADBEEF)) {
+                addr = ParserWalker_getAddr(walker);
+                vm_error("0x%-8x: No corresponding entry in namesymbol", addr->offset);
+            }
         }
+        return NULL;
+
+    case varnodelist_symbol:
+        if (!s->varnodeList.tableisfilled) {
+            ind = PatternExpression_getValue(s->varnodeList.patval, walker);
+            if ((ind >= s->varnodeList.varnode_table.len || ind < 0) || (s->varnodeList.varnode_table.ptab[ind] == NULL)) {
+                addr = ParserWalker_getAddr(walker);
+                vm_error("0x%-8x: No corresponding entry in varnodelist", addr->offset);
+            }
+        }
+        return NULL;
+
+    case subtable_symbol:
+        return DecisionNode_resolve(s->subtable.decisiontree, walker);
 
     default:
         return NULL;

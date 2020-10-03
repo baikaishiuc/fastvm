@@ -1396,11 +1396,32 @@ void    SleighCompile_checkConsistency(SleighCompile *s)
 {
 }
 
+void    SleighCompile_buildPatterns(SleighCompile *s)
+{
+    CString cs = { 0 };
+    if (!s->root)
+        vm_error("No patterns to match");
+
+    SubtableSymbol_buildPattern(s->root, &cs);
+}
+
+void    SleighCompile_buildDecisionTrees(SleighCompile *s)
+{
+    DecisionProperties props = { 0 };
+    SubtableSymbol_buildDecisionTree(s->root, &props);
+}
+
 void    SleighCompile_process(SleighCompile *s)
 {
     SleighCompile_checkNops(s);
     if (!s->defaultcodespace)
         vm_error("No default code space");
+    if (s->errors > 0) return;
+
+    SleighCompile_buildPatterns(s);
+    if (s->errors > 0) return;
+
+    SleighCompile_buildDecisionTrees(s);
     if (s->errors > 0) return;
 }
 
@@ -1465,6 +1486,8 @@ int                 slgh_run(SleighCompile *s, const char *filein, const char *f
 
     int parseres = yyparse();
     fclose(yyin);
+    if (parseres == 0)
+        SleighCompile_process(s);
 
     FILE *out = fopen(fileout, "w");
     if (!out)

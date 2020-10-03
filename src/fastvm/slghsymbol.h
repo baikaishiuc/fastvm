@@ -46,6 +46,11 @@ DecisionNode*   DecisionNode_new(DecisionNode *d);
 void            DecisionNode_delete(DecisionNode *d);
 Constructor*    DecisionNode_resolve(DecisionNode *d, ParserWalker *walker);
 
+#define code_address            1
+#define offset_irrel            2
+#define variable_len            4
+#define marked                  8
+
 struct SleighSymbol {
     enum {
         empty,
@@ -167,7 +172,7 @@ struct SleighSymbol {
 
         struct {
             TokenPattern *pattern;
-            bool beingbuild;
+            bool beingbuilt;
             bool erros;
             struct dynarray construct;
             DecisionNode *decisiontree;
@@ -231,13 +236,9 @@ void MacroSymbol_addOperand(MacroSymbol *sym, OperandSymbol *operand);
 PatternValue*       SleighSymbol_getPatternValue(SleighSymbol *s);
 PatternExpression*  SleighSymbol_getPatternExpression(SleighSymbol *s);
 
-Constructor*    SubtableSymbol_resolve(SleighSymbol *sym, ParserWalker *walker);
-
 VarnodeTpl*     SleighSymbol_getVarnode(SleighSymbol *sym);
-VarnodeTpl*     VarnodeSymbol_getVarnode(SleighSymbol *sym);
-VarnodeTpl*     StartSymbol_getVarnode(StartSymbol *sym);
-VarnodeTpl*     EndSymbol_getVarnode(EndSymbol *sym);
-VarnodeTpl*     SpecificSymbol_getVarnode(SpecificSymbol *sym);
+
+TokenPattern*   SubtableSymbol_buildPattern(SubtableSymbol *sym, CString *s);
 
 void            SleighSymbol_saveXmlHeader(SleighSymbol *s, FILE *o);
 void            SleighSymbol_saveXml(SleighSymbol *s, FILE *o);
@@ -346,6 +347,7 @@ void            Constructor_printMnemonic(Constructor *ct, CString *cs, ParserWa
 void            Constructor_printBody(Constructor *ct, CString *s, ParserWalker *walker);
 void            Constructor_print(Constructor *ct, CString *cs, ParserWalker *walker);
 void            Constructor_applyContext(Constructor *ct, ParserWalker *walker);
+TokenPattern*   Constructor_buildPattern(Constructor *ct, CString *s);
 #define Constructor_getParent(ct)           (ct)->parent
 #define Constructor_setMainSection(ct, tpl) (ct)->templ = tpl
 

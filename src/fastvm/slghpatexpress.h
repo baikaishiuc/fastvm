@@ -9,7 +9,7 @@ extern "C" {
 #include "slghpattern.h"
 #include "slghsymbol.h"
 
-typedef struct TokenPattern TokenPattern;
+typedef struct TokenPattern TokenPattern, tokpat;
 
 struct TokenPattern {
     Pattern *pattern;
@@ -18,16 +18,23 @@ struct TokenPattern {
     int rightellipsis;
 };
 
+TokenPattern*   TokenPattern_newV(void);
 TokenPattern*   TokenPattern_new(Pattern *pat);
+TokenPattern*   TokenPattern_newT(Token *token);
+TokenPattern*   TokenPattern_new4(Token *tok, intb value, int bitstart, int bitend);
+PatternBlock*   TokenPattern_buildBigBlock(TokenPattern *tp, int4 size, int4 bitstart, int4 bitend, intb value);
+PatternBlock*   TokenPattern_buildLittleBlock(TokenPattern *a, int4 size, int4 bitstart, int4 bitend, intb value);
+PatternBlock*   TokenPattern_buildSingle(TokenPattern *a, int4 startbit, int4 endbit, uintm byteval);
 
-PatternBlock*   TokenPattern_buildSingle(TokenPattern *p, int startbit, int endbit, int byteval);
-PatternBlock*   TokenPattern_buildBigBlock(TokenPattern *p, int size, int bitstart, int bitend, int value);
-PatternBlock*   TokenPattern_buildLittleBlock(TokenPattern *p, int size, int bitstart, int bitend, int value);
+TokenPattern*   TokenPattern_clone(TokenPattern *op1, TokenPattern *op2);
 
 TokenPattern*   TokenPattern_doAnd(const TokenPattern *op1, const TokenPattern *op2);
 TokenPattern*   TokenPattern_doOr(const TokenPattern *op1, const TokenPattern *op2);
 TokenPattern*   TokenPattern_doCat(const TokenPattern *op1, const TokenPattern *op2);
 TokenPattern*   TokenPattern_commobSubPattern(const TokenPattern *pat, const TokenPattern *subpat);
+int             TokenPattern_getMinimumLength(TokenPattern *tp);
+#define TokenPattern_alwaysTrue(t)          Pattern_alwaysTrue((t)->pattern)
+#define TokenPattern_alwaysFalse(t)         Pattern_alwaysFalse((t)->pattern)
 
 /* PatternExpression 是 算术表达式，叫 arithmetic expression 更合适 
 
@@ -35,7 +42,7 @@ PatternEquation 是 逻辑表达式，叫 logical expression 更合适，它现�
 */
 
 typedef struct PatternExpression  PatternExpression, ArithmeticExpression, PatternValue, ValueExpression, ConstantValue, OperandValue,
-            StartInstructionValue, EndInstructionValue, ContextField, TokenField;
+            StartInstructionValue, EndInstructionValue, ContextField, TokenField, patexp;
 
 struct PatternExpression {
     int refcount;
@@ -114,6 +121,7 @@ PatternExpression*  PatternExpression_new(int type, ...);
 void                PatternExpression_delete(PatternExpression *p);
 void                PatternExpression_saveXml(PatternExpression *p, FILE *o);
 intb                PatternExpression_getValue(PatternExpression *pe, ParserWalker *walker);
+TokenPattern*       PatternExpression_genMinPattern(patexp *p, struct dynarray *ops);
 
 ConstantValue*      ConstantValue_new(void);
 ConstantValue*      ConstantValue_newB(intb b);
@@ -141,11 +149,11 @@ typedef struct OperandResolve {
     int     size;
 } OperandResolve;
 
-typedef struct PatternEquation  PatternEquation, LogicalExpression, EquationAnd, OperandEquation;
+typedef struct PatternEquation  PatternEquation, LogicalExpression, EquationAnd, OperandEquation, pateq;
 
 typedef struct PatternEquation {
     int refcount;
-    TokenPattern resultpattern;
+    TokenPattern *resultpattern;
     int index;
 
     enum {
@@ -195,6 +203,8 @@ void                PatternEquation_delete(PatternEquation *p);
 
 EquationAnd*        EquationAnd_new(PatternEquation *l, PatternEquation *r);
 OperandEquation*    OperandEquation_new(int index);
+
+void                PatternEquation_genPattern(pateq *p, struct dynarray *ops);
 
 
 #ifdef __cplusplus

@@ -95,9 +95,9 @@ void* process_module(int pid, const wchar_t* lpModuleName)
 	if (handle == INVALID_HANDLE_VALUE) {
 		return NULL;
 	}
-	MODULEENTRY32 me32;
-	me32.dwSize = sizeof(MODULEENTRY32);
-	BOOL success = Module32First(handle, &me32);
+	MODULEENTRY32W me32;
+	me32.dwSize = sizeof(MODULEENTRY32W);
+	BOOL success = Module32FirstW(handle, &me32);
 	while (success) {//遍历模块
 		if (wcscmp(me32.szModule, lpModuleName) == 0) {
 			CloseHandle(handle);
@@ -109,6 +109,7 @@ void* process_module(int pid, const wchar_t* lpModuleName)
 	return NULL;
 
 }
+
 
 int RemoteThreadInjectDll(HANDLE processHandle, const WCHAR* dllPath) {
 #undef  func_format_s
@@ -181,9 +182,9 @@ int		process_kill(void *handle)
 int		process_kill_by_name(const wchar_t *filename)
 {
 	HANDLE hSnapShot = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
-	PROCESSENTRY32 pEntry;
+	PROCESSENTRY32W pEntry;
 	pEntry.dwSize = sizeof(pEntry);
-	BOOL hRes = Process32First(hSnapShot, &pEntry);
+	BOOL hRes = Process32FirstW(hSnapShot, &pEntry);
 	while (hRes)
 	{
 		if (wcscmp(pEntry.szExeFile, filename) == 0)
@@ -196,7 +197,7 @@ int		process_kill_by_name(const wchar_t *filename)
 				CloseHandle(hProcess);
 			}
 		}
-		hRes = Process32Next(hSnapShot, &pEntry);
+		hRes = Process32NextW(hSnapShot, &pEntry);
 	}
 	CloseHandle(hSnapShot);
 

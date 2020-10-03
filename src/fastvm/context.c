@@ -312,21 +312,35 @@ void                    ParserContext_allocateOperand(ParserContext *pc, int i, 
 const Address*  ParserWalker_getAddr(ParserWalker *p)
 {
     if (p->cross_context)
-        return p->cross_context->addr;
+        return &p->cross_context->addr;
 
-    return p->const_context->addr;
+    return &p->const_context->addr;
 }
 const Address*  ParserWalker_getNaddr(ParserWalker *p)
 {
-    return p->cross_context ? p->cross_context->naddr : p->const_context->naddr;
+    return p->cross_context ? &p->cross_context->naddr : &p->const_context->naddr;
 }
 
 const Address*  ParserWalker_getRefAddr(ParserWalker *p)
 {
-    return p->cross_context ? p->cross_context->calladdr : p->const_context->calladdr;
+    return p->cross_context ? &p->cross_context->calladdr : &p->const_context->calladdr;
 }
 
 const Address*  ParserWalker_getDestAddr(ParserWalker *p)
 {
-    return p->cross_context ? p->cross_context->calladdr : p->const_context->calladdr;
+    return p->cross_context ? &p->cross_context->calladdr : &p->const_context->calladdr;
+}
+
+void            ParserWalker_calcCurrentLength(ParserWalker *p, int length, int numopers)
+{
+    int i;
+    length += p->point->offset;
+    for (i = 0; i < numopers; i++) {
+        ConstructState *subpoint = p->point->resolve.ptab[i];
+        int sublength = subpoint->length + subpoint->offset;
+        if (sublength > length)
+            length = sublength;
+    }
+
+    p->point->length = length - p->point->offset;
 }

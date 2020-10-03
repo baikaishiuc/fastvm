@@ -46,7 +46,7 @@ ParserContext*      DisassemblyCache_getParserContext(DisassemblyCache *d, Addre
 {
     int hashindex = addr->offset & d->mask;
     ParserContext *res = d->hashtable[hashindex];
-    if (Address_equal(res->addr, addr))
+    if (Address_equal(&res->addr, addr))
         return res;
 
     res = d->list[d->nextfree];
@@ -54,7 +54,7 @@ ParserContext*      DisassemblyCache_getParserContext(DisassemblyCache *d, Addre
     if (d->nextfree >= d->minimumresue)
         d->nextfree = 0;
 
-    res->addr = addr;
+    res->addr = *addr;
     res->parsestate = uninitialized;
     d->hashtable[hashindex] = res;
     return res;
@@ -208,7 +208,7 @@ void            Sleigh_initialize(VMState *vm)
 
 void            Sleigh_resolve(VMState *vm, ParserContext *pos)
 {
-    vm->binload(vm, pos->buf, sizeof(pos->buf), pos->addr);
+    vm->binload(vm, pos->buf, sizeof(pos->buf), &pos->addr);
 
     ParserWalker *walker = ParserWalker_new(pos);
     ParserContext_deallocateState(pos, walker);
@@ -220,7 +220,7 @@ void            Sleigh_resolve(VMState *vm, ParserContext *pos)
     ParserWalker_setOffset(walker, 0);
     ParserContext_clearCommits(pos);
     ParserContext_loadContext(pos);
-    ct = SubtableSymbol_resolve(vm->slgh.root, walker);
+    ct = SleighSymbol_resolve(vm->slgh.root, walker);
     walker->point->ct = ct;
 
     while (walker->point) {
@@ -233,9 +233,32 @@ void            Sleigh_resolve(VMState *vm, ParserContext *pos)
             walker->point->offset = off;
             TripleSymbol *tsym = sym->operand.triple;
             if (tsym) {
+                subct = SleighSymbol_resolve(tsym, walker);
+                if (subct) {
+                    walker->point->ct = subct;
+                    Constructor_applyContext(subct, walker);
+                    break;
+                }
             }
+
+            walker->point->length = sym->operand.minimumlength;
+            ParserWalker_popOperand(walker);
+            oper += 1;
+        }
+
+        if (oper >= numoper) {
+            ParserWalker_calcCurrentLength(walker, ct->minimumlength, numoper);
+            ParserWalker_popOperand(walker);
+
+            ConstructTpl *temp = ct->templ;
+            if (temp && (temp->delayslot > 0))
+                pos->delayslot = temp->delayslot;
         }
     }
+
+    pos->naddr = pos->addr;
+    Address_add(&pos->naddr, ParserContext_getLength(pos));
+    pos->parsestate = disassembly;
 }
 
 void            Sleigh_resolveHandles(VMState *vm, ParserContext *pos)

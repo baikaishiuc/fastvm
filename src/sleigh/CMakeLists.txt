@@ -1,0 +1,6 @@
+file(GLOB srclist *.cc *.c *.hh)
+add_executable(sleighexample ${srclist})
+add_executable(sleigh ${srclist})
+target_compile_definitions(sleighexample PUBLIC SLEIGHEXAMPLE)
+target_compile_definitions(sleigh PUBLIC SLEIGH)
+#target_link_libraries(fastvm mcore mxml Shlwapi)

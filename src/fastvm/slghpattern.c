@@ -2,6 +2,30 @@
 #include "vm.h"
 #include "slghpattern.h"
 
+PatternBlock*       PatternBlock_newB(bool tf)
+{
+    PatternBlock* pb = vm_mallocz(sizeof(pb[0]));
+
+    if (tf)
+        pb->nonzerosize = 0;
+    else
+        pb->nonzerosize = -1;
+
+    return pb;
+}
+
+PatternBlock*       PatternBlock_new3(int off, uintm mask, uintm val)
+{ 
+    PatternBlock *a = vm_mallocz(sizeof(a[0]));
+    a->offset = off;
+    dynarray_add(&a->maskvec, (void *)mask);
+    dynarray_add(&a->valvec, (void *)val);
+    a->nonzerosize = sizeof(uintm); // Assume all non-zero bytes before normalization
+    PatternBlock_normalize(a);
+
+    return a;
+}
+
 PatternBlock*       PatternBlock_clone(PatternBlock *pb)
 {
     PatternBlock *res = vm_mallocz(sizeof(res[0]));
@@ -11,6 +35,49 @@ PatternBlock*       PatternBlock_clone(PatternBlock *pb)
     res->maskvec = pb->maskvec;
     res->valvec = pb->valvec;
 
+    return res;
+}
+
+void                PatternBlock_delete(PatternBlock *a)
+{
+    vm_free(a);
+}
+
+
+PatternBlock*       PatternBlock_intersect(PatternBlock *a, PatternBlock *b)
+{ // Construct the intersecting pattern
+    if (PatternBlock_alwaysFalse(a) || PatternBlock_alwaysFalse(b))
+        return PatternBlock_newB(false);
+
+    PatternBlock *res = PatternBlock_newB(true);
+    int4 maxlength = (PatternBlock_getLength(a) > PatternBlock_getLength(b)) ?
+        PatternBlock_getLength(a) : PatternBlock_getLength(b);
+
+    res->offset = 0;
+    int4 offset = 0;
+    uintm mask1, val1, mask2, val2, commonmask;
+    uintm resmask, resval;
+    while (offset < maxlength)
+    {
+        mask1 = PatternBlock_getMask(a, offset * 8, sizeof(uintm) * 8);
+        val1 = PatternBlock_getValue(a, offset * 8, sizeof(uintm) * 8);
+        mask2 = PatternBlock_getMask(b, offset * 8, sizeof(uintm) * 8);
+        val2 = PatternBlock_getValue(b, offset * 8, sizeof(uintm) * 8);
+        commonmask = mask1 & mask2; // Bits in mask shared by both patterns
+        if ((commonmask & val1) != (commonmask & val2))
+        {
+            res->nonzerosize = -1; // Impossible pattern
+            PatternBlock_normalize(res);
+            return res;
+        }
+        resmask = mask1 | mask2;
+        resval = (mask1 & val1) | (mask2 & val2);
+        dynarray_add(&res->maskvec, (void *)resmask);
+        dynarray_add(&res->valvec, (void *)resval);
+        offset += sizeof(uintm);
+    }
+    res->nonzerosize = maxlength;
+    PatternBlock_normalize(res);
     return res;
 }
 
@@ -226,6 +293,20 @@ InstructionPattern*     InstructionPattern_newP(PatternBlock *pb)
     return p;
 }
 
+InstructionPattern*     InstructionPattern_newB(bool tf)
+{
+    Pattern*    p = Pattern_new(a_instructionPattern);
+
+    p->instruction.maskvalue = PatternBlock_newB(tf);
+
+    return p;
+}
+
+void                    Pattern_delete(Pattern *p)
+{
+    vm_free(p);
+}
+
 bool            Pattern_isMatch(Pattern *pat, ParserWalker *walker)
 {
     int i;
@@ -273,4 +354,75 @@ Pattern*        Pattern_simplifyClone(Pattern *pat)
     }
 
     return NULL;
+}
+
+Pattern*        Pattern_commonSubPattern(Pattern *a, Pattern * b, int sa)
+{
+    int i;
+    Pattern *p, *res, *next;
+
+    switch (a->type) {
+    case a_orPattern:
+        p = a-> or .orlist.ptab[0];
+        res = Pattern_commonSubPattern(p, b, sa);
+        if (sa > 0) sa = 0;
+        for (; i < a-> or .orlist.len; i++) {
+            p = a-> or .orlist.ptab[i];
+            next = Pattern_commonSubPattern(p, res, sa);
+            res = next;
+        }
+        return res;
+
+    default:
+        vm_error("un-support type[%d]", a->type);
+        return NULL;
+    }
+}
+
+bool            Pattern_alwaysTrue(Pattern *a)
+{
+    int i;
+    switch (a->type) {
+    case a_instructionPattern:
+        return PatternBlock_alwaysTrue(a->instruction.maskvalue);
+
+    case a_contextPattern:
+        return PatternBlock_alwaysTrue(a->context.maskvalue);
+
+    case a_orPattern:
+        for (i = 0; i < a-> or .orlist.len; i++) {
+            Pattern *p = a-> or .orlist.ptab[i];
+            if (Pattern_alwaysTrue(p))
+                return true;
+        }
+        return false;
+
+    default:
+        vm_error("not support pattern type [%d]", a->type);
+        return false;
+    }
+}
+
+bool            Pattern_alwaysFalse(Pattern *a)
+{
+    int i;
+    switch (a->type) {
+    case a_instructionPattern:
+        return PatternBlock_alwaysFalse(a->instruction.maskvalue);
+
+    case a_contextPattern:
+        return PatternBlock_alwaysFalse(a->context.maskvalue);
+
+    case a_orPattern:
+        for (i = 0; i < a-> or .orlist.len; i++) {
+            Pattern *p = a-> or .orlist.ptab[i];
+            if (Pattern_alwaysFalse(p))
+                return false;
+        }
+        return true;
+
+    default:
+        vm_error("not support pattern type [%d]", a->type);
+        return false;
+    }
 }
