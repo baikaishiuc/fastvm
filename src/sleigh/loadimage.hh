@@ -1,4 +1,4 @@
-/* ###
+﻿/* ###
  * IP: GHIDRA
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,12 +36,13 @@ struct DataUnavailError : public LowlevelError {
 struct LoadImageFunc {
   Address address;	///< Start of function
   string name;		///< Name of function
+  int size;
 };
 
 /// \brief A record describing a section bytes in the executable
 ///
 /// A lightweight object specifying the location and size of the section and basic properties
-struct LoadImageSection {
+struct LoadImageBSection {
   /// Boolean properties a section might have
   enum {
     unalloc = 1,		///< Not allocated in memory (debug info)
@@ -81,7 +82,7 @@ public:
   virtual bool getNextSymbol(LoadImageFunc &record) const; ///< Get the next symbol record
   virtual void openSectionInfo(void) const; ///< Prepare to read section info
   virtual void closeSectionInfo(void) const; ///< Stop reading section info
-  virtual bool getNextSection(LoadImageSection &sec) const; ///< Get info on the next section
+  virtual bool getNextSection(LoadImageBSection &sec) const; ///< Get info on the next section
   virtual void getReadonly(RangeList &list) const; ///< Return list of \e readonly address ranges
   virtual string getArchType(void) const=0; ///< Get a string indicating the architecture type
   virtual void adjustVma(long adjust)=0; ///< Adjust load addresses with a global offset
@@ -99,10 +100,10 @@ class RawLoadImage : public LoadImage {
   uintb filesize;		///< Total number of bytes in the loadimage/file
   AddrSpace *spaceid;		///< Address space that the file bytes are mapped to
 public:
-  RawLoadImage(const string &f); ///< RawLoadImage constructor
+  RawLoadImage(const string &f); ///< RawLoadImageB constructor
   void attachToSpace(AddrSpace *id) { spaceid = id; }	///< Attach the raw image to a particular space
   void open(void);					///< Open the raw file for reading
-  virtual ~RawLoadImage(void);				///< RawLoadImage destructor
+  virtual ~RawLoadImage(void);				///< RawLoadImageB destructor
   virtual void loadFill(uint1 *ptr,int4 size,const Address &addr);
   virtual string getArchType(void) const;
   virtual void adjustVma(long adjust);
@@ -141,7 +142,7 @@ inline void LoadImage::closeSymbols(void) const {
 }
 
 /// This method is used to read out an individual symbol record,
-/// LoadImageFunc, from the load image.  Right now, the only
+/// LoadImageBFunc, from the load image.  Right now, the only
 /// information that can be read out are function starts and the
 /// associated function name.  This method can be called repeatedly
 /// to iterate through all the symbols, until it returns \b false.
@@ -171,7 +172,7 @@ inline void LoadImage::closeSectionInfo(void) const {
 /// to get info on additional sections.
 /// \param record is a reference to the info record to be filled in
 /// \return \b true if there are more records to read
-inline bool LoadImage::getNextSection(LoadImageSection &record) const {
+inline bool LoadImage::getNextSection(LoadImageBSection &record) const {
   return false;
 }
 
