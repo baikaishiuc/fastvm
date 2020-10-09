@@ -64,12 +64,12 @@ static uint1 myprog[] = {
 };  // Size of 408 bytes
 
 // This is a tiny LoadImage class which feeds the executable bytes to the translator
-class MyLoadImage : public LoadImage {
+class MyLoadImage : public LoadImageB {
   uintb baseaddr;
   int4 length;
   uint1 *data;
 public:
-  MyLoadImage(uintb ad,uint1 *ptr,int4 sz) : LoadImage("nofile") { baseaddr = ad; data = ptr; length = sz; }
+  MyLoadImage(uintb ad,uint1 *ptr,int4 sz) : LoadImageB("nofile") { baseaddr = ad; data = ptr; length = sz; }
   virtual void loadFill(uint1 *ptr,int4 size,const Address &addr);
   virtual string getArchType(void) const { return "myload"; }
   virtual void adjustVma(long adjust) { }
@@ -247,7 +247,7 @@ bool TerminateCallBack::addressCallback(const Address &addr)
   return true;
 }
 
-static void doEmulation(Translate &trans,LoadImage &loader)
+static void doEmulation(Translate &trans,LoadImageB &loader)
 
 {
   // Set up memory state object

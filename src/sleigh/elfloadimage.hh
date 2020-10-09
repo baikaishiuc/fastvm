@@ -2,7 +2,7 @@
 
 #include "loadimage.hh"
 
-class ElfLoadImage : public LoadImage {
+class ElfLoadImage : public LoadImageB {
     long long baseaddr;
     unsigned char*  filedata;
     int             filelen;

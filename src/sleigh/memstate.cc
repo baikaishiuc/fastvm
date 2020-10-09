@@ -402,7 +402,7 @@ void MemoryImage::getPage(uintb addr,uint1 *res,int4 skip,int4 size) const
 /// \param ws is the number of bytes in the preferred wordsize (must be power of 2)
 /// \param ps is the number of bytes in a page (must be power of 2)
 /// \param ld is the underlying LoadImage
-MemoryImage::MemoryImage(AddrSpace *spc,int4 ws,int4 ps,LoadImage *ld)
+MemoryImage::MemoryImage(AddrSpace *spc,int4 ws,int4 ps,LoadImageB *ld)
   : MemoryBank(spc,ws,ps)
 {
   loader = ld;

@@ -91,14 +91,14 @@ inline AddrSpace *MemoryBank::getSpace(void) const
 /// the LoadImage.  Other addresses in the space are filled in with zero.
 /// This bank cannot be written to.
 class MemoryImage : public MemoryBank {
-  LoadImage *loader;		///< The underlying LoadImage
+  LoadImageB *loader;		///< The underlying LoadImage
 protected:
   virtual void insert(uintb addr,uintb val) {
     throw LowlevelError("Writing to read-only MemoryBank"); } ///< Exception is thrown for write attempts
   virtual uintb find(uintb addr) const;	///< Overridden find method
   virtual void getPage(uintb addr,uint1 *res,int4 skip,int4 size) const; ///< Overridded getPage method
 public:
-  MemoryImage(AddrSpace *spc,int4 ws,int4 ps,LoadImage *ld); ///< Constructor for a loadimage memorybank
+  MemoryImage(AddrSpace *spc,int4 ws,int4 ps,LoadImageB *ld); ///< Constructor for a loadimage memorybank
 };
 
 /// \brief Memory bank that overlays some other memory bank, using a "copy on write" behavior.

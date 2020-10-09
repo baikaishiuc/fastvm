@@ -97,15 +97,16 @@ Architecture::Architecture(void)
   evalfp_called = (ProtoModel *)0;
   types = (TypeFactory *)0;
   translate = (Translate *)0;
-  loader = (LoadImage *)0;
+  loader = (LoadImageB *)0;
   pcodeinjectlib = (PcodeInjectLibrary *)0;
   commentdb = (CommentDatabase *)0;
   stringManager = (StringManager *)0;
   cpool = (ConstantPool *)0;
   symboltab = new Database(this);
   context = (ContextDatabase *)0;
-  print = PrintLanguageCapability::getDefault()->buildLanguage(this);
-  printlist.push_back(print);
+  // zhengxianwei
+  //print = PrintLanguageCapability::getDefault()->buildLanguage(this);
+  //printlist.push_back(print);
   options = new OptionDatabase(this);
   loadersymbols_parsed = false;
 #ifdef CPUI_STATISTICS
@@ -147,7 +148,7 @@ Architecture::~Architecture(void)
     delete types;
   if (translate != (Translate *)0)
     delete translate;
-  if (loader != (LoadImage *)0)
+  if (loader != (LoadImageB *)0)
     delete loader;
   if (pcodeinjectlib != (PcodeInjectLibrary *)0)
     delete pcodeinjectlib;

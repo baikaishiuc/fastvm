@@ -1,4 +1,4 @@
-/* ###
+﻿/* ###
  * IP: GHIDRA
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,6 +33,7 @@ using namespace std;
 ///   - Logical operations
 ///   - Extension and truncation operations
 enum OpCode {
+  CPUI_NULL = 0,
   CPUI_COPY = 1,		///< Copy one operand to another
   CPUI_LOAD = 2,		///< Load from a pointer into a specified address space
   CPUI_STORE = 3,		///< Store at a pointer into a specified address space

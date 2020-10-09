@@ -1,4 +1,4 @@
-/* ###
+﻿/* ###
  * IP: GHIDRA
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1462,7 +1462,7 @@ bool JumpBasic::sanityCheck(Funcdata *fd,PcodeOp *indop,vector<Address> &address
 	(addr.getOffset()-addresstable[i].getOffset());
       if (diff > 0xffff) {
 	uint1 buffer[8];
-	LoadImage *loadimage = fd->getArch()->loader;
+	LoadImageB *loadimage = fd->getArch()->loader;
 	bool dataavail = true;
 	try {
 	  loadimage->loadFill(buffer,4,addresstable[i]);

@@ -2,7 +2,7 @@
 #include "vm.h"
 #include "elfloadimage.hh"
 
-ElfLoadImage::ElfLoadImage(const char *filename):LoadImage(filename)
+ElfLoadImage::ElfLoadImage(const char *filename):LoadImageB(filename)
 {
     filedata = (unsigned char *)file_load(filename, &filelen);
     if (!filedata) {

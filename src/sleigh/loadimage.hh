@@ -69,12 +69,12 @@ struct LoadImageBSection {
 /// this class exactly once, during initialization, and used to
 /// populate the main decompiler database. This class currently
 /// has only rudimentary support for accessing such properties.
-class LoadImage {
+class LoadImageB {
 protected:
   string filename;		///< Name of the loadimage
 public:
-  LoadImage(const string &f);	///< LoadImage constructor
-  virtual ~LoadImage(void);	///< LoadImage destructor
+  LoadImageB(const string &f);	///< LoadImage constructor
+  virtual ~LoadImageB(void);	///< LoadImage destructor
   const string &getFileName(void) const; ///< Get the name of the LoadImage
   virtual void loadFill(uint1 *ptr,int4 size,const Address &addr)=0; ///< Get data from the LoadImage
   virtual void openSymbols(void) const; ///< Prepare to read symbols
@@ -94,7 +94,7 @@ public:
 /// This is probably the simplest loadimage.  Bytes from the image are read directly from a file stream.
 /// The address associated with each byte is determined by a single value, the vma, which is the address
 /// of the first byte in the file.  No symbols or sections are supported
-class RawLoadImage : public LoadImage {
+class RawLoadImage : public LoadImageB {
   uintb vma;			///< Address of first byte in the file
   ifstream *thefile;		///< Main file stream for image
   uintb filesize;		///< Total number of bytes in the loadimage/file
@@ -112,18 +112,18 @@ public:
 /// For the base class there is no relevant initialization except
 /// the name of the image.
 /// \param f is the name of the image
-inline LoadImage::LoadImage(const string &f) {
+inline LoadImageB::LoadImageB(const string &f) {
   filename = f;
 }
 
 /// The destructor for the load image object.
-inline LoadImage::~LoadImage(void) {
+inline LoadImageB::~LoadImageB(void) {
 }
 
 /// The loadimage is usually associated with a file. This routine
 /// retrieves the name as a string.
 /// \return the name of the image
-inline const string &LoadImage::getFileName(void) const {
+inline const string &LoadImageB::getFileName(void) const {
   return filename;
 }
 
@@ -131,14 +131,14 @@ inline const string &LoadImage::getFileName(void) const {
 /// that the load image contains about executable.  Once this
 /// method is called, individual symbol records are read out
 /// using the getNextSymbol() method.
-inline void LoadImage::openSymbols(void) const {
+inline void LoadImageB::openSymbols(void) const {
 }
 
 /// Once all the symbol information has been read out from the
 /// load image via the openSymbols() and getNextSymbol() calls,
 /// the application should call this method to free up resources
 /// used in parsing the symbol information.
-inline void LoadImage::closeSymbols(void) const {
+inline void LoadImageB::closeSymbols(void) const {
 }
 
 /// This method is used to read out an individual symbol record,
@@ -149,7 +149,7 @@ inline void LoadImage::closeSymbols(void) const {
 /// This indicates the end of the symbols.
 /// \param record is a reference to the symbol record to be filled in
 /// \return \b true if there are more records to read
-inline bool LoadImage::getNextSymbol(LoadImageFunc &record) const {
+inline bool LoadImageB::getNextSymbol(LoadImageFunc &record) const {
   return false;
 }
 
@@ -157,13 +157,13 @@ inline bool LoadImage::getNextSymbol(LoadImageFunc &record) const {
 /// bytes that are mapped by the load image.  Once this is called,
 /// information on individual sections should be read out with
 /// the getNextSection() method.
-inline void LoadImage::openSectionInfo(void) const {
+inline void LoadImageB::openSectionInfo(void) const {
 }
 
 /// Once all the section information is read from the load image
 /// using the getNextSection() method, this method should be
 /// called to free up any resources used in parsing the section info.
-inline void LoadImage::closeSectionInfo(void) const {
+inline void LoadImageB::closeSectionInfo(void) const {
 }
 
 /// This method is used to read out a record that describes a
@@ -172,7 +172,7 @@ inline void LoadImage::closeSectionInfo(void) const {
 /// to get info on additional sections.
 /// \param record is a reference to the info record to be filled in
 /// \return \b true if there are more records to read
-inline bool LoadImage::getNextSection(LoadImageBSection &record) const {
+inline bool LoadImageB::getNextSection(LoadImageBSection &record) const {
   return false;
 }
 
@@ -182,7 +182,7 @@ inline bool LoadImage::getNextSection(LoadImageBSection &record) const {
 /// once, so all information should be written to the passed
 /// RangeList object.
 /// \param list is where readonly info will get put
-inline void LoadImage::getReadonly(RangeList &list) const {
+inline void LoadImageB::getReadonly(RangeList &list) const {
 }
 
 /// \fn void LoadImage::adjustVma(long adjust)

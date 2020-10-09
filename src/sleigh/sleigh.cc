@@ -431,7 +431,7 @@ ParserContext *DisassemblyCache::getParserContext(const Address &addr)
   return res;
 }
 
-Sleigh::Sleigh(LoadImage *ld, ContextDatabase *c_db)
+Sleigh::Sleigh(LoadImageB *ld, ContextDatabase *c_db)
     : SleighBase()
 
 {
@@ -455,7 +455,7 @@ Sleigh::~Sleigh(void)
   clearForDelete();
 }
 
-void Sleigh::reset(LoadImage *ld, ContextDatabase *c_db)
+void Sleigh::reset(LoadImageB *ld, ContextDatabase *c_db)
 
 { // Completely clear everything except the base and reconstruct
   // with a new loader and context

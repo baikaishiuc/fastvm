@@ -10,7 +10,6 @@ extern "C" {
 
 
 #if defined(_MSC_VER)
-#include <windows.h>
 
     typedef CRITICAL_SECTION    mlock_obj;
 

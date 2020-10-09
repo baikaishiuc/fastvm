@@ -24,7 +24,7 @@
 /// \param size is the number of bytes to read from the image
 /// \param addr is the address of the first byte being read
 /// \return a pointer to the desired bytes
-uint1 *LoadImage::load(int4 size,const Address &addr)
+uint1 *LoadImageB::load(int4 size,const Address &addr)
 
 {
   uint1 *buf = new uint1[ size ];
@@ -34,7 +34,7 @@ uint1 *LoadImage::load(int4 size,const Address &addr)
   return buf;
 }
 
-RawLoadImage::RawLoadImage(const string &f) : LoadImage(f)
+RawLoadImage::RawLoadImage(const string &f) : LoadImageB(f)
 
 {
   vma = 0;

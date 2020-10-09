@@ -18,7 +18,7 @@
 
 #include "sleighbase.hh"
 
-class LoadImage;
+class LoadImageB;
 
 struct RelativeRecord {
   VarnodeData *dataptr;	// Record containing relative offset
@@ -103,7 +103,7 @@ public:
 };
 
 class Sleigh : public SleighBase {
-  LoadImage *loader;
+  LoadImageB *loader;
   ContextDatabase *context_db;
   ContextCache *cache;
   mutable DisassemblyCache *discache;
@@ -114,9 +114,9 @@ protected:
   void resolve(ParserContext &pos) const;
   void resolveHandles(ParserContext &pos) const;
 public:
-  Sleigh(LoadImage *ld,ContextDatabase *c_db);
+  Sleigh(LoadImageB *ld,ContextDatabase *c_db);
   virtual ~Sleigh(void);
-  void reset(LoadImage *ld,ContextDatabase *c_db);
+  void reset(LoadImageB *ld,ContextDatabase *c_db);
   virtual void initialize(DocumentStorage &store);
   virtual void registerContext(const string &name,int4 sbit,int4 ebit);
   virtual void setContextDefault(const string &nm,uintm val);

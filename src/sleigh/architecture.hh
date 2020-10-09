@@ -144,7 +144,7 @@ public:
   ProtoModel *evalfp_called;	///< Function proto to use when evaluating called functions
   TypeFactory *types;		///< List of types for this binary
   const Translate *translate;	///< Translation method for this binary
-  LoadImage *loader;		///< Method for loading portions of binary
+  LoadImageB *loader;		///< Method for loading portions of binary
   PcodeInjectLibrary *pcodeinjectlib;	///< Pcode injection manager
   RangeList nohighptr;          ///< Ranges for which high-level pointers are not possible
   CommentDatabase *commentdb;	///< Comments for this architecture
