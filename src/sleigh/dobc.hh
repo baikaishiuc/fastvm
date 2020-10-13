@@ -5,7 +5,7 @@
 typedef struct funcdata     funcdata;
 typedef struct pcodeop      pcodeop;
 typedef struct varnode      varnode;
-typedef struct flowblock    flowblock;
+typedef struct flowblock    flowblock, blockbasic, blockgraph;
 typedef struct dobc         dobc;
 
 class pcodeemit2 : public PcodeEmit {
@@ -25,6 +25,8 @@ struct varnode {
         unsigned    implied : 1;        // 是一个临时变量
         unsigned    exlicit : 1;        // 不是临时变量
 
+        unsigned    readonly : 1;
+
         unsigned    covertdirty : 1;    // cover没跟新
     } flags = { 0 };
 
@@ -35,19 +37,17 @@ struct varnode {
     pcodeop     *def = NULL;
     uintb       nzm;
 
+    list<pcodeop *> descend;
+
     varnode(int s, const Address &m);
     ~varnode();
 
-    const Address &get_addr() { return (const Address &)loc; }
-};
-
-class pcodeblk {
-    struct dynarray op;
+    const Address &get_addr(void) { return loc; }
 };
 
 struct pcodeop {
     struct {
-        unsigned startbasic : 1;
+        unsigned startblock : 1;
         unsigned branch : 1;
         unsigned call : 1;
         unsigned returns : 1;
@@ -58,6 +58,7 @@ struct pcodeop {
 
         unsigned coderef : 1;
         unsigned startmark : 1;     // instruction的第一个pcode
+        unsigned mark : 1;          // 临时性标记，被某些算法拿过来做临时性处理，处理完都要重新清空
     } flags;
 
     OpCode opcode;
@@ -80,6 +81,17 @@ struct pcodeop {
     const Address&  get_addr() { return start.getAddr();  }
 };
 
+typedef struct blockedge            blockedge;
+
+struct blockedge {
+    int label;
+    flowblock *point;
+    int reverse_index;
+
+    blockedge(flowblock *pt, int lab, int rev) { point = pt, label = lab; reverse_index = rev; }
+    blockedge() {};
+};
+
 struct flowblock {
     enum {
         t_condition,
@@ -88,23 +100,50 @@ struct flowblock {
         t_dowhile,
     } type;
 
-    struct dynarray     ops;
+    struct {
+        unsigned f_goto_goto : 1;
+        unsigned f_break_goto : 1;
+        unsigned f_continue_goto : 1;
+        unsigned f_entry_point : 1;
+        unsigned f_dead : 1;
+    } flags;
 
-    flowblock *parent;
-    flowblock *immed_dom;
+    struct {
+        Address     start;
+        Address     end;
+    } cover;
 
-    int index;
-    int numdesc;        // 在 spaning tree中的后代数量
+    list<pcodeop*>      ops;
 
-    struct dynarray     in_edges;
-    struct dynarray     out_edges;
+    flowblock *parent = NULL;
+    flowblock *immed_dom = NULL;
 
-    flowblock();
+    int index = 0;
+    int numdesc = 0;        // 在 spaning tree中的后代数量
+
+    vector<blockedge>   intothis;
+    vector<blockedge>   outofthis;
+    vector<flowblock *> list;
+
+    funcdata *fd;
+
+    flowblock(funcdata *fd);
     ~flowblock();
+
+    void        add_block(flowblock *b);
+    blockbasic* new_block_basic(funcdata *f);
+
+    void        set_start_block(flowblock *bl);
+    void        set_initial_range(const Address &begin, const Address &end);
+    void        add_edge(flowblock *begin, flowblock *end);
+    void        add_inedge(flowblock *b, int lab);
+
+    int       sub_id() { return (int)cover.start.getOffset();  }
 };
 
 typedef map<SeqNum, pcodeop *>  pcodeop_tree;
-typedef struct op_edge     op_edge;
+typedef struct op_edge      op_edge;
+typedef struct jmptable     jmptable;
 
 struct op_edge {
     pcodeop *from;
@@ -113,6 +152,19 @@ struct op_edge {
     op_edge(pcodeop *from, pcodeop *to);
     ~op_edge();
 } ;
+
+struct jmptable {
+    pcodeop *op;
+    Address opaddr;
+    int defaultblock;
+    int lastblock;
+    int size;
+
+    vector<Address>     addresstable;
+
+    jmptable(pcodeop *op);
+    ~jmptable();
+};
 
 struct funcdata {
     struct VisitStat {
@@ -132,6 +184,7 @@ struct funcdata {
 
     /* jmp table */
     vector<pcodeop *>   tablelist;
+    vector<jmptable *>  jmpvec;
 
     list<pcodeop *>     deadlist;
     list<pcodeop *>     alivelist;
@@ -152,9 +205,9 @@ struct funcdata {
     } vbank;
 
     /* control-flow graph */
-    struct {
-        vector<flowblock *>     list;
-    } cfg;
+    blockgraph bblocks;
+
+    list<op_edge *>       block_edge;
 
     Address addr;
     Address eaddr;
@@ -174,12 +227,15 @@ struct funcdata {
     ~funcdata(void);
 
 
-    pcodeop*    newop(int inputs, SeqNum &sq);
+    pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
+    pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
     varnode*    new_varnode(int s, const Address &m);
+    varnode*    new_coderef(const Address &m);
+    varnode*    clone_varnode(const varnode *vn);
 
     varnode*    create_vn(int s, const Address &m);
     varnode*    create_def(int s, const Address &m, pcodeop *op);
@@ -196,23 +252,33 @@ struct funcdata {
     pcodeop*    find_rel_target(pcodeop *op, Address &res) const;
     pcodeop*    target(const Address &addr) const;
     pcodeop*    branch_target(pcodeop *op);
+    pcodeop*    fallthru_op(pcodeop *op);
 
     bool        set_fallthru_bound(Address &bound);
     void        fallthru();
     pcodeop*    xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru);
     void        generate_ops();
     bool        process_instruction(const Address &curaddr, bool &startbasic);
+    void        recover_jmptable(pcodeop *op, int indexsize);
     void        analysis_jmptable(pcodeop *op);
+    jmptable*   find_jmptable(pcodeop *op);
 
-    void        add_op_edge(pcodeop *from, pcodeop *to);
     void        collect_edges();
     void        generate_blocks();
+    void        split_basic();
+    void        connect_basic();
 
     void        dump_inst();
+    void        dump_dot(const char *filename);
 
     void        remove_from_codelist(pcodeop *op);
     void        op_insert_before(pcodeop *op, pcodeop *follow);
     void        op_insert_after(pcodeop *op, pcodeop *prev);
+    void        op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter);
+    void        inline_flow(funcdata *inlinefd, pcodeop *fd);
+    void        inline_clone(funcdata *inelinefd, const Address &retaddr);
+    void        inline_ezclone(funcdata *fd, const Address &calladdr);
+    bool        check_ezmodel(void);
 };
 
 struct dobc {

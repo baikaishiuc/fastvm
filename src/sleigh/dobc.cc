@@ -15,11 +15,21 @@ static char help[] = {
 };
 
 class AssemblyRaw : public AssemblyEmit {
+
 public:
-  virtual void dump(const Address &addr,const string &mnem,const string &body) {
-    addr.printRaw(cout);
-    cout << ": " << mnem << ' ' << body << endl;
-  }
+    char *buf = NULL;
+
+    virtual void dump(const Address &addr, const string &mnem, const string &body) {
+        if (buf) {
+            sprintf(buf, "0x%08x: %s %s", (int)addr.getOffset(), mnem.c_str(), body.c_str());
+        }
+        else {
+            addr.printRaw(cout);
+            cout << ": " << mnem << ' ' << body << endl;
+        }
+    }
+
+    void set_buf(char *b) { buf = b; }
 };
 
 static void print_vardata(Translate *trans, ostream &s, VarnodeData &data)
@@ -108,6 +118,8 @@ void dobc::dump_function(LoadImageFunc &sym)
 
     func->generate_ops();
 
+    func->dump_dot("1");
+
     printf("\n");
 }
 
@@ -126,6 +138,8 @@ dobc::dobc(const char *sla, const char *bin)
     trans->initialize(docstorage); // Initialize the translator
 
     loader->setCodeSpace(trans->getDefaultCodeSpace());
+
+    mdir_make(bin);
 }
 
 dobc::~dobc()
@@ -202,6 +216,15 @@ void pcodeop::set_opcode(OpCode op)
     opcode = op;
 }
 
+flowblock::flowblock(funcdata *f)
+{
+    fd = f;
+}
+
+flowblock::~flowblock()
+{
+}
+
 op_edge::op_edge(pcodeop *f, pcodeop *t)
 {
     from = f;
@@ -212,13 +235,86 @@ op_edge::~op_edge()
 {
 }
 
-funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1) 
-    : addr(a)
+jmptable::jmptable(pcodeop *o)
 {
+    op = o;
+    opaddr = o->get_addr();
+}
+
+jmptable::~jmptable()
+{
+}
+
+void blockgraph::add_block(blockbasic *b)
+{
+    int min = b->index;
+
+    if (list.empty())
+        index = min;
+    else {
+        if (min < index) index = min;
+    }
+
+    b->parent = this;
+    list.push_back(b);
+}
+
+blockbasic* blockgraph::new_block_basic(funcdata *f)
+{
+    blockbasic *ret = new blockbasic(f);
+    add_block(ret);
+    return ret;
+}
+
+void        blockgraph::set_start_block(flowblock *bl)
+{
+    int i;
+    if (list[0]->flags.f_entry_point) {
+        if (bl == list[0]) return;
+    }
+
+    for (i = 0; i < list.size(); i++)
+        if (list[i] == bl) break;
+
+    for (; i > 0; --i)
+        list[i] = list[i - 1];
+
+    list[0] = bl;
+    bl->flags.f_entry_point = 1;
+}
+
+void        blockgraph::set_initial_range(const Address &b, const Address &e)
+{
+    cover.start = b;
+    cover.end = e;
+}
+
+void        flowblock::add_inedge(flowblock *b, int lab)
+{
+    int osize = b->outofthis.size();
+    int isize = intothis.size();
+
+    intothis.push_back(blockedge(b, lab, osize));
+    b->outofthis.push_back(blockedge(blockedge(this, lab, isize)));
+}
+
+void        flowblock::add_edge(flowblock *begin, flowblock *end)
+{
+    end->add_inedge(begin, 0);
+}
+
+funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
+    : addr(a),
+    bblocks(this)
+{
+    char buf[256];
     name = strdup(nm);
     d = d1;
 
     emitter.fd = this;
+
+    sprintf(buf, "%s/%s", d->filename.c_str(), nm);
+    mdir_make(buf);
 }
 
 funcdata::~funcdata(void)
@@ -226,8 +322,7 @@ funcdata::~funcdata(void)
     free(name);
 }
 
-
-pcodeop*    funcdata::newop(int inputs, SeqNum &sq)
+pcodeop*    funcdata::newop(int inputs, const SeqNum &sq)
 {
     pcodeop *op = new pcodeop(inputs, sq);
     if (sq.getTime() >= op_uniqid)
@@ -349,7 +444,7 @@ bool        funcdata::set_fallthru_bound(Address &bound)
         if (addr == iter->first) {
             addrlist.pop_back();
             pcodeop *op = target(addr);
-            op->flags.startbasic = 1;
+            op->flags.startblock = 1;
             return false;
         }
         /* 这个是对同一个地址有不同的解析结果，在一些保护壳中有用 */
@@ -406,7 +501,7 @@ void     funcdata::new_address(pcodeop *from, const Address &to)
 {
     if (visited.find(to) != visited.end()) {
         pcodeop *op = target(to);
-        op->flags.startbasic = 1;
+        op->flags.startblock = 1;
         return;
     }
 
@@ -448,7 +543,7 @@ pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, b
     while (oiter != deadlist.end()) {
         op = *oiter++;
         if (startbasic) {
-            op->flags.startbasic = 1;
+            op->flags.startblock = 1;
             startbasic = false;
         }
 
@@ -462,7 +557,7 @@ pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, b
                 Address fallThruAddr;
                 pcodeop *destop = find_rel_target(op, fallThruAddr);
                 if (destop) {
-                    destop->flags.startbasic = 1;
+                    destop->flags.startblock = 1;
                     uintm newtime = destop->start.getTime();
                     if (newtime > maxtime)
                         maxtime = newtime;
@@ -596,7 +691,7 @@ void        funcdata::fallthru()
             if (bound == addrlist.back()) {
                 if (startbasic) {
                     pcodeop *op = target(addrlist.back());
-                    op->flags.startbasic = 1;
+                    op->flags.startblock = 1;
                 }
 
                 addrlist.pop_back();
@@ -609,10 +704,58 @@ void        funcdata::fallthru()
     }
 }
 
+jmptable*   funcdata::find_jmptable(pcodeop *op)
+{
+    vector<jmptable *>::const_iterator iter;
+    jmptable *jt;
+
+    for (iter = jmpvec.begin(); iter != jmpvec.end(); ++iter) {
+        jt = *iter;
+        if (jt->opaddr == op->get_addr()) return jt;
+    }
+
+    return NULL;
+}
+
+void        funcdata::recover_jmptable(pcodeop *op, int elmsize)
+{
+    Address addr(op->start.getAddr());
+    jmptable *newjt = new jmptable(op);
+
+    int i;
+
+    for (i = 0; i < (elmsize + 2); i++) {
+        addrlist.push_back(addr + 4 + 4 * i);
+    }
+    jmpvec.push_back(newjt);
+}
+
 void        funcdata::analysis_jmptable(pcodeop *op)
 {
     varnode *vn = op->get_in(0);
-    pcodeop *assist_op = vn->def;
+    pcodeop *def = vn->def;
+    int reg, reg1;
+    unsigned int data, data1;
+
+    if (d->trans->getRegisterName(vn->loc.getSpace(), vn->loc.getOffset(), vn->loc.getAddrSize()) == "pc") {
+        d->loader->loadFill((uint1 *)&data, 4, op->start.getAddr());
+        d->loader->loadFill((uint1 *)&data1, 4, op->start.getAddr() - 4);
+        
+#define ARM_ADD_MASK        0x00800000
+#define ARM_CMP_MASK        0x03500000
+
+        if ((data & ARM_ADD_MASK) == ARM_ADD_MASK
+            || (data1 & ARM_CMP_MASK) == ARM_CMP_MASK) {
+            reg = data & 0xf;
+            reg1 = (data1 >> 16) & 0xf;
+            if (reg == reg1) {
+                recover_jmptable(op, data1 & 0xfff);
+                return;
+            }
+        }
+    }
+
+    assert(0);
 }
 
 void        funcdata::generate_ops()
@@ -623,8 +766,6 @@ void        funcdata::generate_ops()
     while (!addrlist.empty())
         fallthru();
 
-    dump_inst();
-
     while (!tablelist.empty()) {
         pcodeop *op = tablelist.back();
         tablelist.pop_back();
@@ -634,11 +775,8 @@ void        funcdata::generate_ops()
         while (!addrlist.empty())
             fallthru();
     }
-}
 
-void        funcdata::add_op_edge(pcodeop *from, pcodeop *to)
-{
-    edgelist.push_back(new op_edge(from, to));
+    dump_inst();
 }
 
 pcodeop*    funcdata::branch_target(pcodeop *op) 
@@ -657,14 +795,37 @@ pcodeop*    funcdata::branch_target(pcodeop *op)
     return target(addr);
 }
 
+pcodeop*    funcdata::fallthru_op(pcodeop *op)
+{
+    pcodeop*    retop;
+    list<pcodeop *>::const_iterator iter = op->insertiter;
+    ++iter;
+    if (iter != deadlist.end()) {
+        retop = *iter;
+        if (!retop->flags.startmark)
+            return retop;
+    }
+
+    map<Address, VisitStat>::const_iterator miter;
+    miter = visited.upper_bound(op->get_addr());
+    if (miter == visited.begin())
+        return NULL;
+    --miter;
+    if ((*miter).first + (*miter).second.size <= op->get_addr())
+        return NULL;
+    return target((*miter).first + (*miter).second.size);
+}
+
 void        funcdata::collect_edges()
 {
-    list<pcodeop *>::const_iterator iter, iterend, iter1, iter2;
+    list<pcodeop *>::const_iterator iter, iterend;
+    list<op_edge *>::const_iterator iter1;
+    jmptable *jt;
     pcodeop *op, *target_op;
     bool nextstart;
-    int i, num;
+    int i;
 
-    if (cfg.list.size())
+    if (bblocks.list.size())
         throw RecovError("Basic blocks already calculated");
 
     iter = deadlist.begin();
@@ -674,18 +835,121 @@ void        funcdata::collect_edges()
         if (iter == iterend)
             nextstart = true;
         else
-            nextstart = (*iter)->flags.startbasic;
+            nextstart = (*iter)->flags.startblock;
 
         switch (op->opcode) {
+        case CPUI_BRANCH:
+            target_op = branch_target(op);
+            block_edge.push_back(new op_edge(op, target_op));
+            break;
+
+        case CPUI_BRANCHIND:
+            jt = find_jmptable(op);
+            if (jt == NULL) break;
+
+            for (i = 0; i < jt->size; i++) {
+                target_op = target(jt->addresstable[i]);
+                if (target_op->flags.mark)
+                    continue;
+                target_op->flags.mark = 1;
+
+                block_edge.push_back(new op_edge(op, target_op));
+            }
+
+            iter1 = block_edge.end();
+            while (iter1 != block_edge.begin()) {
+                --iter1;
+                if ((*iter1)->from == op)
+                    (*iter1)->to->flags.mark = 0;
+                else
+                    break;
+            }
+            break;
+
+        case CPUI_RETURN:
+            break;
+
+        case CPUI_CBRANCH:
+            target_op = fallthru_op(op);
+            block_edge.push_back(new op_edge(op, target_op));
+
+            target_op = branch_target(op);
+            block_edge.push_back(new op_edge(op, target_op));
+            break;
+
         default:
+            if (nextstart) {
+                target_op = fallthru_op(op);
+                block_edge.push_back(new op_edge(op, target_op));
+            }
             break;
         }
     }
 }
 
+void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter)
+{
+    deadlist.erase(op->insertiter);
+    op->flags.dead = 0;
+}
+
+void        funcdata::connect_basic()
+{
+    op_edge *edge;
+    list<op_edge *>::const_iterator iter;
+
+    iter = block_edge.begin();
+    while (iter != block_edge.end()) {
+        edge = *iter++;
+        bblocks.add_edge(edge->from->parent, edge->to->parent);
+    }
+}
+
+void        funcdata::split_basic()
+{
+    pcodeop *op;
+    blockbasic *cur;
+    list<pcodeop *>::const_iterator iter, iterend;
+
+    iter = deadlist.begin();
+    iterend = deadlist.end();
+    if (iter == iterend)
+        return;
+
+    op = *iter++;
+    if (!op->flags.startblock)
+        throw LowlevelError("First op not marked as entry point");
+
+    cur = bblocks.new_block_basic(this);
+    op_insert(op, cur, cur->ops.end());
+    bblocks.set_start_block(cur);
+
+    Address start = op->get_addr();
+    Address stop = start;
+
+    while (iter != iterend) {
+        op = *iter++;
+
+        if (op->flags.startblock) {
+            cur->set_initial_range(start, stop);
+            cur = bblocks.new_block_basic(this);
+            start = op->start.getAddr();
+            stop = start;
+        }
+        else {
+            const Address &nextaddr(op->get_addr());
+            if (stop < nextaddr)
+                stop = nextaddr;
+        }
+    }
+    cur->set_initial_range(start, stop);
+}
 
 void        funcdata::generate_blocks()
 {
+    collect_edges();
+    split_basic();
+    connect_basic();
 }
 
 void        funcdata::dump_inst()
@@ -705,4 +969,160 @@ void        funcdata::dump_inst()
 
         prev_it = it;
     }
+}
+
+void        funcdata::dump_dot(const char *postfix)
+{
+    char obuf[512];
+    Address prev_addr;
+    AssemblyRaw assem;
+    list<pcodeop *>::iterator iter;
+
+    sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name, postfix);
+
+    assem.set_buf(obuf);
+
+    FILE *fp = fopen(obuf, "w");
+    if (NULL == fp) {
+        printf("fopen failure %s", obuf);
+        exit(0);
+    }
+
+    fprintf(fp, "digraph G {\n");
+    fprintf(fp, "node [fontname = \"helvetica\"]\n");
+
+    int i, j;
+    for (i = 0; i < bblocks.list.size(); ++i) {
+        blockbasic *b = bblocks.list[i];
+        fprintf(fp, "sub_%x [label=<<font color='red'></b>sub_%x(%d, %d)</b></font><br/>",
+            b->sub_id(), b->sub_id(), b->index, 0);
+
+        iter = b->ops.begin();
+        for (;  iter != b->ops.end() ; iter++) {
+            pcodeop *p = *iter;
+            if ((iter != b->ops.begin()) && (prev_addr == p->start.getAddr())) continue;
+
+            d->trans->printAssembly(assem, p->start.getAddr());
+            fprintf(fp, "%s<br/>", obuf);
+
+            prev_addr = p->start.getAddr();
+        }
+        fprintf(fp, ">]\n");
+    }
+
+    for (i = 0; i < bblocks.list.size(); ++i) {
+        blockbasic *b = bblocks.list[i];
+
+        for (j = 0; j < bblocks.outofthis.size(); ++j) {
+            blockedge *e = &bblocks.outofthis[j];
+
+            fprintf(fp, "sub_%x ->sub_%x [label = \"%s\"]\n",
+                b->sub_id(), e->point->sub_id(), "true");
+        }
+    }
+
+    fprintf(fp, "}");
+}
+
+varnode*    funcdata::new_coderef(const Address &m)
+{
+    varnode *vn;
+
+    vn = new_varnode(1, m);
+    vn->flags.annotation = 1;
+    return vn;
+}
+
+varnode*    funcdata::clone_varnode(const varnode *vn)
+{
+    varnode *newvn = new_varnode(vn->size, vn->loc);
+
+    newvn->flags.annotation = vn->flags.annotation;
+    newvn->flags.readonly = vn->flags.readonly;
+
+    return newvn;
+}
+
+pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
+{
+    int i;
+    pcodeop *newop1 = newop(op->inrefs.size(), seq);
+    op_set_opcode(newop1, op->opcode);
+
+    newop1->flags.startmark = op->flags.startmark;
+    newop1->flags.startblock = op->flags.startblock;
+    if (op->output)
+        newop1->output = clone_varnode(op->output);
+    
+    for (i = 0; i < op->inrefs.size(); i++)
+        op_set_input(newop1, clone_varnode(op->get_in(i)), i);
+
+    return newop1;
+}
+
+void        funcdata::inline_clone(funcdata *inlinefd, const Address &retaddr)
+{
+    list<pcodeop *>::const_iterator iter;
+
+    for (iter = inlinefd->deadlist.begin(); iter != inlinefd->deadlist.end(); ++iter) {
+        pcodeop *op = *iter;
+        pcodeop *cloneop1;
+        if ((op->opcode == CPUI_RETURN) && !retaddr.isInvalid()) {
+            cloneop1 = newop(1, op->start);
+            op_set_opcode(cloneop1, CPUI_BRANCH);
+            varnode *vn = new_coderef(retaddr);
+            op_set_input(cloneop1, vn, 0);
+        }
+        else
+            cloneop1 = cloneop(op, op->start);
+    }
+}
+
+void        funcdata::inline_ezclone(funcdata *fd, const Address &calladdr)
+{
+    list<pcodeop *>::const_iterator iter;
+    for (iter = fd->deadlist.begin(); iter != fd->deadlist.end(); iter++) {
+        pcodeop *op = *iter;
+        if (op->opcode == CPUI_RETURN)
+            break;
+
+        SeqNum seq(calladdr, op->start.getTime());
+        cloneop(op, seq);
+    }
+}
+
+void        funcdata::inline_flow(funcdata *fd, pcodeop *callop)
+{
+    if (fd->check_ezmodel()) {
+        list<pcodeop *>::const_iterator oiter = deadlist.end();
+        --oiter;
+        inline_ezclone(fd, callop->get_addr());
+        ++oiter;    // 指向inline的第一个pcode
+
+        if (oiter != deadlist.end()) {
+            pcodeop *firstop = *oiter;
+            oiter = deadlist.end();
+            --oiter; // 指向inline的最后一个pcode
+            pcodeop *lastop = *oiter;
+            if (callop->flags.startblock)
+                firstop->flags.startblock = 1;
+            else
+                firstop->flags.startblock = 0;
+        }
+    }
+}
+
+bool        funcdata::check_ezmodel(void)
+{
+    list<pcodeop *>::const_iterator iter = deadlist.begin();
+
+    while (iter != deadlist.end()) {
+        pcodeop *op = *iter;
+        if (op->flags.call || op->flags.branch)
+            return false;
+
+        ++iter;
+    }
+
+    return true;
 }
