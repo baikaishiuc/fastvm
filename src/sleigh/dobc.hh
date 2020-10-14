@@ -121,9 +121,9 @@ struct flowblock {
     int index = 0;
     int numdesc = 0;        // 在 spaning tree中的后代数量
 
-    vector<blockedge>   intothis;
-    vector<blockedge>   outofthis;
-    vector<flowblock *> list;
+    vector<blockedge>   in;
+    vector<blockedge>   out;
+    vector<flowblock *> blist;
 
     funcdata *fd;
 
@@ -137,6 +137,8 @@ struct flowblock {
     void        set_initial_range(const Address &begin, const Address &end);
     void        add_edge(flowblock *begin, flowblock *end);
     void        add_inedge(flowblock *b, int lab);
+    void        add_op(pcodeop *);
+    void        insert(list<pcodeop *>::iterator iter, pcodeop *inst);
 
     int       sub_id() { return (int)cover.start.getOffset();  }
 };
@@ -167,6 +169,16 @@ struct jmptable {
 };
 
 struct funcdata {
+    struct {
+        unsigned blocks_generated : 1;
+        unsigned blocks_unreachable : 1;    // 有block无法到达
+        unsigned processing_started : 1;
+        unsigned processing_complete : 1;
+        unsigned no_code : 1;
+        unsigned unimplemented_present : 1;
+        unsigned baddata_present : 1;
+    } flags;
+
     struct VisitStat {
         SeqNum seqnum;
         int size;
@@ -211,6 +223,7 @@ struct funcdata {
 
     Address addr;
     Address eaddr;
+    string fullpath;
     char *name;
     int size = 0;
 
@@ -279,12 +292,17 @@ struct funcdata {
     void        inline_clone(funcdata *inelinefd, const Address &retaddr);
     void        inline_ezclone(funcdata *fd, const Address &calladdr);
     bool        check_ezmodel(void);
+
+    void        mark_dead(pcodeop *op);
+    void        mark_alive(pcodeop *op);
 };
 
 struct dobc {
     ElfLoadImage *loader;
-    string filename;
     string slafilename;
+
+    string fullpath;
+    string filename;
 
     ContextDatabase *context = NULL;
     Translate *trans = NULL;
@@ -319,4 +337,6 @@ struct dobc {
 
     void plugin_dvmp360();
     void plugin_dvmp();
+
+    void gen_sh(void);
 };
