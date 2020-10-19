@@ -119,6 +119,7 @@ struct flowblock {
     flowblock *immed_dom = NULL;
 
     int index = 0;
+    int visitcount = 0;
     int numdesc = 0;        // 在 spaning tree中的后代数量
 
     vector<blockedge>   intothis;
@@ -138,7 +139,9 @@ struct flowblock {
     void        add_edge(flowblock *begin, flowblock *end);
     void        add_inedge(flowblock *b, int lab);
 
-    int       sub_id() { return (int)cover.start.getOffset();  }
+    int         sub_id() { return (int)cover.start.getOffset();  }
+    void        structure_loops(vector<flowblock *> &rootlist);
+    void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
 };
 
 typedef map<SeqNum, pcodeop *>  pcodeop_tree;
@@ -171,6 +174,13 @@ struct funcdata {
         SeqNum seqnum;
         int size;
     };
+
+    struct {
+        unsigned block_generated : 1;
+        unsigned block_unreachable : 1;
+        unsigned processing_start : 1;
+        unsigned processing_complete : 1;
+    } flags;
 
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;
@@ -279,6 +289,7 @@ struct funcdata {
     void        inline_clone(funcdata *inelinefd, const Address &retaddr);
     void        inline_ezclone(funcdata *fd, const Address &calladdr);
     bool        check_ezmodel(void);
+    void        structure_reset();
 };
 
 struct dobc {

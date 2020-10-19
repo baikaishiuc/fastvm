@@ -259,6 +259,41 @@ void blockgraph::add_block(blockbasic *b)
     list.push_back(b);
 }
 
+void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist)
+{
+    if (list.size() == 0) return;
+
+    int i;
+    flowblock *tmpbl;
+
+    preorder.reserve(list.size());
+
+    for (i = 0; i < list.size(); i++) {
+        tmpbl = list[i];
+        tmpbl->index = -1;
+        tmpbl->visitcount = -1;
+    }
+}
+
+/*
+1. 找到不可规约边
+2. 找到 spanning tree(计算df需要)
+3. 设置flowblock的索引为反向支配顺序
+4. 标记 tree-edge, forward-edges, cross-edges, 和 back-edge
+    初步怀疑: tree-edge 是spanning tree
+              forward-edge 是
+*/
+void blockgraph::structure_loops(vector<flowblock *> &rootlist)
+{
+    vector<flowblock *> preorder;
+    bool needrebuild;
+    int irreduciblecount = 0;
+
+    do {
+        needrebuild = false;
+    } while (needrebuild);
+}
+
 blockbasic* blockgraph::new_block_basic(funcdata *f)
 {
     blockbasic *ret = new blockbasic(f);
@@ -1125,4 +1160,18 @@ bool        funcdata::check_ezmodel(void)
     }
 
     return true;
+}
+
+/* 对于当前的cfg，重新计算 loop结构和支配关系 
+cfg发生改变以后，整个loop结构和支配关系都需要重新计算，
+并且一次改变，可能需要重新计算多次
+*/
+void funcdata::structure_reset()
+{
+    flags.block_unreachable = 0;
+}
+
+/* build dominator tree*/
+void funcdata::build_dom_tree()
+{
 }
