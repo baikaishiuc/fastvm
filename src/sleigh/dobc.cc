@@ -281,18 +281,67 @@ void blockgraph::add_block(blockbasic *b)
 
 void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist)
 {
-    if (list.size() == 0) return;
+    if (blist.size() == 0) return;
 
-    int i;
-    flowblock *tmpbl;
+    int i, origrootpos;
+    vector<flowblock *> rpostorder;
+    vector<flowblock *> state;
+    int *istate = NULL;
+    int rpostcount = blist.size();
+    flowblock *tmpbl, *child;
 
-    preorder.reserve(list.size());
+    istate = (int *)calloc(1, sizeof(int) * blist.size());
+    preorder.reserve(blist.size());
 
-    for (i = 0; i < list.size(); i++) {
-        tmpbl = list[i];
+    for (i = 0; i < blist.size(); i++) {
+        tmpbl = blist[i];
         tmpbl->index = -1;
         tmpbl->visitcount = -1;
+        if (tmpbl->in.size() == 0)
+            rootlist.push_back(tmpbl);
     }
+    assert(rootlist.size() == 1);
+
+    origrootpos = rootlist.size() - 1;
+
+    state.push_back(blist[0]);
+
+    while (!state.empty()) {
+        flowblock *bl = state.back();
+
+        int index = istate[bl->visitcount];
+
+        /* 当前节点的子节点都遍历完成 */
+        if (index == bl->out.size()) {
+            state.pop_back();
+            bl->index = --rpostcount;
+            if (!state.empty())
+                state.back() += bl->numdesc;
+        }
+        else {
+            blockedge &e = bl->out[index];
+            child = e.point;
+            istate[bl->visitcount] = index++;
+
+            /* */
+            if (child->visitcount == -1) {
+                e.label |= a_tree_edge;
+
+                child->visitcount = preorder.size();
+                preorder.push_back(child);
+                child->numdesc = 1;
+            }
+            else if (child->index == -1) {
+                e.label |= a_back_edge;
+                e.label |= a_loop_edge;
+            }
+            else if (bl->visitcount < child->visitcount) {
+                e.label |= a_forward_edge;
+            }
+        }
+    }
+
+    free(istate);
 }
 
 /*
@@ -1016,7 +1065,6 @@ void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::it
 void        funcdata::connect_basic()
 {
     op_edge *edge;
-    pcodeop *from, *to;
     list<op_edge *>::const_iterator iter;
 
     iter = block_edge.begin();
@@ -1302,7 +1350,7 @@ cfg发生改变以后，整个loop结构和支配关系都需要重新计算，
 */
 void funcdata::structure_reset()
 {
-    flags.block_unreachable = 0;
+    flags.blocks_unreachable = 0;
 }
 
 /* build dominator tree*/

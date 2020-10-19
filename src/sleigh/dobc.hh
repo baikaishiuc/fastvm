@@ -84,6 +84,12 @@ struct pcodeop {
 
 typedef struct blockedge            blockedge;
 
+#define a_tree_edge             0x1
+#define a_forward_edge          0x2
+#define a_cross_edge            0x4
+#define a_back_edge             0x8
+#define a_loop_edge             0x10
+
 struct blockedge {
     int label;
     flowblock *point;
@@ -204,13 +210,6 @@ struct funcdata {
         } flags;
     };
 
-    struct {
-        unsigned block_generated : 1;
-        unsigned block_unreachable : 1;
-        unsigned processing_start : 1;
-        unsigned processing_complete : 1;
-    } flags;
-
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;
 
@@ -328,6 +327,7 @@ struct funcdata {
     void        mark_alive(pcodeop *op);
     void        fix_jmptable();
     char*       block_color(flowblock *b);
+    void        build_dom_tree();
 };
 
 struct dobc {
