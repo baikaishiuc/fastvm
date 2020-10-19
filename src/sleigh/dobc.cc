@@ -14,7 +14,7 @@
     "for filename in `find . -type f -name \"*.dot\" | xargs`\n"  \
     "do\n" \
     "   echo `date +\"%T.%3N\"` gen $filename png \n" \
-    "   dot -Tpng -o ${filename%.*}.png $filename\n" \
+    "   dot -Tsvg -o ${filename%.*}.svg $filename\n" \
     "done\n" 
 
 static char help[] = {
@@ -102,12 +102,9 @@ void dobc::run()
         dump_function(sym, 1);
     }
 #else
-    if (loader->getSymbol("_Z10__fun_a_18Pcj", sym)) {
-    //if (loader->getSymbol("strcmp", sym)) {
-        printf("not found symbol");
-        exit(-1);
-    }
-    dump_function(sym);
+    //dump_function("_Z10__fun_a_18Pcj");
+    //dump_function("_Z9__arm_a_0v");
+    dump_function("_Z10__arm_a_21v");
 #endif
 }
 
@@ -119,14 +116,18 @@ void dobc::gen_sh(void)
     file_save(buf, GEN_SH, strlen(GEN_SH));
 }
 
-void dobc::dump_function(LoadImageFunc &sym)
+void dobc::dump_function(char *symname)
 {
+    LoadImageFunc sym;
+    loader->getSymbol(symname, sym);
+
     Address addr(sym.address);
     Address lastaddr(trans->getDefaultCodeSpace(), sym.address.getOffset() + sym.size);
 
     funcdata *func;
 
     func = new funcdata(sym.name.c_str(), addr, sym.size, this);
+    func->set_range(addr, lastaddr);
 
     mlist_add(funcs, func, node);
 
@@ -336,7 +337,7 @@ void        flowblock::add_edge(flowblock *begin, flowblock *end)
 }
 
 funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
-    : addr(a),
+    : startaddr(a),
     bblocks(this)
 {
     char buf[256];
@@ -495,6 +496,13 @@ bool        funcdata::set_fallthru_bound(Address &bound)
     return true;
 }
 
+pcodeop*    funcdata::find_op(const Address &addr)
+{
+    map<Address, VisitStat>::iterator iter;
+    iter = visited.find(addr);
+    return find_op(iter->second.seqnum);
+}
+
 pcodeop*    funcdata::find_op(const SeqNum &num) const
 {
     pcodeop_tree::const_iterator iter = optree.find(num);
@@ -648,6 +656,7 @@ bool        funcdata::process_instruction(const Address &curaddr, bool &startbas
 {
     bool emptyflag;
     bool isfallthru = true;
+    AssemblyRaw assem;
 
     list<pcodeop *>::const_iterator oiter;
     int step;
@@ -667,6 +676,7 @@ bool        funcdata::process_instruction(const Address &curaddr, bool &startbas
         --oiter;
     }
 
+    d->trans->printAssembly(assem, curaddr);
     step = d->trans->oneInstruction(emitter, curaddr);
 
     VisitStat &stat(visited[curaddr]);
@@ -758,8 +768,32 @@ void        funcdata::recover_jmptable(pcodeop *op, int elmsize)
 
     for (i = 0; i < (elmsize + 2); i++) {
         addrlist.push_back(addr + 4 + 4 * i);
+
+        newjt->addresstable.push_back(addr + 4 + 4 * i);
     }
+    newjt->defaultblock = elmsize + 1;
     jmpvec.push_back(newjt);
+}
+
+void        funcdata::fix_jmptable()
+{
+    int i, j;
+
+    for (i = 0; i < jmpvec.size(); i++) {
+        jmptable *jt = jmpvec[i];
+        for (j = 0; j < jt->addresstable.size(); j++) {
+            Address &addr = jt->addresstable[j];
+            pcodeop *op = find_op(addr);
+
+            if (!op->flags.startblock)
+                throw LowlevelError("indirect jmp not is start block");
+
+            op->parent->jmptable = jt;
+        }
+
+        jt->op->parent->type = a_switch;
+        jt->op->parent->jmptable = jt;
+    }
 }
 
 void        funcdata::analysis_jmptable(pcodeop *op)
@@ -777,7 +811,7 @@ void        funcdata::analysis_jmptable(pcodeop *op)
 #define ARM_CMP_MASK        0x03500000
 
         if ((data & ARM_ADD_MASK) == ARM_ADD_MASK
-            || (data1 & ARM_CMP_MASK) == ARM_CMP_MASK) {
+            && (data1 & ARM_CMP_MASK) == ARM_CMP_MASK) {
             reg = data & 0xf;
             reg1 = (data1 >> 16) & 0xf;
             if (reg == reg1) {
@@ -786,15 +820,13 @@ void        funcdata::analysis_jmptable(pcodeop *op)
             }
         }
     }
-
-    assert(0);
 }
 
 void        funcdata::generate_ops()
 {
     vector<pcodeop *> notreached;       // 间接跳转是不可达的?
 
-    addrlist.push_back(addr);
+    addrlist.push_back(startaddr);
     while (!addrlist.empty())
         fallthru();
 
@@ -853,7 +885,7 @@ void        funcdata::collect_edges()
     list<pcodeop *>::const_iterator iter, iterend;
     list<op_edge *>::const_iterator iter1;
     jmptable *jt;
-    pcodeop *op, *target_op;
+    pcodeop *op, *target_op, *target_op1;
     bool nextstart;
     int i;
 
@@ -879,7 +911,7 @@ void        funcdata::collect_edges()
             jt = find_jmptable(op);
             if (jt == NULL) break;
 
-            for (i = 0; i < jt->size; i++) {
+            for (i = 0; i < jt->addresstable.size(); i++) {
                 target_op = target(jt->addresstable[i]);
                 if (target_op->flags.mark)
                     continue;
@@ -905,8 +937,15 @@ void        funcdata::collect_edges()
             target_op = fallthru_op(op);
             block_edge.push_back(new op_edge(op, target_op));
 
-            target_op = branch_target(op);
-            block_edge.push_back(new op_edge(op, target_op));
+            target_op1 = branch_target(op);
+            block_edge.push_back(new op_edge(op, target_op1));
+
+            /* arm中的单行条件判断指令，如 addls pc, pc, $r3, lsl, #3 */
+            if ((target_op1->get_addr() == op->get_addr())) {
+                VisitStat  &stat(visited[op->get_addr()]);
+
+                stat.flags.condinst = 1;
+            }
             break;
 
         default:
@@ -942,12 +981,15 @@ void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::it
 void        funcdata::connect_basic()
 {
     op_edge *edge;
+    pcodeop *from, *to;
     list<op_edge *>::const_iterator iter;
 
     iter = block_edge.begin();
     while (iter != block_edge.end()) {
         edge = *iter++;
         bblocks.add_edge(edge->from->parent, edge->to->parent);
+
+        //printf("0x%x -> 0x%x\n", (int)edge->from->start.getAddr().getOffset(), (int)edge->to->start.getAddr().getOffset());
     }
 }
 
@@ -1007,9 +1049,11 @@ void        funcdata::generate_blocks()
             blockbasic *newfront = bblocks.new_block_basic(this);
             bblocks.add_edge(newfront, startblock);
             bblocks.set_start_block(newfront);
-            newfront->set_initial_range(addr, addr);
+            newfront->set_initial_range(startaddr, startaddr);
         }
     }
+
+    fix_jmptable();
 }
 
 void        funcdata::dump_inst()
@@ -1031,12 +1075,26 @@ void        funcdata::dump_inst()
     }
 }
 
+char*       funcdata::block_color(flowblock *b)
+{
+    list<pcodeop *>::iterator iter = b->ops.end();
+    if (b->flags.f_entry_point)     return "red";
+
+    iter--;
+    if ((*iter)->opcode == CPUI_RETURN)     return "blue";
+
+    return "white";
+}
+
 void        funcdata::dump_dot(const char *postfix)
 {
     char obuf[512];
-    Address prev_addr;
+    Address prev_addr, nextaddr;
     AssemblyRaw assem;
     list<pcodeop *>::iterator iter;
+    map<Address, VisitStat>::iterator st_iter;
+    VisitStat stat;
+    pcodeop *p;
 
     sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name, postfix);
 
@@ -1054,16 +1112,19 @@ void        funcdata::dump_dot(const char *postfix)
     int i, j;
     for (i = 0; i < bblocks.blist.size(); ++i) {
         blockbasic *b = bblocks.blist[i];
-        //fprintf(fp, "sub_%x [label=<<font color='red'><b>sub_%x(%d, %d)</b></font><br/>",
-        //    b->sub_id(), b->sub_id(), b->index, 0);
 
         // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
-        fprintf(fp, "sub_%x [label=<<table align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%x</font></td></tr>",
-            b->sub_id(), b->sub_id());
+        fprintf(fp, "sub_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%x</font></td></tr>",
+            b->sub_id(),
+            block_color(b),
+            b->sub_id());
 
         iter = b->ops.begin();
-        for (;  iter != b->ops.end() ; iter++) {
-            pcodeop *p = *iter;
+        p = *iter;
+
+        for (p = NULL;  iter != b->ops.end() ; iter++) {
+            p = *iter;
+            /* 一个指令对应多个pcode，跳过同个指令的pcode */
             if ((iter != b->ops.begin()) && (prev_addr == p->start.getAddr())) continue;
 
             d->trans->printAssembly(assem, p->start.getAddr());
@@ -1071,6 +1132,15 @@ void        funcdata::dump_dot(const char *postfix)
 
             prev_addr = p->start.getAddr();
         }
+#if 0
+        if (b->type == a_switch) {
+            fprintf(fp, "<tr><td>----------</td></tr>");
+            for (j = 0; j < b->jmptable->addresstable.size(); j++) {
+                d->trans->printAssembly(assem, b->jmptable->addresstable[j]);
+                fprintf(fp, "%s", obuf);
+            }
+        }
+#endif
         fprintf(fp, "</table>>]\n");
     }
 
@@ -1080,8 +1150,8 @@ void        funcdata::dump_dot(const char *postfix)
         for (j = 0; j < b->out.size(); ++j) {
             blockedge *e = &b->out[j];
 
-            fprintf(fp, "sub_%x ->sub_%x [label = \"%s\"]\n",
-                b->sub_id(), e->point->sub_id(), "true");
+                fprintf(fp, "sub_%x ->sub_%x [label = \"%s\"]\n",
+                    b->sub_id(), e->point->sub_id(), "true");
         }
     }
 

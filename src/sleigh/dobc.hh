@@ -7,6 +7,7 @@ typedef struct pcodeop      pcodeop;
 typedef struct varnode      varnode;
 typedef struct flowblock    flowblock, blockbasic, blockgraph;
 typedef struct dobc         dobc;
+typedef struct jmptable     jmptable;
 
 class pcodeemit2 : public PcodeEmit {
 public:
@@ -92,13 +93,16 @@ struct blockedge {
     blockedge() {};
 };
 
+enum block_type{
+    a_condition,
+    a_if,
+    a_whiledo,
+    a_dowhile,
+    a_switch,
+};
+
 struct flowblock {
-    enum {
-        t_condition,
-        t_if,
-        t_whiledo,
-        t_dowhile,
-    } type;
+    enum block_type     type;
 
     struct {
         unsigned f_goto_goto : 1;
@@ -106,7 +110,15 @@ struct flowblock {
         unsigned f_continue_goto : 1;
         unsigned f_entry_point : 1;
         unsigned f_dead : 1;
-    } flags;
+
+        unsigned f_switch_case : 1;
+        unsigned f_switch_default : 1;
+
+        /* 在某些算法中，做临时性标记用 */
+        unsigned f_mark : 1;
+
+        unsigned f_return : 1;
+    } flags = { 0 };
 
     struct {
         Address     start;
@@ -124,6 +136,8 @@ struct flowblock {
     vector<blockedge>   in;
     vector<blockedge>   out;
     vector<flowblock *> blist;
+
+    jmptable *jmptable = NULL;
 
     funcdata *fd;
 
@@ -182,6 +196,9 @@ struct funcdata {
     struct VisitStat {
         SeqNum seqnum;
         int size;
+        struct {
+            unsigned condinst: 1;
+        } flags;
     };
 
     pcodeop_tree     optree;
@@ -221,7 +238,9 @@ struct funcdata {
 
     list<op_edge *>       block_edge;
 
-    Address addr;
+    Address startaddr;
+
+    Address baddr;
     Address eaddr;
     string fullpath;
     char *name;
@@ -238,7 +257,7 @@ struct funcdata {
 
     funcdata(const char *name, const Address &a, int size, dobc *d);
     ~funcdata(void);
-
+    void        set_range(Address &b, Address &e) { baddr = b; eaddr = e; }
 
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
@@ -256,6 +275,7 @@ struct funcdata {
 
     void        op_set_opcode(pcodeop *op, OpCode opc);
     void        op_set_input(pcodeop *op, varnode *vn, int slot);
+    pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
     void        del_op(pcodeop *op);
     void        del_varnode(varnode *vn);
@@ -295,6 +315,8 @@ struct funcdata {
 
     void        mark_dead(pcodeop *op);
     void        mark_alive(pcodeop *op);
+    void        fix_jmptable();
+    char*       block_color(flowblock *b);
 };
 
 struct dobc {
@@ -332,7 +354,7 @@ struct dobc {
 
     void analysis();
     void run();
-    void dump_function(LoadImageFunc &func1);
+    void dump_function(char *name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
 
     void plugin_dvmp360();
