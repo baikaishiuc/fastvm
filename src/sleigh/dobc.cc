@@ -315,6 +315,7 @@ void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowbl
         if (index == bl->out.size()) {
             state.pop_back();
             bl->index = --rpostcount;
+            rpostorder[rpostcount] = bl;
             if (!state.empty())
                 state.back() += bl->numdesc;
         }
@@ -338,10 +339,13 @@ void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowbl
             else if (bl->visitcount < child->visitcount) {
                 e.label |= a_forward_edge;
             }
+            else
+                e.label |= a_cross_edge;
         }
     }
 
     free(istate);
+    blist = rpostorder;
 }
 
 /*
@@ -360,7 +364,86 @@ void blockgraph::structure_loops(vector<flowblock *> &rootlist)
 
     do {
         needrebuild = false;
+        find_spanning_tree(preorder, rootlist);
     } while (needrebuild);
+}
+
+/*
+
+paper: A Simple, Fast Dominance Algorithm
+http://web.cse.ohio-state.edu/~rountev.1/788/papers/cooper-spe01.pdf
+*/
+void  blockgraph::calc_forward_dominator(const vector<flowblock *> &rootlist)
+{
+    vector<flowblock *>     postorder;
+    flowblock *b, *new_idom, *rho;
+    bool changed;
+    int i, j, finger1, finger2;
+
+    if (blist.empty())
+        return;
+
+    if (rootlist.size() > 1)
+        throw LowlevelError("we are not support rootlist.size() exceed 1");
+
+    int numnodes = blist.size() - 1;
+    postorder.resize(blist.size());
+    for (i = 0; i < blist.size(); i++) {
+        blist[i]->immed_dom = NULL;
+        postorder[numnodes - i] = blist[i];
+    }
+
+    b = postorder.back();
+    if (b->in.size()) {
+        throw LowlevelError("entry node in edge error");
+    }
+
+    b->immed_dom = b;
+    for (i = 0; i < b->out.size(); i++)
+        b->get_out(i)->immed_dom = b;
+
+    changed = true;
+    new_idom = NULL;
+
+    while (changed) {
+        changed = false;
+        for (i = postorder.size() - 2; i >= 0; --i) {
+            b = postorder[i];
+
+            /* 感觉这个判断条件是不需要的，但是Ghdira源代码里有 */
+            if (b->immed_dom == postorder.back()) {
+                assert(0);
+            }
+
+            for (j = 0; j < b->in.size(); j++) {
+                new_idom = b->get_in(j);
+                if (new_idom->immed_dom)
+                    break;
+            }
+
+            j += 1;
+            for (; j < b->in.size(); j++) {
+                rho = b->get_in(j);
+                if (rho->immed_dom) {
+                    finger1 = numnodes - rho->index;
+                    finger2 = numnodes - new_idom->index;
+                    while (finger1 != finger2) {
+                        while (finger1 < finger2)
+                            finger1 = numnodes - postorder[finger1]->immed_dom->index;
+                        while (finger2 < finger1)
+                            finger2 = numnodes - postorder[finger2]->immed_dom->index;
+                    }
+                    new_idom = postorder[finger1];
+                }
+            }
+            if (b->immed_dom != new_idom) {
+                b->immed_dom = new_idom;
+                changed = true;
+            }
+        }
+    }
+
+    postorder.back()->immed_dom = NULL;
 }
 
 blockbasic* blockgraph::new_block_basic(funcdata *f)
@@ -1350,10 +1433,23 @@ cfg发生改变以后，整个loop结构和支配关系都需要重新计算，
 */
 void funcdata::structure_reset()
 {
+    vector<flowblock *> rootlist;
+
     flags.blocks_unreachable = 0;
+
+    bblocks.structure_loops(rootlist);
 }
 
 /* build dominator tree*/
 void funcdata::build_dom_tree()
 {
+}
+
+void        funcdata::follow_flow(const Address &baddr, const Address &eaddr)
+{
+}
+
+void        funcdata::start_processing(void)
+{
+    flags.processing_started = 1;
 }

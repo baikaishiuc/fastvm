@@ -153,6 +153,8 @@ struct flowblock {
 
     void        add_block(flowblock *b);
     blockbasic* new_block_basic(funcdata *f);
+    flowblock*  get_out(int i) { return out[i].point;  }
+    flowblock*  get_in(int i) { return in[i].point;  }
 
     void        set_start_block(flowblock *bl);
     void        set_initial_range(const Address &begin, const Address &end);
@@ -164,6 +166,7 @@ struct flowblock {
     int         sub_id() { return (int)cover.start.getOffset();  }
     void        structure_loops(vector<flowblock *> &rootlist);
     void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
+    void        calc_forward_dominator(const vector<flowblock *> &rootlist);
 };
 
 typedef map<SeqNum, pcodeop *>  pcodeop_tree;
@@ -328,6 +331,8 @@ struct funcdata {
     void        fix_jmptable();
     char*       block_color(flowblock *b);
     void        build_dom_tree();
+    void        start_processing(void);
+    void        follow_flow(const Address &baddr, const Address &eaddr);
 };
 
 struct dobc {
