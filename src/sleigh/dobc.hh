@@ -8,6 +8,7 @@ typedef struct varnode      varnode;
 typedef struct flowblock    flowblock, blockbasic, blockgraph;
 typedef struct dobc         dobc;
 typedef struct jmptable     jmptable;
+typedef struct func_call_specs  func_call_specs;
 
 class pcodeemit2 : public PcodeEmit {
 public:
@@ -51,7 +52,7 @@ struct pcodeop {
         unsigned startblock : 1;
         unsigned branch : 1;
         unsigned call : 1;
-        unsigned returns : 1;
+        unsigned returns: 1;
         unsigned nocollapse : 1;
         unsigned dead : 1;
         unsigned marker : 1;        // 特殊的站位符， (phi 符号 或者 间接引用 或 CPUI_COPY 对同一个变量的操作)，
@@ -60,6 +61,9 @@ struct pcodeop {
         unsigned coderef : 1;
         unsigned startmark : 1;     // instruction的第一个pcode
         unsigned mark : 1;          // 临时性标记，被某些算法拿过来做临时性处理，处理完都要重新清空
+
+        unsigned branch_call : 1;   // 一般的跳转都是在函数内进行的，但是有些壳的函数，会直接branch到另外一个函数里面去
+        unsigned exit : 1;          // 这个指令起结束作用
     } flags;
 
     OpCode opcode;
@@ -194,6 +198,16 @@ struct jmptable {
     ~jmptable();
 };
 
+struct func_call_specs {
+    pcodeop *op;
+    funcdata *fd;
+
+    func_call_specs(pcodeop *op);
+    ~func_call_specs();
+
+    const string &get_name(void) { return fd->name;  }
+};
+
 struct funcdata {
     struct {
         unsigned blocks_generated : 1;
@@ -250,12 +264,16 @@ struct funcdata {
 
     list<op_edge *>       block_edge;
 
+    int     intput;         // 这个函数有几个输入参数
+    int     output;         // 有几个输出参数
+    vector<func_call_specs *>   qlst;
+
     Address startaddr;
 
     Address baddr;
     Address eaddr;
     string fullpath;
-    char *name;
+    string name;
     int size = 0;
 
     /* 扫描到的最小和最大指令地址 */
@@ -269,6 +287,9 @@ struct funcdata {
 
     funcdata(const char *name, const Address &a, int size, dobc *d);
     ~funcdata(void);
+
+    const Address&  get_addr(void) { return startaddr;  }
+    string&      get_name() { return name;  }
     void        set_range(Address &b, Address &e) { baddr = b; eaddr = e; }
 
     pcodeop*    newop(int inputs, const SeqNum &sq);
@@ -332,7 +353,7 @@ struct funcdata {
     char*       block_color(flowblock *b);
     void        build_dom_tree();
     void        start_processing(void);
-    void        follow_flow(const Address &baddr, const Address &eaddr);
+    void        follow_flow(void);
 };
 
 struct dobc {
@@ -360,7 +381,7 @@ struct dobc {
     dobc(const char *slafilename, const char *filename);
     ~dobc();
 
-    int init();
+    void init();
 
     /* 在一个函数内inline另外一个函数 */
     int inline_func(LoadImageFunc &func1, LoadImageFunc &func2);
@@ -371,6 +392,8 @@ struct dobc {
     void analysis();
     void run();
     void dump_function(char *name);
+    funcdata* find_func(const Address &addr);
+    funcdata* find_func(const char *name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
 
     void plugin_dvmp360();

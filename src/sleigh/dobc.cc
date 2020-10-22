@@ -93,9 +93,9 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
 // LoadImageB的，而不是ElfLoadImage的···
 void dobc::run()
 {
-    LoadImageFunc sym;
 
 #if 0
+    LoadImageFunc sym;
     while (loader->getNextSymbol(sym)) {
         if (!sym.size) continue;
 
@@ -103,9 +103,65 @@ void dobc::run()
     }
 #else
     //dump_function("_Z10__fun_a_18Pcj");
-    //dump_function("_Z9__arm_a_0v");
+    dump_function("_Z9__arm_a_0v");
     dump_function("_Z10__arm_a_21v");
 #endif
+}
+
+void dobc::plugin_dvmp360()
+{
+    funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    funcdata *fd_sub = find_func("_Z9__arm_a_0v");
+    funcdata *fd_vm = find_func("_Z10__fun_a_18Pcj");
+
+    fd_main->follow_flow();
+
+    int i;
+    for (i = 0; i < fd_main->qlst.size(); i++) {
+        func_call_specs *cs = fd_main->qlst[i];
+    }
+    //fd_main->inline_flow();
+}
+
+funcdata* dobc::find_func(const Address &addr)
+{
+    funcdata *fd;
+    int i;
+    mlist_for_each(funcs, fd, node, i) {
+        if (fd->get_addr() == addr)
+            return fd;
+    }
+
+    return NULL;
+}
+
+funcdata* dobc::find_func(const char *name)
+{
+    funcdata *fd;
+    int i;
+    mlist_for_each(funcs, fd, node, i) {
+        if (!strcmp(fd->name.c_str(), name))
+            return fd;
+    }
+
+    return NULL;
+}
+
+void dobc::init()
+{
+    LoadImageFunc sym;
+
+    while (loader->getNextSymbol(sym)) {
+        Address addr(sym.address);
+        Address lastaddr(trans->getDefaultCodeSpace(), sym.address.getOffset() + sym.size);
+
+        funcdata *func;
+
+        func = new funcdata(sym.name.c_str(), addr, sym.size, this);
+        func->set_range(addr, lastaddr);
+
+        mlist_add(funcs, func, node);
+    }
 }
 
 void dobc::gen_sh(void)
@@ -118,23 +174,17 @@ void dobc::gen_sh(void)
 
 void dobc::dump_function(char *symname)
 {
-    LoadImageFunc sym;
-    loader->getSymbol(symname, sym);
-
-    Address addr(sym.address);
-    Address lastaddr(trans->getDefaultCodeSpace(), sym.address.getOffset() + sym.size);
-
     funcdata *func;
 
-    func = new funcdata(sym.name.c_str(), addr, sym.size, this);
-    func->set_range(addr, lastaddr);
+    func = find_func(symname);
+    if (!func) {
+        printf("not found function %s", symname);
+        exit(-1);
+    }
 
-    mlist_add(funcs, func, node);
+    printf("function:%s\n", symname);
 
-    printf("function:%s\n", sym.name.c_str());
-
-    func->generate_ops();
-    func->generate_blocks();
+    func->follow_flow();
 
     func->dump_dot("1");
 
@@ -160,6 +210,8 @@ dobc::dobc(const char *sla, const char *bin)
 
     mdir_make(filename.c_str());
     gen_sh();
+
+    init();
 }
 
 dobc::~dobc()
@@ -505,10 +557,10 @@ void        flowblock::add_edge(flowblock *begin, flowblock *end)
 
 funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
     : startaddr(a),
-    bblocks(this)
+    bblocks(this),
+    name(nm)
 {
     char buf[256];
-    name = strdup(nm);
     d = d1;
 
     emitter.fd = this;
@@ -519,7 +571,6 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
 
 funcdata::~funcdata(void)
 {
-    free(name);
 }
 
 pcodeop*    funcdata::newop(int inputs, const SeqNum &sq)
@@ -704,6 +755,11 @@ pcodeop*    funcdata::find_rel_target(pcodeop *op, Address &res) const
     throw LowlevelError("Bad relative branch at instruction");
 }
 
+/* 当扫描某个branch指令时，查看他的to地址，是否已经再visited列表里，假如已经再的话
+
+把目的地址设置为startblock，假如不是的话，推入扫描地址列表 
+
+*/
 void     funcdata::new_address(pcodeop *from, const Address &to)
 {
     if (visited.find(to) != visited.end()) {
@@ -743,6 +799,7 @@ void        funcdata::del_remaining_ops(list<pcodeop *>::const_iterator oiter)
 
 pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru)
 {
+    funcdata *fd;
     pcodeop *op = NULL;
     isfallthru = false;
     uintm maxtime = 0;
@@ -758,6 +815,7 @@ pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, b
         case CPUI_CBRANCH:
         case CPUI_BRANCH: {
             const Address &destaddr(op->get_in(0)->get_addr());
+            startbasic = true;
 
             /* 没看懂，destaddr指向了常量空间? */
             if (destaddr.isConstant()) {
@@ -772,10 +830,23 @@ pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, b
                 else
                     isfallthru = true;
             }
+            /*
+在某些加壳程序中, branch指令会模拟call的效果，它会branch到一个函数里面去，这个时候
+我们需要检查目的地址是否是某个函数的地址，假如是的话，就不加入扫描列表，同时把这个
+branch指令打上call_branch标记
+
+它不同于一般的call，一般的call指令，还有隐含的把pc压入堆栈行为，call完还会回来，
+但是branch跳过去就不回来了
+            */
+            else if ((fd = d->find_func(destaddr))) {
+                if (op->opcode == CPUI_CBRANCH)
+                    throw LowlevelError("not support cbranch on " + fd->name);
+                startbasic = false;
+                op->flags.branch_call = 1;
+                op->flags.exit = 1;
+            }
             else
                 new_address(op, destaddr);
-
-            startbasic = true;
         }
             break;
 
@@ -986,6 +1057,7 @@ void        funcdata::analysis_jmptable(pcodeop *op)
                 return;
             }
         }
+        /* 不是switch table */
     }
 }
 
@@ -1070,8 +1142,10 @@ void        funcdata::collect_edges()
 
         switch (op->opcode) {
         case CPUI_BRANCH:
-            target_op = branch_target(op);
-            block_edge.push_back(new op_edge(op, target_op));
+            if (!op->flags.branch_call) {
+                target_op = branch_target(op);
+                block_edge.push_back(new op_edge(op, target_op));
+            }
             break;
 
         case CPUI_BRANCHIND:
@@ -1262,7 +1336,7 @@ void        funcdata::dump_dot(const char *postfix)
     VisitStat stat;
     pcodeop *p;
 
-    sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name, postfix);
+    sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name.c_str(), postfix);
 
     assem.set_buf(obuf);
 
@@ -1445,8 +1519,15 @@ void funcdata::build_dom_tree()
 {
 }
 
-void        funcdata::follow_flow(const Address &baddr, const Address &eaddr)
+void        funcdata::follow_flow(void)
 {
+    if (flags.blocks_generated)
+        return;
+
+    generate_ops();
+    generate_blocks();
+
+    flags.blocks_generated = 1;
 }
 
 void        funcdata::start_processing(void)
