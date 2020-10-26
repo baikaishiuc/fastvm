@@ -1605,6 +1605,20 @@ void        funcdata::destroy_varnode(varnode *vn)
     delete(vn);
 }
 
+void        funcdata::delete_varnode(varnode *vn)
+{
+    delete(vn);
+}
+
+varnode*    funcdata::set_input_varnode(varnode *vn)
+{
+    varnode *invn;
+
+    if (vn->flags.input) return vn;
+
+    return vn;
+}
+
 pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
 {
     int i;
@@ -1802,6 +1816,94 @@ void        funcdata::visit_incr(flowblock *qnode, flowblock *vnode)
 
 void        funcdata::place_multiequal(void)
 {
+}
+
+void        funcdata::rename()
+{
+    variable_stack varstack;
+
+    rename_recurse(bblocks.get_block(0), varstack);
+
+    disjoint.clear();
+}
+
+void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
+{
+    /* 当前block内，被def过得varnode集合 */
+    vector<varnode *> writelist;
+    blockbasic *subbl;
+    list<pcodeop *>::iterator oiter, suboiter;
+    pcodeop *op, *multiop;
+    varnode *vnout, *vnin, *vnnew;
+    int i, slot;
+
+    for (oiter = bl->ops.begin(); oiter != bl->ops.end(); oiter++) {
+        op = *oiter;
+        if (op->opcode != CPUI_MULTIEQUAL) {
+            for (slot = 0; slot < op->inrefs.size(); ++slot) {
+                vnin = op->get_in(slot);
+
+                if (vnin->flags.annotation || vnin->flags.constant)
+                    continue;
+
+                vector<varnode *> &stack(varstack[vnin->get_addr()]);
+                if (stack.empty()) {
+                    vnnew = new_varnode(vnin->size, vnin->get_addr());
+                    vnnew = set_input_varnode(vnnew);
+                    stack.push_back(vnnew);
+                }
+                else 
+                    vnnew = stack.back();
+            }
+
+            if (vnnew->flags.writtern && (vnnew->def->opcode == CPUI_INDIRECT)) {
+            }
+
+            op_set_input(op, vnnew, slot);
+            if (!vnin->descend.size())
+                delete_varnode(vnin);
+        }
+
+        vnout = op->output;
+        if (vnout == NULL) continue;
+        varstack[vnout->get_addr()].push_back(vnout);
+        writelist.push_back(vnout);
+    }
+
+    for (i = 0; i < bl->out.size(); ++i) {
+        subbl = bl->get_out(i);
+        slot = bl->get_out_rev_index(i);
+        for (suboiter = subbl->ops.begin(); suboiter != subbl->ops.end(); suboiter++) {
+            multiop = *suboiter;
+            if (multiop->opcode != CPUI_MULTIEQUAL)
+                break;
+
+            vnin = multiop->get_in(slot);
+            if (vnin->is_heritage_known()) continue;
+
+            vector<varnode *> &stack(varstack[vnin->get_addr()]);
+            if (stack.empty()) {
+                vnnew = new_varnode(vnin->size, vnin->get_addr());
+                vnnew = set_input_varnode(vnnew);
+                stack.push_back(vnnew);
+            }
+            else
+                vnnew = stack.back();
+
+            op_set_input(multiop, vnnew, slot);
+            if (!vnin->descend.size())
+                delete_varnode(vnin);
+        }
+    }
+
+    i = bl->index;
+    for (slot = 0; slot < domchild[i].size(); ++slot)
+        rename_recurse(domchild[i][slot], varstack);
+
+    for (i = 0; i < writelist.size(); ++i) {
+        vnout = writelist[i];
+        varstack[vnout->get_addr()].pop_back();
+    }
 }
 
 /* calc_multiequal 

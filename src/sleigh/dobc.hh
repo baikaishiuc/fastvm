@@ -9,6 +9,7 @@ typedef struct flowblock    flowblock, blockbasic, blockgraph;
 typedef struct dobc         dobc;
 typedef struct jmptable     jmptable;
 typedef struct func_call_specs  func_call_specs;
+typedef map<Address, vector<varnode *>> variable_stack;
 
 class pcodeemit2 : public PcodeEmit {
 public:
@@ -45,7 +46,18 @@ struct varnode {
     ~varnode();
 
     const Address &get_addr(void) { return loc; }
+    bool           is_heritage_known(void) const { return flags.insert | flags.constant | flags.annotation; }
 };
+
+struct varnode_cmp_loc_def {
+    bool operator()(const varnode *a, const varnode *b) const;
+};
+
+struct varnode_cmp_def_loc {
+    bool operator()(const varnode *a, const varnode *b) const;
+};
+
+typedef set<varnode *, varnode_cmp_loc_def> varnode_locset;
 
 struct pcodeop {
     struct {
@@ -84,6 +96,7 @@ struct pcodeop {
     void            set_opcode(OpCode op);
     varnode*        get_in(int slot) { return inrefs[slot];  }
     const Address&  get_addr() { return start.getAddr();  }
+    int             num_inputs() { return inrefs.size();  }
     int             get_slot(const varnode *vn) { 
         int i, n; n = inrefs.size(); 
         for (i = 0; i < n; i++)
@@ -164,6 +177,7 @@ struct flowblock {
     flowblock*  get_out(int i) { return out[i].point;  }
     flowblock*  get_in(int i) { return in[i].point;  }
     flowblock*  get_block(int i) { return blist[i]; }
+    int         get_out_rev_index(int i) { return out[i].reverse_index;  }
 
     void        set_start_block(flowblock *bl);
     void        set_initial_range(const Address &begin, const Address &end);
@@ -333,6 +347,9 @@ struct funcdata {
     varnode*    new_coderef(const Address &m);
     varnode*    clone_varnode(const varnode *vn);
     void        destroy_varnode(varnode *vn);
+    void        delete_varnode(varnode *vn);
+    /* 设置输入参数 */
+    varnode*    set_input_varnode(varnode *vn);
 
     varnode*    create_vn(int s, const Address &m);
     varnode*    create_def(int s, const Address &m, pcodeop *op);
@@ -393,6 +410,8 @@ struct funcdata {
     void        calc_phi_placement(const vector<varnode *> &write);
     void        visit_incr(flowblock *qnode, flowblock *vnode);
     void        place_multiequal(void);
+    void        rename();
+    void        rename_recurse(blockbasic *bl, variable_stack &varstack);
 };
 
 
