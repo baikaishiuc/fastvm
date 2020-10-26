@@ -103,8 +103,9 @@ void dobc::run()
     }
 #else
     //dump_function("_Z10__fun_a_18Pcj");
-    dump_function("_Z9__arm_a_0v");
-    dump_function("_Z10__arm_a_21v");
+    //dump_function("_Z9__arm_a_0v");
+    //dump_function("_Z10__arm_a_21v");
+    plugin_dvmp360();
 #endif
 }
 
@@ -119,8 +120,12 @@ void dobc::plugin_dvmp360()
     int i;
     for (i = 0; i < fd_main->qlst.size(); i++) {
         func_call_specs *cs = fd_main->qlst[i];
+
+        if (cs->get_name() == fd_sub->name) 
+            fd_main->inline_flow(cs->fd, cs->op);
     }
-    //fd_main->inline_flow();
+
+    fd_main->dump_dot("1");
 }
 
 funcdata* dobc::find_func(const Address &addr)
@@ -158,7 +163,12 @@ void dobc::init()
         funcdata *func;
 
         func = new funcdata(sym.name.c_str(), addr, sym.size, this);
-        func->set_range(addr, lastaddr);
+
+        Address baddr(get_code_space(), 0);
+        Address eaddr(get_code_space(), ~((uintb)0));
+
+        //func->set_range(addr, lastaddr);
+        func->set_range(baddr, eaddr);
 
         mlist_add(funcs, func, node);
     }
@@ -331,7 +341,7 @@ void blockgraph::add_block(blockbasic *b)
     blist.push_back(b);
 }
 
-void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist)
+void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist)
 {
     if (blist.size() == 0) return;
 
@@ -408,7 +418,7 @@ void blockgraph::find_spanning_tree(vector<flowblock *> &preorder, vector<flowbl
     初步怀疑: tree-edge 是spanning tree
               forward-edge 是
 */
-void blockgraph::structure_loops(vector<flowblock *> &rootlist)
+void flowblock::structure_loops(vector<flowblock *> &rootlist)
 {
     vector<flowblock *> preorder;
     bool needrebuild;
@@ -425,7 +435,7 @@ void blockgraph::structure_loops(vector<flowblock *> &rootlist)
 paper: A Simple, Fast Dominance Algorithm
 http://web.cse.ohio-state.edu/~rountev.1/788/papers/cooper-spe01.pdf
 */
-void  blockgraph::calc_forward_dominator(const vector<flowblock *> &rootlist)
+void  flowblock::calc_forward_dominator(const vector<flowblock *> &rootlist)
 {
     vector<flowblock *>     postorder;
     flowblock *b, *new_idom, *rho;
@@ -524,9 +534,10 @@ void        blockgraph::set_start_block(flowblock *bl)
 
 void        blockgraph::set_initial_range(const Address &b, const Address &e)
 {
-    cover.start = b;
-    cover.end = e;
+    cover.clear();
+    cover.insertRange(b.getSpace(), b.getOffset(), e.getOffset());
 }
+
 
 void        flowblock::add_inedge(flowblock *b, int lab)
 {
@@ -543,6 +554,59 @@ void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
     inst->parent = this;
     newiter = ops.insert(iter, inst);
     inst->basiciter = newiter;
+}
+
+int         flowblock::sub_id() 
+{ 
+    return (int)fd->startaddr.getOffset();  
+}
+
+void        flowblock::clear(void)
+{
+    vector<flowblock *>::iterator iter;
+
+    for (iter = blist.begin(); iter != blist.end(); ++iter)
+        delete *iter;
+
+    blist.clear();
+}
+
+void        flowblock::build_dom_tree(vector<vector<flowblock *>> &child)
+{
+    int i;
+    flowblock *bl;
+
+    child.clear();
+    child.resize(blist.size() + 1);
+    for (i = 0; i < blist.size(); ++i) {
+        bl = blist[i];
+        if (bl->immed_dom)
+            child[bl->immed_dom->index].push_back(bl);
+        else
+            child[blist.size()].push_back(bl);
+    }
+}
+
+int         flowblock::build_dom_depth(vector<int> &depth)
+{
+    flowblock *bl;
+    int max = 0, i;
+
+    depth.resize(blist.size() + 1);
+
+    for (i = 0; i < blist.size(); i++) {
+        bl = blist[i]->immed_dom;
+        if (bl)
+            depth[i] = depth[bl->index] + 1;
+        else
+            depth[i] = i;
+
+        if (max < depth[i])
+            max = depth[i];
+    }
+
+    depth[blist.size()] = 0;
+    return max;
 }
 
 void        flowblock::add_op(pcodeop *op)
@@ -728,6 +792,98 @@ pcodeop*    funcdata::find_op(const SeqNum &num) const
     return iter->second;
 }
 
+int         funcdata::inst_size(const Address &addr)
+{
+    map<Address, VisitStat>::iterator iter;
+    iter = visited.find(addr);
+    return iter->second.size;
+}
+
+/* 
+Algorithms for Computing the Static Single Assignment Form
+
+GIANFRANCO BILARDI
+
+https://www.cs.utexas.edu/users/pingali/CS380C/2007fa/papers/ssa.pdf
+
+up-edge: 
+*/
+void        funcdata::build_adt(void)
+{
+    flowblock *x, *v, *u;
+    int i, j, k, l;
+    int size = bblocks.get_size();
+    vector<int>     a(size);
+    vector<int>     b(size, 0);
+    vector<int>     t(size, 0);
+    vector<int>     z(size, 0);
+
+    /*
+    Definition 4. Given a CFG G = (V, E), (u -> v) in E is an up-edge if
+u != idom(v). The subgraph (V, Eup) of G containing only the up-edges is called
+the a-DF graph.
+*/
+    vector<flowblock *> upstart, upend;
+
+    augment.clear();
+    augment.resize(size);
+    phiflags.clear();
+    phiflags.resize(size, 0);
+
+    bblocks.build_dom_tree(domchild);
+    maxdepth = bblocks.build_dom_depth(domdepth);
+    for (i = 0; i < size; i++) {
+        x = bblocks.get_in(i);
+        for (j = 0; j < domchild[i].size(); ++j) {
+            v = domchild[i][j];
+            for (k = 0; k < v->in.size(); ++k) {
+                u = v->get_in(k);
+                if (u != v->immed_dom) {
+                    upstart.push_back(u);
+                    upend.push_back(v);
+                    b[u->index] += 1;
+                    t[x->index] += 1;
+                }
+            }
+        }
+    }
+
+    for (i = size - 1; i >= 0; --i) {
+        k = 0;
+        l = 0;
+        for (j = 0; j < domchild[i].size(); ++j) {
+            k += a[domchild[i][j]->index];
+            l += z[domchild[i][j]->index];
+        }
+
+        a[i] = b[i] - t[i] + k;
+        z[i] = 1 + l;
+
+        if ((domchild[i].size() == 0) || (z[i] > (a[i] + 1))) {
+            phiflags[i] |= boundary_node;
+            z[i] = 1;
+        }
+    }
+    z[0] = -1;
+    for (i = 1; i < size; ++i) {
+        j = bblocks.get_block(i)->immed_dom->index;
+        if (phiflags[j] & boundary_node)
+            z[i] = j;
+        else
+            z[i] = z[j];
+    }
+
+    for (i = 0; i < upstart.size(); ++i) {
+        v = upend[i];
+        j = v->immed_dom->index;
+        k = upstart[i]->index;
+        while (j < k) {
+            augment[k].push_back(v);
+            k = z[k];
+        }
+    }
+}
+
 /* FIXME:似乎是一个pcode产生了跳转，但是这个跳转发生在归属instruction中
 但是看名字，它又是像一个相对跳转 */
 pcodeop*    funcdata::find_rel_target(pcodeop *op, Address &res) const
@@ -797,6 +953,11 @@ void        funcdata::del_remaining_ops(list<pcodeop *>::const_iterator oiter)
     }
 }
 
+void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
+{
+    qlst.push_back(new func_call_specs(p, fd));
+}
+
 pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru)
 {
     funcdata *fd;
@@ -841,9 +1002,12 @@ branch指令打上call_branch标记
             else if ((fd = d->find_func(destaddr))) {
                 if (op->opcode == CPUI_CBRANCH)
                     throw LowlevelError("not support cbranch on " + fd->name);
+
                 startbasic = false;
                 op->flags.branch_call = 1;
                 op->flags.exit = 1;
+
+                add_callspec(op, fd);
             }
             else
                 new_address(op, destaddr);
@@ -1061,9 +1225,11 @@ void        funcdata::analysis_jmptable(pcodeop *op)
     }
 }
 
-void        funcdata::generate_ops()
+void        funcdata::generate_ops(void)
 {
     vector<pcodeop *> notreached;       // 间接跳转是不可达的?
+
+    if (flags.op_generated) return;
 
     addrlist.push_back(startaddr);
     while (!addrlist.empty())
@@ -1080,6 +1246,8 @@ void        funcdata::generate_ops()
     }
 
     dump_inst();
+
+    flags.op_generated = 1;
 }
 
 pcodeop*    funcdata::branch_target(pcodeop *op) 
@@ -1201,16 +1369,12 @@ void        funcdata::collect_edges()
 
 void        funcdata::mark_alive(pcodeop *op)
 {
-    deadlist.erase(op->insertiter);
     op->flags.dead = 0;
-    op->insertiter = alivelist.insert(alivelist.end(), op);
 }
 
 void        funcdata::mark_dead(pcodeop *op)
 {
-    alivelist.erase(op->insertiter);
     op->flags.dead = 1;
-    op->insertiter = deadlist.insert(deadlist.end(), op);
 }
 
 void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter)
@@ -1277,6 +1441,9 @@ void        funcdata::split_basic()
 
 void        funcdata::generate_blocks()
 {
+    if (flags.blocks_generated)
+        return;
+
     collect_edges();
     split_basic();
     connect_basic();
@@ -1294,6 +1461,8 @@ void        funcdata::generate_blocks()
     }
 
     fix_jmptable();
+
+    flags.blocks_generated = 1;
 }
 
 void        funcdata::dump_inst()
@@ -1417,6 +1586,25 @@ varnode*    funcdata::clone_varnode(const varnode *vn)
     return newvn;
 }
 
+void        funcdata::destroy_varnode(varnode *vn)
+{
+    list<pcodeop *>::const_iterator iter;
+
+    for (iter = vn->descend.begin(); iter != vn->descend.end(); ++iter) {
+        pcodeop *op = *iter;
+
+        op->inrefs[op->get_slot(vn)] = NULL;
+    }
+
+    if (vn->def) {
+        vn->def->output = NULL;
+        vn->def = NULL;
+    }
+
+    vn->descend.clear();
+    delete(vn);
+}
+
 pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
 {
     int i;
@@ -1432,6 +1620,19 @@ pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
         op_set_input(newop1, clone_varnode(op->get_in(i)), i);
 
     return newop1;
+}
+
+void        funcdata::op_destroy_raw(pcodeop *op)
+{
+    int i;
+
+    for (i = 0; i < op->inrefs.size(); i++)
+        destroy_varnode(op->inrefs[i]);
+    if (op->output)
+        destroy_varnode(op->output);
+
+    optree.erase(op->start);
+    deadlist.erase(op->insertiter);
 }
 
 void        funcdata::inline_clone(funcdata *inlinefd, const Address &retaddr)
@@ -1460,21 +1661,30 @@ void        funcdata::inline_ezclone(funcdata *fd, const Address &calladdr)
         if (op->opcode == CPUI_RETURN)
             break;
 
-        SeqNum seq(calladdr, op->start.getTime());
+        // 这里原先的Ghidra把inline的所有地址都改成了calladdr里的地址，这个地方我不理解，
+        // 这里inline函数的地址统统不改，使用原先的
+        //SeqNum seq(calladdr, op->start.getTime());
+        SeqNum seq(op->start.getAddr(), op->start.getTime());
         cloneop(op, seq);
     }
 }
 
-void        funcdata::inline_flow(funcdata *fd, pcodeop *callop)
+void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
 {
-    if (fd->check_ezmodel()) {
+    funcdata fd(fd1->name.c_str(), fd1->get_addr(), fd1->size, fd1->d);
+    pcodeop *firstop;
+
+    fd.set_range(fd1->baddr, fd1->eaddr);
+    fd.generate_ops();
+
+    if (fd.check_ezmodel()) {
         list<pcodeop *>::const_iterator oiter = deadlist.end();
         --oiter;
-        inline_ezclone(fd, callop->get_addr());
+        inline_ezclone(&fd, callop->get_addr());
         ++oiter;    // 指向inline的第一个pcode
 
         if (oiter != deadlist.end()) {
-            pcodeop *firstop = *oiter;
+            firstop = *oiter;
             oiter = deadlist.end();
             --oiter; // 指向inline的最后一个pcode
             pcodeop *lastop = *oiter;
@@ -1483,7 +1693,20 @@ void        funcdata::inline_flow(funcdata *fd, pcodeop *callop)
             else
                 firstop->flags.startblock = 0;
         }
+        /* FIXME:对单block的节点，要不要也加上对inline节点的跳转，在后期的merge阶段合并掉？ */
     }
+    else {
+        Address retaddr;
+        assert(0);
+        inline_clone(&fd, retaddr);
+    }
+
+    /* 原始的Ghidra中，inline只能inline call，但是因为branch也可以模拟call，所以branch也能inline的 */
+    if (callop->opcode == CPUI_CALL) {
+    }
+
+    clear_blocks();
+    generate_blocks();
 }
 
 bool        funcdata::check_ezmodel(void)
@@ -1512,6 +1735,7 @@ void funcdata::structure_reset()
     flags.blocks_unreachable = 0;
 
     bblocks.structure_loops(rootlist);
+    bblocks.calc_forward_dominator(rootlist);
 }
 
 /* build dominator tree*/
@@ -1519,18 +1743,138 @@ void funcdata::build_dom_tree()
 {
 }
 
+void        funcdata::clear_blocks()
+{
+    bblocks.clear();
+
+    flags.blocks_generated = 0;
+}
+
 void        funcdata::follow_flow(void)
 {
-    if (flags.blocks_generated)
-        return;
 
     generate_ops();
     generate_blocks();
-
-    flags.blocks_generated = 1;
 }
 
 void        funcdata::start_processing(void)
 {
     flags.processing_started = 1;
+}
+
+void        funcdata::visit_incr(flowblock *qnode, flowblock *vnode)
+{
+    int i, j, k;
+    flowblock *v, *child;
+    vector<flowblock *>::iterator   iter, enditer;
+
+    i = vnode->index;
+    j = qnode->index;
+    iter = augment[i].begin();
+    enditer = augment[i].end();
+
+    for (; iter != enditer; ++iter) {
+        v = *iter;
+        if (v->immed_dom->index < j) {
+            k = v->index;
+            if ((phiflags[k] & merged_node) == 0) {
+                merge.push_back(v);
+                phiflags[k] |= merged_node;
+            }
+
+            if ((phiflags[k] & mark_node) == 0) {
+                phiflags[k] |= mark_node;
+                pq.insert(v, domdepth[k]);
+            }
+        }
+        else
+            break;
+    }
+
+    if ((phiflags[i] && boundary_node) == 0) {
+        for (j = 0; j < domchild[i].size(); ++j) {
+            child = domchild[i][j];
+            if ((phiflags[child->index] & mark_node) == 0)
+                visit_incr(qnode, child);
+        }
+    }
+}
+
+void        funcdata::place_multiequal(void)
+{
+}
+
+/* calc_multiequal 
+Algorithms for Computing the Static Single Assignment Form. P39 
+*/
+void        funcdata::calc_phi_placement(const vector<varnode *> &write)
+{
+    pq.reset(maxdepth);
+    merge.clear();
+
+    int i, j;
+    flowblock *bl;
+
+    for (i = 0; i < write.size(); ++i) {
+        bl = write[i]->def->parent;
+        j = bl->index;
+        if (phiflags[j] & mark_node)
+            continue;
+
+        pq.insert(bl, domdepth[j]);
+        phiflags[j] |= mark_node;
+    }
+
+    if ((phiflags[0] & mark_node) == 0) {
+        pq.insert(bblocks.get_block(0), domdepth[0]);
+        phiflags[0] |= mark_node;
+    }
+
+    while (!pq.empty()) {
+        bl = pq.extract();
+        visit_incr(bl, bl);
+    }
+
+    for (i = 0; i < phiflags.size(); ++i)
+        phiflags[i] &= ~(mark_node | merged_node );
+}
+
+func_call_specs::func_call_specs(pcodeop *o, funcdata *f)
+{
+    op = o;
+    fd = f;
+}
+
+func_call_specs::~func_call_specs()
+{
+}
+
+void priority_queue::reset(int maxdepth)
+{
+    if ((curdepth == -1) && (maxdepth == queue.size() - 1))
+        return;
+
+    queue.clear();
+    queue.resize(maxdepth + 1);
+    curdepth = -1;
+}
+
+void priority_queue::insert(flowblock *b, int depth)
+{
+    queue[depth].push_back(b);
+    if (depth > curdepth)
+        curdepth = depth;
+}
+
+flowblock *priority_queue::extract()
+{
+    flowblock *res = queue[curdepth].back();
+    queue[curdepth].pop_back();
+    while (queue[curdepth].empty()) {
+        curdepth -= 1;
+        if (curdepth < 0)
+            break;
+    }
+
+    return res;
 }

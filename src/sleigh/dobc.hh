@@ -84,6 +84,12 @@ struct pcodeop {
     void            set_opcode(OpCode op);
     varnode*        get_in(int slot) { return inrefs[slot];  }
     const Address&  get_addr() { return start.getAddr();  }
+    int             get_slot(const varnode *vn) { 
+        int i, n; n = inrefs.size(); 
+        for (i = 0; i < n; i++)
+            if (inrefs[i] == vn) return i;
+        return -1;
+    }
 };
 
 typedef struct blockedge            blockedge;
@@ -102,6 +108,7 @@ struct blockedge {
     blockedge(flowblock *pt, int lab, int rev) { point = pt, label = lab; reverse_index = rev; }
     blockedge() {};
 };
+
 
 enum block_type{
     a_condition,
@@ -130,10 +137,7 @@ struct flowblock {
         unsigned f_return : 1;
     } flags = { 0 };
 
-    struct {
-        Address     start;
-        Address     end;
-    } cover;
+    RangeList cover;
 
     list<pcodeop*>      ops;
 
@@ -159,6 +163,7 @@ struct flowblock {
     blockbasic* new_block_basic(funcdata *f);
     flowblock*  get_out(int i) { return out[i].point;  }
     flowblock*  get_in(int i) { return in[i].point;  }
+    flowblock*  get_block(int i) { return blist[i]; }
 
     void        set_start_block(flowblock *bl);
     void        set_initial_range(const Address &begin, const Address &end);
@@ -167,10 +172,27 @@ struct flowblock {
     void        add_op(pcodeop *);
     void        insert(list<pcodeop *>::iterator iter, pcodeop *inst);
 
-    int         sub_id() { return (int)cover.start.getOffset();  }
+    int         sub_id();
     void        structure_loops(vector<flowblock *> &rootlist);
     void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
     void        calc_forward_dominator(const vector<flowblock *> &rootlist);
+    void        clear(void);
+    void        build_dom_tree(vector<vector<flowblock *>> &child);
+    int         build_dom_depth(vector<int> &depth);
+    int         get_size(void) { return blist.size();  }
+};
+
+typedef struct priority_queue   priority_queue;
+
+struct priority_queue {
+    vector<vector<flowblock *>> queue;
+    int curdepth;
+
+    priority_queue(void) { curdepth = -2;  }
+    void reset(int maxdepth);
+    void insert(flowblock *b, int depth);
+    flowblock *extract();
+    bool empty(void) const { return (curdepth == -1);  }
 };
 
 typedef map<SeqNum, pcodeop *>  pcodeop_tree;
@@ -198,18 +220,9 @@ struct jmptable {
     ~jmptable();
 };
 
-struct func_call_specs {
-    pcodeop *op;
-    funcdata *fd;
-
-    func_call_specs(pcodeop *op);
-    ~func_call_specs();
-
-    const string &get_name(void) { return fd->name;  }
-};
-
 struct funcdata {
     struct {
+        unsigned op_generated : 1;
         unsigned blocks_generated : 1;
         unsigned blocks_unreachable : 1;    // 有block无法到达
         unsigned processing_started : 1;
@@ -217,7 +230,7 @@ struct funcdata {
         unsigned no_code : 1;
         unsigned unimplemented_present : 1;
         unsigned baddata_present : 1;
-    } flags;
+    } flags = { 0 };
 
     struct VisitStat {
         SeqNum seqnum;
@@ -242,7 +255,6 @@ struct funcdata {
     vector<jmptable *>  jmpvec;
 
     list<pcodeop *>     deadlist;
-    list<pcodeop *>     alivelist;
     list<pcodeop *>     storelist;
     list<pcodeop *>     loadlist;
     list<pcodeop *>     useroplist;
@@ -267,6 +279,24 @@ struct funcdata {
     int     intput;         // 这个函数有几个输入参数
     int     output;         // 有几个输出参数
     vector<func_call_specs *>   qlst;
+
+    /* heritage start ................. */
+    vector<vector<flowblock *>> domchild;
+    vector<vector<flowblock *>> augment;
+#define boundary_node       1
+#define mark_node           2
+#define merged_node          3
+    vector<uint4>   phiflags;   
+    vector<int>     domdepth;
+    /* dominate frontier */
+    vector<flowblock *>     merge;      // 哪些block包含phi节点
+    priority_queue pq;
+
+    int maxdepth;
+
+    LocationMap     disjoint;
+    LocationMap     globaldisjoint;
+    /* heritage end  ============================================= */
 
     Address startaddr;
 
@@ -295,12 +325,14 @@ struct funcdata {
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
     pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
+    void        op_destroy_raw(pcodeop *op);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
     varnode*    new_varnode(int s, const Address &m);
     varnode*    new_coderef(const Address &m);
     varnode*    clone_varnode(const varnode *vn);
+    void        destroy_varnode(varnode *vn);
 
     varnode*    create_vn(int s, const Address &m);
     varnode*    create_def(int s, const Address &m, pcodeop *op);
@@ -323,7 +355,7 @@ struct funcdata {
     bool        set_fallthru_bound(Address &bound);
     void        fallthru();
     pcodeop*    xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru);
-    void        generate_ops();
+    void        generate_ops(void);
     bool        process_instruction(const Address &curaddr, bool &startbasic);
     void        recover_jmptable(pcodeop *op, int indexsize);
     void        analysis_jmptable(pcodeop *op);
@@ -354,6 +386,24 @@ struct funcdata {
     void        build_dom_tree();
     void        start_processing(void);
     void        follow_flow(void);
+    void        add_callspec(pcodeop *p, funcdata *fd);
+    void        clear_blocks();
+    int         inst_size(const Address &addr);
+    void        build_adt(void);
+    void        calc_phi_placement(const vector<varnode *> &write);
+    void        visit_incr(flowblock *qnode, flowblock *vnode);
+    void        place_multiequal(void);
+};
+
+
+struct func_call_specs {
+    pcodeop *op;
+    funcdata *fd;
+
+    func_call_specs(pcodeop *o, funcdata *f);
+    ~func_call_specs();
+
+    const string &get_name(void) { return fd->name;  }
 };
 
 struct dobc {
