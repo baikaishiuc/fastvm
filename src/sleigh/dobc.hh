@@ -46,7 +46,10 @@ struct varnode {
     ~varnode();
 
     const Address &get_addr(void) { return loc; }
-    bool           is_heritage_known(void) const { return flags.insert | flags.constant | flags.annotation; }
+    bool            is_heritage_known(void) const { return flags.insert | flags.constant | flags.annotation; }
+    bool            has_no_descend(void) { return descend.empty();  }
+
+    void            set_def(pcodeop *op);
 };
 
 struct varnode_cmp_loc_def {
@@ -57,7 +60,8 @@ struct varnode_cmp_def_loc {
     bool operator()(const varnode *a, const varnode *b) const;
 };
 
-typedef set<varnode *, varnode_cmp_loc_def> varnode_locset;
+typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
+typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
 
 struct pcodeop {
     struct {
@@ -194,6 +198,7 @@ struct flowblock {
     void        build_dom_tree(vector<vector<flowblock *>> &child);
     int         build_dom_depth(vector<int> &depth);
     int         get_size(void) { return blist.size();  }
+    Address     get_start(void);
 };
 
 typedef struct priority_queue   priority_queue;
@@ -278,12 +283,17 @@ struct funcdata {
     map<Address,VisitStat> visited;
     dobc *d = NULL;
 
+    /* vbank------------------------- */
     struct {
         long uniqbase = 0;
         int uniqid = 0;
         int create_index = 0;
         struct dynarray all = { 0 };
     } vbank;
+
+    varnode_loc_set     loc_tree;
+    varnode_def_set     def_tree;
+    /* vbank------------------------- */
 
     /* control-flow graph */
     blockgraph bblocks;
@@ -362,6 +372,9 @@ struct funcdata {
     void        del_op(pcodeop *op);
     void        del_varnode(varnode *vn);
 
+    varnode_loc_set::const_iterator     begin_loc(const Address &addr);
+    varnode_loc_set::const_iterator     end_loc(const Address &addr);
+
     void        del_remaining_ops(list<pcodeop *>::const_iterator oiter);
     void        new_address(pcodeop *from, const Address &to);
     pcodeop*    find_rel_target(pcodeop *op, Address &res) const;
@@ -412,6 +425,8 @@ struct funcdata {
     void        place_multiequal(void);
     void        rename();
     void        rename_recurse(blockbasic *bl, variable_stack &varstack);
+    int         collect(Address addr, int size, vector<varnode *> &read,
+        vector<varnode *> &write, vector<varnode *> &input);
 };
 
 

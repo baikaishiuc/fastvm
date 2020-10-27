@@ -279,6 +279,26 @@ varnode::~varnode()
 {
 }
 
+void            varnode::set_def(pcodeop *op)
+{
+    def = op;
+    if (op) {
+        flags.writtern = 1;
+    }
+    else
+        flags.writtern = 0;
+}
+
+inline bool varnode_cmp_loc_def::operator()(const varnode *a, const varnode *b) const
+{
+    return false;
+}
+
+inline bool varnode_cmp_def_loc::operator()(const varnode *a, const varnode *b) const
+{
+    return false;
+}
+
 pcodeop::pcodeop(int s, const SeqNum &sq)
     :start(sq), inrefs(s)
 {
@@ -609,6 +629,16 @@ int         flowblock::build_dom_depth(vector<int> &depth)
     return max;
 }
 
+Address     flowblock::get_start(void)
+{
+    const Range *range = cover.getFirstRange();
+    if (range == NULL) {
+        assert(0);
+    }
+
+    return range->getFirstAddr();
+}
+
 void        flowblock::add_op(pcodeop *op)
 {
     insert(ops.end(), op);
@@ -691,7 +721,7 @@ varnode*    funcdata::create_def(int s, const Address &m, pcodeop *op)
 {
     varnode *vn = new varnode(s, m);
     vn->create_index = vbank.create_index++;
-    vn->def = op;
+    vn->set_def(op);
 
     return vn;
 }
@@ -1814,8 +1844,69 @@ void        funcdata::visit_incr(flowblock *qnode, flowblock *vnode)
     }
 }
 
+int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<varnode *> &write, vector<varnode *> &input)
+{
+    varnode *vn;
+    varnode_loc_set::const_iterator     viter = begin_loc(addr);
+    varnode_loc_set::const_iterator     enditer;
+    uintb start = addr.getOffset();
+    addr = addr + size;
+
+    if (addr.getOffset() < start) {
+        assert(0);
+    }
+    else
+        enditer = begin_loc(addr);
+
+    int maxsize = 0;
+
+    for (; viter != enditer; viter++) {
+        vn = *viter;
+
+        if (vn->flags.writtern) {
+            if (vn->size > maxsize)     maxsize = vn->size;
+            write.push_back(vn);
+        }
+        else if (!vn->is_heritage_known() && vn->descend.size())
+            read.push_back(vn);
+        else if (vn->flags.input)
+            input.push_back(vn);
+    }
+
+    return maxsize;
+}
+
 void        funcdata::place_multiequal(void)
 {
+    LocationMap::iterator iter;
+    vector<varnode *> readvars;
+    vector<varnode *> writevars;
+    vector<varnode *> inputvars;
+    pcodeop *multiop;
+    varnode *vnin;
+    blockbasic *bl;
+    int max, i;
+
+    for (iter = disjoint.begin(); iter != disjoint.end(); ++iter) {
+        Address addr = (*iter).first;
+        int size = (*iter).second.size;
+        readvars.clear();
+        writevars.clear();
+        inputvars.clear();
+        max = collect(addr, size, readvars, writevars, inputvars);
+        if ((size > 4) && (max < size)) {
+            assert(0);
+        }
+
+        if (readvars.empty() && (addr.getSpace()->getType() == IPTR_INTERNAL))
+            continue;
+
+        calc_phi_placement(writevars);
+        for (i = 0; i < merge.size(); ++i) {
+            bl = merge[i];
+            multiop = newop(bl->in.size(), bl->get_start());
+        }
+    }
 }
 
 void        funcdata::rename()
