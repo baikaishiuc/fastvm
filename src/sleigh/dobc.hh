@@ -293,6 +293,7 @@ struct funcdata {
 
     varnode_loc_set     loc_tree;
     varnode_def_set     def_tree;
+    varnode             searchvn;
     /* vbank------------------------- */
 
     /* control-flow graph */
@@ -403,6 +404,8 @@ struct funcdata {
     void        op_insert_before(pcodeop *op, pcodeop *follow);
     void        op_insert_after(pcodeop *op, pcodeop *prev);
     void        op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter);
+    void        op_insert_begin(pcodeop *op, blockbasic *bl);
+    void        op_insert_end(pcodeop *op, blockbasic *bl);
     void        inline_flow(funcdata *inlinefd, pcodeop *fd);
     void        inline_clone(funcdata *inelinefd, const Address &retaddr);
     void        inline_ezclone(funcdata *fd, const Address &calladdr);

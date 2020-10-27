@@ -652,7 +652,8 @@ void        flowblock::add_edge(flowblock *begin, flowblock *end)
 funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
     : startaddr(a),
     bblocks(this),
-    name(nm)
+    name(nm),
+    searchvn(0, Address(Address::m_minimal))
 {
     char buf[256];
     d = d1;
@@ -959,6 +960,24 @@ void     funcdata::new_address(pcodeop *from, const Address &to)
 
 void        funcdata::del_varnode(varnode *vn)
 {
+}
+
+varnode_loc_set::const_iterator     funcdata::begin_loc(const Address &addr)
+{
+    searchvn.loc = addr;
+    return loc_tree.lower_bound(&searchvn);
+}
+
+varnode_loc_set::const_iterator     funcdata::end_loc(const Address &addr)
+{
+    if (addr.getOffset() == addr.getSpace()->getHighest) {
+        AddrSpace *space = addr.getSpace();
+        searchvn.loc = Address(d->trans->getNextSpaceInOrder(space), 0);
+    }
+    else
+        searchvn.loc = addr + 1;
+
+    return loc_tree.lower_bound(&searchvn);
 }
 
 void        funcdata::del_op(pcodeop *op)
@@ -1410,7 +1429,34 @@ void        funcdata::mark_dead(pcodeop *op)
 void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter)
 {
     mark_alive(op);
-    bl->add_op(op);
+    bl->insert(iter, op);
+}
+
+void        funcdata::op_insert_begin(pcodeop *op, blockbasic *bl)
+{
+    list<pcodeop *>::iterator iter = bl->ops.begin();
+
+    if (op->opcode != CPUI_MULTIEQUAL) {
+        while (iter != bl->ops.end()) {
+            if ((*iter)->opcode != CPUI_MULTIEQUAL)
+                break;
+
+            ++iter;
+        }
+    }
+
+    op_insert(op, bl, iter);
+}
+
+void        funcdata::op_insert_end(pcodeop *op, blockbasic *bl)
+{
+    list<pcodeop *>::iterator iter = bl->ops.end();
+
+    if (iter != bl->ops.begin()) {
+        --iter;
+    }
+
+    op_insert(op, bl, iter);
 }
 
 void        funcdata::connect_basic()
@@ -1885,7 +1931,7 @@ void        funcdata::place_multiequal(void)
     pcodeop *multiop;
     varnode *vnin;
     blockbasic *bl;
-    int max, i;
+    int max, i, j;
 
     for (iter = disjoint.begin(); iter != disjoint.end(); ++iter) {
         Address addr = (*iter).first;
@@ -1905,6 +1951,13 @@ void        funcdata::place_multiequal(void)
         for (i = 0; i < merge.size(); ++i) {
             bl = merge[i];
             multiop = newop(bl->in.size(), bl->get_start());
+            varnode *vnout = new_varnode_out(size, addr, multiop);
+
+            op_set_opcode(multiop, CPUI_MULTIEQUAL);
+            for (j = 0; j < bl->in.size(); j++) {
+                vnin = new_varnode(size, addr);
+                op_set_input(multiop, vnin, j);
+            }
         }
     }
 }
