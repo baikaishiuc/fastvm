@@ -45,7 +45,7 @@ struct varnode {
     varnode(int s, const Address &m);
     ~varnode();
 
-    const Address &get_addr(void) { return loc; }
+    const Address &get_addr(void) const { return (const Address &)loc; }
     bool            is_heritage_known(void) const { return flags.insert | flags.constant | flags.annotation; }
     bool            has_no_descend(void) { return descend.empty();  }
 
@@ -321,6 +321,7 @@ struct funcdata {
 
     LocationMap     disjoint;
     LocationMap     globaldisjoint;
+
     /* heritage end  ============================================= */
 
     Address startaddr;
@@ -375,6 +376,8 @@ struct funcdata {
 
     varnode_loc_set::const_iterator     begin_loc(const Address &addr);
     varnode_loc_set::const_iterator     end_loc(const Address &addr);
+    varnode_loc_set::const_iterator     begin_loc(AddrSpace *spaceid);
+    varnode_loc_set::const_iterator     end_loc(AddrSpace *spaceid);
 
     void        del_remaining_ops(list<pcodeop *>::const_iterator oiter);
     void        new_address(pcodeop *from, const Address &to);
@@ -430,6 +433,7 @@ struct funcdata {
     void        rename_recurse(blockbasic *bl, variable_stack &varstack);
     int         collect(Address addr, int size, vector<varnode *> &read,
         vector<varnode *> &write, vector<varnode *> &input);
+    void        heritage(void);
 };
 
 

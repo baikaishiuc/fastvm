@@ -291,11 +291,47 @@ void            varnode::set_def(pcodeop *op)
 
 inline bool varnode_cmp_loc_def::operator()(const varnode *a, const varnode *b) const
 {
+    uint4 f1, f2;
+
+    if (a->get_addr() != b->get_addr()) return (a->get_addr() < b->get_addr());
+    if (a->size != b->size) return (a->size < b->size);
+
+    f1 = a->flags.input << 1 + a->flags.writtern;
+    f2 = b->flags.input << 1 + b->flags.writtern;
+
+    /* 这样处理过后，假如一个节点是free的(没有written和Input标记)，那么在和一个带标记的
+    节点比较时，就会变大，因为 0 - 1 = 0xffffffff, f1是Unsigned类型，导致他被排后 */
+    if (f1 != f2) return (f1 - 1) < (f2 - 1);
+
+    if (a->flags.writtern) {
+        if (a->def->start != b->def->start)
+            return a->def->start < b->def->start;
+    }
+    else if (f1 == 0)
+        return a->create_index < b->create_index;
+
     return false;
 }
 
 inline bool varnode_cmp_def_loc::operator()(const varnode *a, const varnode *b) const
 {
+    uint4 f1, f2;
+
+    f1 = a->flags.input << 1 + a->flags.writtern;
+    f2 = b->flags.input << 1 + b->flags.writtern;
+
+    if (f1 != f2) return (f1 - 1) < (f2 - 1);
+
+    if (a->flags.writtern) {
+        if (a->def->start != b->def->start)
+            return a->def->start < b->def->start;
+    }
+    if (a->get_addr() != b->get_addr()) return (a->get_addr() < b->get_addr());
+    if (a->size != b->size) return (a->size < b->size);
+
+    if (f1 == 0)
+        return a->create_index < b->create_index;
+
     return false;
 }
 
@@ -970,13 +1006,25 @@ varnode_loc_set::const_iterator     funcdata::begin_loc(const Address &addr)
 
 varnode_loc_set::const_iterator     funcdata::end_loc(const Address &addr)
 {
-    if (addr.getOffset() == addr.getSpace()->getHighest) {
+    if (addr.getOffset() == addr.getSpace()->getHighest()) {
         AddrSpace *space = addr.getSpace();
         searchvn.loc = Address(d->trans->getNextSpaceInOrder(space), 0);
     }
     else
         searchvn.loc = addr + 1;
 
+    return loc_tree.lower_bound(&searchvn);
+}
+
+varnode_loc_set::const_iterator     funcdata::begin_loc(AddrSpace *spaceid)
+{
+    searchvn.loc = Address(spaceid, 0);
+    return loc_tree.lower_bound(&searchvn);
+}
+
+varnode_loc_set::const_iterator     funcdata::end_loc(AddrSpace *spaceid)
+{
+    searchvn.loc = Address(d->trans->getNextSpaceInOrder(spaceid), 0);
     return loc_tree.lower_bound(&searchvn);
 }
 
@@ -1922,6 +1970,22 @@ int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<va
     return maxsize;
 }
 
+void        funcdata::heritage(void)
+{
+    varnode_loc_set::const_iterator iter, enditer;
+    int i;
+
+    if (maxdepth == -1)
+        build_adt();
+
+    for (i = 0; i < d->trans->numSpaces(); i++) {
+        AddrSpace *space = d->trans->getSpace(i);
+
+        iter = begin_loc(space);
+        iter = end_loc(space);
+    }
+}
+
 void        funcdata::place_multiequal(void)
 {
     LocationMap::iterator iter;
@@ -1958,8 +2022,12 @@ void        funcdata::place_multiequal(void)
                 vnin = new_varnode(size, addr);
                 op_set_input(multiop, vnin, j);
             }
+
+            op_insert_begin(multiop, bl);
         }
     }
+
+    merge.clear();
 }
 
 void        funcdata::rename()
