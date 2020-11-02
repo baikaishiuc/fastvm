@@ -10,17 +10,82 @@ typedef struct dobc         dobc;
 typedef struct jmptable     jmptable;
 typedef struct func_call_specs  func_call_specs;
 typedef map<Address, vector<varnode *>> variable_stack;
+typedef struct valuetype    valuetype;
 
 class pcodeemit2 : public PcodeEmit {
 public:
-    funcdata *fd;
+    funcdata *fd = NULL;
+    FILE *fp = stdout;
     virtual void dump(const Address &address, OpCode opc, VarnodeData *outvar, VarnodeData *vars, int size);
+
+    void set_fp(FILE *f) { fp = f;  }
+};
+
+enum ARMInstType {
+    a_null,
+    a_stmdb,
+    a_sub,
+    a_add,
+};
+
+struct VisitStat {
+    SeqNum seqnum;
+    int size;
+    struct {
+        unsigned condinst: 1;
+    } flags;
+
+    enum ARMInstType    inst_type;
+};
+
+enum height {
+    a_top,
+    /* 
+    普通常量:
+    mov r0, 1
+    这样的就是普通的常量, 1是常量, 赋给r0以后，当前的r0也成了常量 */
+
+    a_constant,
+    /*
+    相对常量
+
+    0x0001. add esp, 4
+    0x0002. ...
+    0x0003. ...
+    0x0004. sub esp, 16
+    
+    esp就是相对常量，我们在做一些分析的时候，会使用模拟的方式来计算esp，比如给esp一个初始值，这种方式在分析领域不能算错，
+    因为比如像IDA或者Ghidra，都有对错误的容忍能力，最终的结果还是需要开发人员自己判断，但是在编译还原领域，不能有这种模糊语义
+    的行为。
+
+    假设壳的开发人员，在某个代码中采取了判断esp值的方式来实现了部分功能，比如
+    if (esp > xxxxx)  {} else {}
+    很可能其中一个 condition_block 就会被判断成 unreachable code。这个是给esp强行赋值带来的结果，但是不赋值可能很多计算进行不下去
+
+    所以我们把 inst.0x0001 中的 esp设置为相对常量(rel_constant)，他的值为 esp.4, 0x0004中的esp 为  esp.16，在做常量传播时，有以下几个规则
+
+    1. const op const = const，      (常量和常量可以互相操作，比如 加减乘除之类)
+    2. sp.rel_const op const = sp.rel_const;   (非常危险，要判断这个操作不是在循环内)
+    3. sp.rel_const op sp.rel_const = sp.rel_const      (这种情况起始非常少见，)
+    4. sp.rel_const op rN.rel_const (top)   (不同地址的相对常量不能参与互相运算)
+    */ 
+    a_rel_constant,
+    a_bottom,
+
+    /* */
+};
+
+struct valuetype {
+    enum height height;
+    intb v;
+    Address rel;
 };
 
 struct varnode {
+    valuetype   type;
+
     struct {
         unsigned    mark : 1;
-        unsigned    constant : 1;
         unsigned    annotation : 1;
         unsigned    input : 1;          // 没有祖先
         unsigned    writtern : 1;       // 是def
@@ -40,16 +105,23 @@ struct varnode {
     pcodeop     *def = NULL;
     uintb       nzm;
 
-    list<pcodeop *> descend;
+    list<pcodeop *>     uses;    // descend, Ghidra把这个取名为descend，搞的我头晕，改成use
 
     varnode(int s, const Address &m);
     ~varnode();
 
     const Address &get_addr(void) const { return (const Address &)loc; }
-    bool            is_heritage_known(void) const { return flags.insert | flags.constant | flags.annotation; }
-    bool            has_no_descend(void) { return descend.empty();  }
+    bool            is_heritage_known(void) const { return (flags.insert | flags.annotation) || is_constant(); }
+    bool            has_no_use(void) { return uses.empty();  }
 
     void            set_def(pcodeop *op);
+    bool            is_constant(void) const { return type.height == a_constant;  }
+    void            set_val(intb v) { type.height = a_constant;  type.v = v; }
+    bool            is_rel_constant(void) { return type.height == a_rel_constant;  }
+    void            set_rel_constant(Address &r, int v) { type.height = a_rel_constant; type.v = v;  type.rel = r;  }
+    void            add_use(pcodeop *op);
+    intb            get_val(void);
+    Address         &get_rel(void) { return type.rel; }
 };
 
 struct varnode_cmp_loc_def {
@@ -86,6 +158,8 @@ struct pcodeop {
     /* 一个指令对应于多个pcode，这个是用来表示inst的 */
     SeqNum start;               
     flowblock *parent;
+    /* 我们认为程序在分析的时候，sp的值是可以静态分析的，他表示的并不是sp寄存器，而是系统当前堆栈的深度 */
+    int     sp;
 
     varnode *output;
     vector<varnode *> inrefs;
@@ -107,6 +181,10 @@ struct pcodeop {
             if (inrefs[i] == vn) return i;
         return -1;
     }
+    int             dump(char *buf);
+    void            compute(void);
+    /* FIXME:判断哪些指令是别名安全的 */
+    bool            is_safe_inst();
 };
 
 typedef struct blockedge            blockedge;
@@ -133,6 +211,20 @@ enum block_type{
     a_whiledo,
     a_dowhile,
     a_switch,
+};
+
+/* 模拟stack行为，*/
+struct mem_stack {
+
+    int size;
+    char *data;
+    
+    mem_stack();
+    ~mem_stack();
+
+    void    push(char *byte, int size);
+    int     top(int size);
+    int     pop(int size);
 };
 
 struct flowblock {
@@ -199,6 +291,7 @@ struct flowblock {
     int         build_dom_depth(vector<int> &depth);
     int         get_size(void) { return blist.size();  }
     Address     get_start(void);
+
 };
 
 typedef struct priority_queue   priority_queue;
@@ -250,14 +343,6 @@ struct funcdata {
         unsigned unimplemented_present : 1;
         unsigned baddata_present : 1;
     } flags = { 0 };
-
-    struct VisitStat {
-        SeqNum seqnum;
-        int size;
-        struct {
-            unsigned condinst: 1;
-        } flags;
-    };
 
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;
@@ -317,10 +402,12 @@ struct funcdata {
     vector<flowblock *>     merge;      // 哪些block包含phi节点
     priority_queue pq;
 
-    int maxdepth;
+    int maxdepth = -1;
 
     LocationMap     disjoint;
     LocationMap     globaldisjoint;
+    /* FIXME:我不是很理解这个字段的意思，所以我没用他，一直恒为0 */
+    int pass = 0;
 
     /* heritage end  ============================================= */
 
@@ -338,8 +425,17 @@ struct funcdata {
     int inst_count = 0;
     int inst_max = 1000000;
 
+    /* 这个区域内的所有*/
+    RangeList   safezone;
+
     vector<Address>     addrlist;
     pcodeemit2 emitter;
+
+    struct {
+        int     size;
+        u1      *bottom;
+        u1      *top;
+    } memstack;
 
     funcdata(const char *name, const Address &a, int size, dobc *d);
     ~funcdata(void);
@@ -401,7 +497,8 @@ struct funcdata {
     void        connect_basic();
 
     void        dump_inst();
-    void        dump_dot(const char *filename);
+    void        dump_inst_dot(const char *postfix);
+    void        dump_pcode(const char *postfix);
 
     void        remove_from_codelist(pcodeop *op);
     void        op_insert_before(pcodeop *op, pcodeop *follow);
@@ -434,6 +531,14 @@ struct funcdata {
     int         collect(Address addr, int size, vector<varnode *> &read,
         vector<varnode *> &write, vector<varnode *> &input);
     void        heritage(void);
+    void        constant_propagation();
+    bool        is_ram(varnode *v);
+    bool        is_sp_rel_constant(varnode *v);
+    void        set_safezone(intb addr, int size);
+    bool        in_safezone(intb addr, int size);
+
+    intb        get_stack_value(intb offset, int size);
+    void        set_stack_value(intb offset, int size, intb val);
 };
 
 
@@ -467,7 +572,8 @@ struct dobc {
     int min_funcsymbol_size;
     int max_instructions;
 
-    vector<TypeOp *> inst;
+    Address     sp_addr;
+    Address     lr_addr;
 
     dobc(const char *slafilename, const char *filename);
     ~dobc();
@@ -478,7 +584,6 @@ struct dobc {
     int inline_func(LoadImageFunc &func1, LoadImageFunc &func2);
     int loop_unrolling(LoadImageFunc &func1, Address &pos);
     /* 设置安全区，安全区内的代码是可以做别名分析的 */
-    int set_safe_room(Address &pos, int size);
 
     void analysis();
     void run();

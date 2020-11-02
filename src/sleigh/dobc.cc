@@ -25,32 +25,65 @@ class AssemblyRaw : public AssemblyEmit {
 
 public:
     char *buf = NULL;
+    FILE *fp = NULL;
 
     virtual void dump(const Address &addr, const string &mnem, const string &body) {
+        if (!fp) fp = stdout;
+
         if (buf) {
             sprintf(buf, "<tr><td>0x%08x:</td><td align=\"left\">%s </td><td align=\"left\">%s</td></tr>", (int)addr.getOffset(), mnem.c_str(), body.c_str());
             //sprintf(buf, "0x%08x:%10s %s", (int)addr.getOffset(), mnem.c_str(), body.c_str());
         }
         else {
-            addr.printRaw(cout);
-            cout << ": " << mnem << ' ' << body << endl;
+            fprintf(fp, "0x%08x: %s %s\n", (int)addr.getOffset(), mnem.c_str(), body.c_str());
         }
     }
 
     void set_buf(char *b) { buf = b; }
+    void set_fp(FILE *f) { fp = f; }
 };
 
-static void print_vardata(Translate *trans, ostream &s, VarnodeData &data)
+static void print_vardata(Translate *trans, FILE *fp, VarnodeData &data)
 
 {
     string name = trans->getRegisterName(data.space, data.offset, data.size);
-    s << "(" << data.space->getName() << ',';
-    if (name == "")
-        data.space->printOffset(s, data.offset);
-    else
-        s << name;
 
-    s << ',' << dec << data.size << ')';
+    if (name == "")
+        fprintf(fp, "(%s,0x%llx,%d)", data.space->getName().c_str(), data.offset, data.size);
+    else
+        fprintf(fp, "(%s,%s,%d)", data.space->getName().c_str(), name.c_str(), data.size);
+}
+
+static int print_vartype(Translate *trans, char *buf, varnode *data)
+{
+    if (!data)
+        return 0;
+
+    Address addr = data->get_addr();
+    string name = trans->getRegisterName(addr.getSpace(), addr.getOffset(), data->size);
+
+    if (data->type.height == a_constant)
+        return sprintf(buf, "[%llx]", data->type.v);
+    else if (data->type.height == a_rel_constant)
+        return sprintf(buf, "[%c%s+%llx]", addr.getShortcut(), name.c_str(), data->type.v);
+    else 
+        return sprintf(buf, "[]");
+}
+
+
+static int print_varnode(Translate *trans, char *buf, varnode *data)
+{
+    Address addr = data->get_addr();
+    string name = trans->getRegisterName(addr.getSpace(), addr.getOffset(), data->size);
+
+    if (name == "mult_addr")    name = "ma";
+
+    if ((addr.getSpace()->getType() == IPTR_CONSTANT) && ((intb)addr.getOffset() == (intb)trans->getDefaultCodeSpace()))
+        return sprintf(buf, "ram");
+    else if (name == "")
+        return sprintf(buf, "(%c%llx:%d)", addr.getSpace()->getShortcut(), addr.getOffset(), data->size);
+    else
+        return sprintf(buf, "(%c%s:%d)", addr.getSpace()->getShortcut(), name.c_str(), data->size);
 }
 
 static dobc *g_dobc = NULL;
@@ -61,9 +94,7 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
     pcodeop *op;
     varnode *vn;
 
-    cout << "    "; 
     if (outvar != (VarnodeData *)0) {
-        print_vardata(fd->d->trans, cout, *outvar); cout << " = ";
         Address oaddr(outvar->space, outvar->offset);
         op = fd->newop(isize, addr);
         fd->new_varnode_out(outvar->size, oaddr, op);
@@ -73,13 +104,6 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
 
     fd->op_set_opcode(op, opc);
 
-    cout << get_opname(opc);
-    // Possibly check for a code reference or a space reference
-    for (i = 0; i < isize; ++i) {
-        cout << ' '; print_vardata(fd->d->trans, cout, vars[i]);
-    }
-    cout << endl;
-
     i = 0;
     /* coderef */
 
@@ -87,6 +111,23 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
         vn = fd->new_varnode(vars[i].size, vars[i].space, vars[i].offset);
         fd->op_set_input(op, vn, i);
     }
+
+#if 0
+    fprintf(fp, "    ");
+
+    if (outvar) {
+        print_vardata(fd->d->trans, fp, *outvar); fprintf(fp, " = ");
+    }
+
+    fprintf(fp, "%s", get_opname(opc));
+    // Possibly check for a code reference or a space reference
+    for (i = 0; i < isize; ++i) {
+        fprintf(fp, " ");
+        print_vardata(fd->d->trans, fp, vars[i]);
+    }
+    fprintf(fp, "\n");
+#endif
+
 }
 
 // FIXME:loader的类型本来应该是LoadImageB的，但是不知道为什么loader的getNextSymbol访问的是
@@ -125,7 +166,12 @@ void dobc::plugin_dvmp360()
             fd_main->inline_flow(cs->fd, cs->op);
     }
 
-    fd_main->dump_dot("1");
+    fd_main->dump_pcode("1");
+
+    fd_main->heritage();
+    fd_main->constant_propagation();
+
+    fd_main->dump_inst_dot("1");
 }
 
 funcdata* dobc::find_func(const Address &addr)
@@ -196,7 +242,7 @@ void dobc::dump_function(char *symname)
 
     func->follow_flow();
 
-    func->dump_dot("1");
+    func->dump_inst_dot("1");
 
     printf("\n");
 }
@@ -220,6 +266,9 @@ dobc::dobc(const char *sla, const char *bin)
 
     mdir_make(filename.c_str());
     gen_sh();
+
+    sp_addr = trans->getRegister("sp").getAddr();
+    lr_addr = trans->getRegister("lr").getAddr();
 
     init();
 }
@@ -258,11 +307,16 @@ varnode::varnode(int s, const Address &m)
     if (!m.getSpace())
         return;
 
+    size = s;
+
     spacetype tp = m.getSpace()->getType();
 
+    type.height = a_top;
+
     if (tp == IPTR_CONSTANT) {
-        flags.constant = 1;
         nzm = m.getOffset();
+
+        set_val(m.getOffset());
     }
     else if ((tp == IPTR_FSPEC) || (tp == IPTR_IOP)) {
         flags.annotation = 1;
@@ -273,6 +327,7 @@ varnode::varnode(int s, const Address &m)
         flags.covertdirty = 1;
         nzm = ~((uintb)0);
     }
+
 }
 
 varnode::~varnode()
@@ -289,6 +344,17 @@ void            varnode::set_def(pcodeop *op)
         flags.writtern = 0;
 }
 
+void            varnode::add_use(pcodeop *op)
+{
+    uses.push_back(op);
+}
+
+
+intb            varnode::get_val(void)
+{
+    return type.v;
+}
+
 inline bool varnode_cmp_loc_def::operator()(const varnode *a, const varnode *b) const
 {
     uint4 f1, f2;
@@ -296,8 +362,8 @@ inline bool varnode_cmp_loc_def::operator()(const varnode *a, const varnode *b) 
     if (a->get_addr() != b->get_addr()) return (a->get_addr() < b->get_addr());
     if (a->size != b->size) return (a->size < b->size);
 
-    f1 = a->flags.input << 1 + a->flags.writtern;
-    f2 = b->flags.input << 1 + b->flags.writtern;
+    f1 = ((int)a->flags.input << 1) + a->flags.writtern;
+    f2 = ((int)b->flags.input << 1) + b->flags.writtern;
 
     /* 这样处理过后，假如一个节点是free的(没有written和Input标记)，那么在和一个带标记的
     节点比较时，就会变大，因为 0 - 1 = 0xffffffff, f1是Unsigned类型，导致他被排后 */
@@ -317,8 +383,8 @@ inline bool varnode_cmp_def_loc::operator()(const varnode *a, const varnode *b) 
 {
     uint4 f1, f2;
 
-    f1 = a->flags.input << 1 + a->flags.writtern;
-    f2 = b->flags.input << 1 + b->flags.writtern;
+    f1 = ((int)a->flags.input << 1) + a->flags.writtern;
+    f2 = ((int)b->flags.input << 1) + b->flags.writtern;
 
     if (f1 != f2) return (f1 - 1) < (f2 - 1);
 
@@ -353,6 +419,106 @@ void pcodeop::set_opcode(OpCode op)
 {
     opcode = op;
 }
+
+// 扩展outbuf的内容区，用来做对齐用 
+#define expand_line(num)        while (i < num) buf[i++] = ' '
+int             pcodeop::dump(char *buf)
+{
+    int i = 0, j;
+    Translate *trans = parent->fd->d->trans;
+
+    i += sprintf(buf + i, "    %d:", start.getTime());
+
+    if (output) {
+        i += print_varnode(trans, buf + i, output);
+        i += sprintf(buf + i, " = ");
+    }
+
+    i += sprintf(buf + i, "%s", get_opname(opcode));
+    // Possibly check for a code reference or a space reference
+    for (j = 0; j < inrefs.size(); ++j) {
+        i += sprintf(buf + i, " ");
+        i += print_varnode(trans, buf + i, inrefs[j]);
+    }
+
+    expand_line(53);
+    i += print_vartype(trans, buf + i, output);
+
+    return i;
+}
+
+void             pcodeop::compute(void)
+{
+    varnode *in0, *in1, *in2, *out;
+    funcdata *fd = parent->fd;
+    dobc *d = fd->d;
+    uint1 buf[8];
+
+    if (output && output->is_constant())
+        throw LowlevelError("output already is constant");
+
+    switch (opcode) {
+    case CPUI_INT_SUB:
+        in0 = get_in(0);
+        in1 = get_in(1);
+        out = output;
+
+        if (in0->is_constant() && in1->is_constant()) {
+            out->set_val(in0->type.v - in1->type.v);
+        }
+        /*      out                             0                   1       */
+        /* 0:(register,mult_addr,4) = INT_SUB (register,sp,4) (const,0x4,4) */
+        else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
+
+            out->set_rel_constant(in0->get_rel(), in0->type.v - in1->type.v);
+
+            if (is_safe_inst())
+                fd->set_safezone(out->type.v, in1->type.v);
+        }
+        else
+            out->type.height = a_top;
+        break;
+
+        //      out                            in0              in1            
+        // 66:(register,r1,4) = LOAD (const,0x11ed0f68,8) (const,0x840c,4)
+    case CPUI_LOAD:
+        in0 = get_in(0);
+        in1 = get_in(1);
+        out = output;
+        if (fd->is_ram(in0) && in1->is_constant()) {
+            Address addr(d->trans->getDefaultCodeSpace(), in1->type.v);
+
+            memset(buf, 0, sizeof(buf));
+            d->loader->loadFill(buf, out->size, addr);
+
+            out->set_val(*(intb *)buf);
+        }
+        else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
+            intb offset = in0->type.v + in1->type.v;
+            out->set_val(fd->get_stack_value(offset, in1->size));
+        }
+        else
+            out->type.height = a_top;
+        break;
+
+        //
+    case CPUI_STORE:
+        break;
+
+    default:
+        break;
+    }
+}
+
+bool            pcodeop::is_safe_inst()
+{
+    funcdata *fd = parent->fd;
+
+    VisitStat &stat(fd->visited[start.getAddr()]);
+
+    return stat.inst_type == a_stmdb;
+}
+
 
 flowblock::flowblock(funcdata *f)
 {
@@ -698,6 +864,10 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
 
     sprintf(buf, "%s/%s", d->filename.c_str(), nm);
     mdir_make(buf);
+
+    memstack.size = 256 * 1024;
+    memstack.bottom = (u1 *)malloc(sizeof (u1) * memstack.size);
+    memstack.top = memstack.bottom + memstack.size;
 }
 
 funcdata::~funcdata(void)
@@ -782,9 +952,10 @@ void        funcdata::op_set_input(pcodeop *op, varnode *vn, int slot)
     if (vn == op->get_in(slot))
         return; 
 
-    if (vn->flags.constant) {
+    if (vn->is_constant()) {
     }
 
+    vn->add_use(op);
     op->inrefs[slot] = vn;
 }
 
@@ -900,7 +1071,7 @@ the a-DF graph.
     bblocks.build_dom_tree(domchild);
     maxdepth = bblocks.build_dom_depth(domdepth);
     for (i = 0; i < size; i++) {
-        x = bblocks.get_in(i);
+        x = bblocks.get_block(i);
         for (j = 0; j < domchild[i].size(); ++j) {
             v = domchild[i][j];
             for (k = 0; k < v->in.size(); ++k) {
@@ -1593,12 +1764,19 @@ void        funcdata::dump_inst()
 {
     map<Address, VisitStat>::iterator it, prev_it;
     AssemblyRaw assememit;
+    char buf[128];
+    FILE *fp;
+
+    sprintf(buf, "%s/%s/inst.txt", d->filename.c_str(), name.c_str());
+    fp = fopen(buf, "w");
+
+    assememit.set_fp(fp);
 
     for (it = visited.begin(); it != visited.end(); it++) {
         if (it != visited.begin()) {
             /* 假如顺序的地址，加上size不等于下一个指令的地址，代表中间有缺漏，多打印一个 空行 */
             if ((prev_it->first + prev_it->second.size) != it->first) {
-                cout << endl;
+                fprintf(fp, "\n");
             }
         }
 
@@ -1606,6 +1784,43 @@ void        funcdata::dump_inst()
 
         prev_it = it;
     }
+
+    fclose(fp);
+}
+
+void        funcdata::dump_pcode(const char *postfix)
+{
+    FILE *fp;
+    char buf[128];
+    Address prev_addr;
+    AssemblyRaw assememit;
+
+    sprintf(buf, "%s/%s/pcode_%s.txt", d->filename.c_str(), name.c_str(), postfix);
+    fp = fopen(buf, "w");
+
+    list<pcodeop *>::iterator iter = deadlist.begin();
+
+    assememit.set_fp(fp);
+
+    for (int i = 0; i < d->trans->numSpaces(); i++) {
+        AddrSpace *spc = d->trans->getSpace(i);
+        fprintf(fp, "Space[%s, 0x%llx, %c]\n", spc->getName().c_str(), spc->getHighest(), spc->getShortcut());
+    }
+    fprintf(fp, "ma = mult_addr\n");
+    fprintf(fp, "\n");
+
+    for (; iter != deadlist.end(); iter++) {
+        if ((*iter)->get_addr() != prev_addr) {
+            d->trans->printAssembly(assememit, (*iter)->get_addr());
+        }
+
+        (*iter)->dump(buf);
+        fprintf(fp, "%s\n", buf);
+
+        prev_addr = (*iter)->get_addr();
+    }
+
+    fclose(fp);
 }
 
 char*       funcdata::block_color(flowblock *b)
@@ -1619,7 +1834,7 @@ char*       funcdata::block_color(flowblock *b)
     return "white";
 }
 
-void        funcdata::dump_dot(const char *postfix)
+void        funcdata::dump_inst_dot(const char *postfix)
 {
     char obuf[512];
     Address prev_addr, nextaddr;
@@ -1714,7 +1929,7 @@ void        funcdata::destroy_varnode(varnode *vn)
 {
     list<pcodeop *>::const_iterator iter;
 
-    for (iter = vn->descend.begin(); iter != vn->descend.end(); ++iter) {
+    for (iter = vn->uses.begin(); iter != vn->uses.end(); ++iter) {
         pcodeop *op = *iter;
 
         op->inrefs[op->get_slot(vn)] = NULL;
@@ -1725,7 +1940,7 @@ void        funcdata::destroy_varnode(varnode *vn)
         vn->def = NULL;
     }
 
-    vn->descend.clear();
+    vn->uses.clear();
     delete(vn);
 }
 
@@ -1740,6 +1955,11 @@ varnode*    funcdata::set_input_varnode(varnode *vn)
 
     if (vn->flags.input) return vn;
 
+    if (vn->get_addr() == d->sp_addr) {
+        vn->set_rel_constant(d->sp_addr, 0);
+    }
+
+    vn->flags.input = 1;
     return vn;
 }
 
@@ -1801,8 +2021,10 @@ void        funcdata::inline_ezclone(funcdata *fd, const Address &calladdr)
 
         // 这里原先的Ghidra把inline的所有地址都改成了calladdr里的地址，这个地方我不理解，
         // 这里inline函数的地址统统不改，使用原先的
+        // 另外关于 uniqid，也使用了以前的，我也不理解的，这里统统改成了全新的uniqid，否则会
+        // 出现重复
         //SeqNum seq(calladdr, op->start.getTime());
-        SeqNum seq(op->start.getAddr(), op->start.getTime());
+        SeqNum seq(op->start.getAddr(), op_uniqid++);
         cloneop(op, seq);
     }
 }
@@ -1961,7 +2183,7 @@ int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<va
             if (vn->size > maxsize)     maxsize = vn->size;
             write.push_back(vn);
         }
-        else if (!vn->is_heritage_known() && vn->descend.size())
+        else if (!vn->is_heritage_known() && vn->uses.size())
             read.push_back(vn);
         else if (vn->flags.input)
             input.push_back(vn);
@@ -1973,6 +2195,7 @@ int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<va
 void        funcdata::heritage(void)
 {
     varnode_loc_set::const_iterator iter, enditer;
+    varnode *vn;
     int i;
 
     if (maxdepth == -1)
@@ -1982,8 +2205,100 @@ void        funcdata::heritage(void)
         AddrSpace *space = d->trans->getSpace(i);
 
         iter = begin_loc(space);
-        iter = end_loc(space);
+        enditer = end_loc(space);
+
+        while (iter != enditer) {
+            vn = *iter++;
+
+            if (!vn->flags.writtern && vn->has_no_use() && !vn->flags.input)
+                continue;
+
+            int prev = 0;
+            LocationMap::iterator iter = globaldisjoint.add(vn->get_addr(), vn->size, pass, prev);
+            if (prev == 0)
+                disjoint.add((*iter).first, (*iter).second.size, pass, prev);
+            else {
+                assert(0);
+            }
+        }
     }
+    place_multiequal();
+    rename();
+}
+
+void        funcdata::constant_propagation()
+{
+    list<pcodeop *>::const_iterator iter;
+    list<pcodeop *> w = deadlist;
+    list<pcodeop *>::const_iterator iter1;
+    int i;
+
+    while (!w.empty()) {
+        iter = w.begin();
+        pcodeop *op = *iter;
+        w.erase(iter);
+
+        op->compute();
+
+        varnode *out = op->output;
+        if (!out) continue;
+
+        for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
+            pcodeop *use = *iter1;
+            w.push_back(use);
+        }
+    }
+}
+
+void        funcdata::set_safezone(intb addr, int size)
+{
+    safezone.insertRange(NULL, addr, addr + size);
+}
+
+bool        funcdata::in_safezone(intb a, int size)
+{
+    Address addr(NULL, a);
+    return safezone.inRange(addr, size);
+}
+
+intb        funcdata::get_stack_value(intb offset, int size)
+{
+    u1 *p = memstack.bottom + offset;
+
+    if ((offset > 0) || (offset + size - 1) > 0)
+        throw LowlevelError(name + " memstack downflow");
+
+    if (size & (size - 1))
+        throw LowlevelError("get_stack_value not support size:" + size);
+
+    if (size == 8)
+        return *(intb *)p;
+    else if (size == 4)
+        return *(int *)p;
+    else if (size == 2)
+        return *(short *)p;
+    else
+        return p[0];
+}
+
+void        funcdata::set_stack_value(intb offset, int size, intb val)
+{
+    u1 *p = memstack.bottom + offset;
+
+    if ((offset > 0) || (offset + size - 1) > 0)
+        throw LowlevelError(name + " memstack downflow");
+
+    memcpy(p, (char *)&val, size);
+}
+
+bool        funcdata::is_ram(varnode *v) 
+{ 
+    return (v->loc.getSpace()->getType() == IPTR_CONSTANT) && (v->loc.getOffset() == (uintb)(d->trans->getDefaultCodeSpace())); 
+}
+
+bool        funcdata::is_sp_rel_constant(varnode *v)
+{
+    return v->is_rel_constant() && (v->get_rel() == d->sp_addr);
 }
 
 void        funcdata::place_multiequal(void)
@@ -2055,7 +2370,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
             for (slot = 0; slot < op->inrefs.size(); ++slot) {
                 vnin = op->get_in(slot);
 
-                if (vnin->flags.annotation || vnin->flags.constant)
+                if (vnin->flags.annotation || vnin->is_constant())
                     continue;
 
                 vector<varnode *> &stack(varstack[vnin->get_addr()]);
@@ -2066,14 +2381,14 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 }
                 else 
                     vnnew = stack.back();
-            }
 
-            if (vnnew->flags.writtern && (vnnew->def->opcode == CPUI_INDIRECT)) {
-            }
+                if (vnnew->flags.writtern && (vnnew->def->opcode == CPUI_INDIRECT)) {
+                }
 
-            op_set_input(op, vnnew, slot);
-            if (!vnin->descend.size())
-                delete_varnode(vnin);
+                op_set_input(op, vnnew, slot);
+                if (!vnin->uses.size())
+                    delete_varnode(vnin);
+            }
         }
 
         vnout = op->output;
@@ -2103,7 +2418,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 vnnew = stack.back();
 
             op_set_input(multiop, vnnew, slot);
-            if (!vnin->descend.size())
+            if (!vnin->uses.size())
                 delete_varnode(vnin);
         }
     }
