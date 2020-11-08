@@ -79,6 +79,10 @@ struct valuetype {
     enum height height;
     intb v;
     Address rel;
+
+    int cmp(const valuetype &b);
+    bool operator==(const valuetype &b) { return cmp(b) == 0;  }
+    bool operator!=(const valuetype &b) { return !operator==(b); }
 };
 
 struct varnode {
@@ -119,9 +123,11 @@ struct varnode {
     void            set_val(intb v) { type.height = a_constant;  type.v = v; }
     bool            is_rel_constant(void) { return type.height == a_rel_constant;  }
     void            set_rel_constant(Address &r, int v) { type.height = a_rel_constant; type.v = v;  type.rel = r;  }
-    void            add_use(pcodeop *op);
     intb            get_val(void);
     Address         &get_rel(void) { return type.rel; }
+
+    void            add_use(pcodeop *op);
+    void            del_use(pcodeop *op);
 };
 
 struct varnode_cmp_loc_def {
@@ -134,6 +140,11 @@ struct varnode_cmp_def_loc {
 
 typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
 typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
+
+#define PCODE_DUMP_VAL            0x01
+#define PCODE_DUMP_UD             0x02
+#define PCODE_DUMP_DEAD           0x04
+#define PCODE_DUMP_ALL            0xffffffff
 
 struct pcodeop {
     struct {
@@ -161,7 +172,7 @@ struct pcodeop {
     /* 我们认为程序在分析的时候，sp的值是可以静态分析的，他表示的并不是sp寄存器，而是系统当前堆栈的深度 */
     int     sp;
 
-    varnode *output;
+    varnode *output = NULL;
     vector<varnode *> inrefs;
 
     list<pcodeop *>::iterator basiciter;
@@ -174,17 +185,21 @@ struct pcodeop {
     void            set_opcode(OpCode op);
     varnode*        get_in(int slot) { return inrefs[slot];  }
     const Address&  get_addr() { return start.getAddr();  }
+
     int             num_inputs() { return inrefs.size();  }
+    void            clear_input(int slot) { inrefs[slot] = NULL; }
+
     int             get_slot(const varnode *vn) { 
         int i, n; n = inrefs.size(); 
         for (i = 0; i < n; i++)
             if (inrefs[i] == vn) return i;
         return -1;
     }
-    int             dump(char *buf);
-    void            compute(void);
+    int             dump(char *buf, uint32_t flags);
+    int             compute(void);
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
+    void            set_output(varnode *vn) { output = vn;  }
 };
 
 typedef struct blockedge            blockedge;
@@ -319,6 +334,17 @@ struct op_edge {
     ~op_edge();
 } ;
 
+struct funcproto {
+    struct {
+        unsigned vararg : 1;        // variable argument
+        unsigned exit : 1;          // 调用了这个函数会导致整个流程直接结束，比如 exit, stack_check_fail
+    } flags;
+    int     inputs;
+    int     output;
+    string  name;
+    Address addr;
+};
+
 struct jmptable {
     pcodeop *op;
     Address opaddr;
@@ -334,7 +360,6 @@ struct jmptable {
 
 struct funcdata {
     struct {
-        unsigned op_generated : 1;
         unsigned blocks_generated : 1;
         unsigned blocks_unreachable : 1;    // 有block无法到达
         unsigned processing_started : 1;
@@ -342,7 +367,13 @@ struct funcdata {
         unsigned no_code : 1;
         unsigned unimplemented_present : 1;
         unsigned baddata_present : 1;
+
+        unsigned safezone : 1;
+        unsigned plt : 1;               // 是否是外部导入符号
+        unsigned exit : 1;              // 有些函数有直接结束整个程序的作用，比如stack_check_fail, exit, abort
     } flags = { 0 };
+
+    int op_generated = 0;
 
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;
@@ -358,11 +389,16 @@ struct funcdata {
     vector<pcodeop *>   tablelist;
     vector<jmptable *>  jmpvec;
 
+    /* op_gen_iter 用来分析ops时用到的，它指向上一次分析到的pcode终点 */
+    list<pcodeop *>::iterator op_gen_iter;
+    /* deadlist用来存放所有pcode */
     list<pcodeop *>     deadlist;
     list<pcodeop *>     storelist;
     list<pcodeop *>     loadlist;
     list<pcodeop *>     useroplist;
     list<pcodeop *>     deadandgone;
+    /* 可以做别名分析的 storelist */
+    list<pcodeop *>     safe_storelist;
     int op_uniqid = 0;
 
     map<Address,VisitStat> visited;
@@ -453,6 +489,9 @@ struct funcdata {
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
     varnode*    new_varnode(int s, const Address &m);
     varnode*    new_coderef(const Address &m);
+    varnode*    new_unique(int s);
+    varnode*    new_unique_out(int s, pcodeop *op);
+
     varnode*    clone_varnode(const varnode *vn);
     void        destroy_varnode(varnode *vn);
     void        delete_varnode(varnode *vn);
@@ -463,8 +502,11 @@ struct funcdata {
     varnode*    create_def(int s, const Address &m, pcodeop *op);
     varnode*    create_def_unique(int s, pcodeop *op);
 
+    void        op_resize(pcodeop *op, int size);
     void        op_set_opcode(pcodeop *op, OpCode opc);
     void        op_set_input(pcodeop *op, varnode *vn, int slot);
+    void        op_unset_input(pcodeop *op, int slot);
+
     pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
     void        del_op(pcodeop *op);
@@ -485,7 +527,9 @@ struct funcdata {
     bool        set_fallthru_bound(Address &bound);
     void        fallthru();
     pcodeop*    xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru);
+    void        generate_ops_start(void);
     void        generate_ops(void);
+    list<pcodeop *>::const_iterator get_gen_op_iter(void);
     bool        process_instruction(const Address &curaddr, bool &startbasic);
     void        recover_jmptable(pcodeop *op, int indexsize);
     void        analysis_jmptable(pcodeop *op);
@@ -531,14 +575,29 @@ struct funcdata {
     int         collect(Address addr, int size, vector<varnode *> &read,
         vector<varnode *> &write, vector<varnode *> &input);
     void        heritage(void);
-    void        constant_propagation();
+    void        heritage_clear(void);
+    /* 
+    listtype:       常量传播分析的列表，0:默认的全oplist，1:新增加的safe_storelist
+    return:
+    -1: 严重错误
+    0: ok
+    1: 发现可以被别名分析的load store */
+    int         constant_propagation(int listype);
     bool        is_ram(varnode *v);
     bool        is_sp_rel_constant(varnode *v);
+
     void        set_safezone(intb addr, int size);
     bool        in_safezone(intb addr, int size);
+    void        enable_safezone(void);
+    void        disable_safezone(void);
 
     intb        get_stack_value(intb offset, int size);
     void        set_stack_value(intb offset, int size, intb val);
+    void        add_to_codelist(pcodeop *op);
+    void        calc_load_store_info();
+
+    void        set_plt(int v) { flags.plt = v; };
+    void        set_exit(int v) { flags.exit = v; }
 };
 
 
@@ -571,6 +630,7 @@ struct dobc {
     int max_basetype_size;
     int min_funcsymbol_size;
     int max_instructions;
+    map<string, string>     abbrev;
 
     Address     sp_addr;
     Address     lr_addr;
@@ -579,6 +639,8 @@ struct dobc {
     ~dobc();
 
     void init();
+    /* 初始化位置位置无关代码，主要时分析原型 */
+    void dobc::init_plt(void);
 
     /* 在一个函数内inline另外一个函数 */
     int inline_func(LoadImageFunc &func1, LoadImageFunc &func2);
@@ -588,12 +650,16 @@ struct dobc {
     void analysis();
     void run();
     void dump_function(char *name);
+    void add_func(funcdata *fd);
     funcdata* find_func(const Address &addr);
     funcdata* find_func(const char *name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
+    AddrSpace *get_uniq_space() { return trans->getUniqueSpace();  }
 
     void plugin_dvmp360();
     void plugin_dvmp();
 
     void gen_sh(void);
+    void init_abbrev();
+    const string &get_abbrev(const string &name);
 };
