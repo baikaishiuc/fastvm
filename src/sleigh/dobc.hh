@@ -85,6 +85,17 @@ struct valuetype {
     bool operator!=(const valuetype &b) { return !operator==(b); }
 };
 
+struct varnode_cmp_loc_def {
+    bool operator()(const varnode *a, const varnode *b) const;
+};
+
+struct varnode_cmp_def_loc {
+    bool operator()(const varnode *a, const varnode *b) const;
+};
+
+typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
+typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
+
 struct varnode {
     valuetype   type;
 
@@ -92,8 +103,8 @@ struct varnode {
         unsigned    mark : 1;
         unsigned    annotation : 1;
         unsigned    input : 1;          // 没有祖先
-        unsigned    writtern : 1;       // 是def
-        unsigned    insert : 1;
+        unsigned    written : 1;       // 是def
+        unsigned    insert : 1;         // 这个
         unsigned    implied : 1;        // 是一个临时变量
         unsigned    exlicit : 1;        // 不是临时变量
 
@@ -108,6 +119,9 @@ struct varnode {
 
     pcodeop     *def = NULL;
     uintb       nzm;
+
+    varnode_loc_set::iterator lociter;  // sort by location
+    varnode_def_set::iterator defiter;  // sort by definition
 
     list<pcodeop *>     uses;    // descend, Ghidra把这个取名为descend，搞的我头晕，改成use
 
@@ -130,21 +144,17 @@ struct varnode {
     void            del_use(pcodeop *op);
 };
 
-struct varnode_cmp_loc_def {
-    bool operator()(const varnode *a, const varnode *b) const;
-};
+#define PCODE_DUMP_VAL              0x01
+#define PCODE_DUMP_UD               0x02
+#define PCODE_DUMP_DEAD             0x04
+/* 有些def的值被use的太多了，可能有几百个，导致整个cfg图非常的不美观，可以开启这个标记，打印cfg时，只打印部分use，
+具体多少，可以参考print_udchain的值
+*/
 
-struct varnode_cmp_def_loc {
-    bool operator()(const varnode *a, const varnode *b) const;
-};
+#define PCODE_OMIT_MORE_USE         0x08            
 
-typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
-typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
-
-#define PCODE_DUMP_VAL            0x01
-#define PCODE_DUMP_UD             0x02
-#define PCODE_DUMP_DEAD           0x04
-#define PCODE_DUMP_ALL            0xffffffff
+#define PCODE_DUMP_ALL              ~PCODE_OMIT_MORE_USE
+#define PCODE_DUMP_SIMPLE           0xffffffff
 
 struct pcodeop {
     struct {
@@ -158,11 +168,16 @@ struct pcodeop {
         unsigned boolouput : 1;     // 布尔操作
 
         unsigned coderef : 1;
-        unsigned startmark : 1;     // instruction的第一个pcode
+        unsigned startinst : 1;     // instruction的第一个pcode
+        /* 临时算法有用:
+        1. compute_sp
+        */
         unsigned mark : 1;          // 临时性标记，被某些算法拿过来做临时性处理，处理完都要重新清空
 
         unsigned branch_call : 1;   // 一般的跳转都是在函数内进行的，但是有些壳的函数，会直接branch到另外一个函数里面去
         unsigned exit : 1;          // 这个指令起结束作用
+        unsigned inlined : 1;       // 这个opcode已经被inline过了
+        unsigned changed : 1;       // 这个opcode曾经被修改过
     } flags;
 
     OpCode opcode;
@@ -170,7 +185,7 @@ struct pcodeop {
     SeqNum start;               
     flowblock *parent;
     /* 我们认为程序在分析的时候，sp的值是可以静态分析的，他表示的并不是sp寄存器，而是系统当前堆栈的深度 */
-    int     sp;
+    int     sp = 0;
 
     varnode *output = NULL;
     vector<varnode *> inrefs;
@@ -186,8 +201,9 @@ struct pcodeop {
     varnode*        get_in(int slot) { return inrefs[slot];  }
     const Address&  get_addr() { return start.getAddr();  }
 
-    int             num_inputs() { return inrefs.size();  }
+    int             num_input() { return inrefs.size();  }
     void            clear_input(int slot) { inrefs[slot] = NULL; }
+    void            remove_input(int slot);
 
     int             get_slot(const varnode *vn) { 
         int i, n; n = inrefs.size(); 
@@ -209,6 +225,7 @@ typedef struct blockedge            blockedge;
 #define a_cross_edge            0x4
 #define a_back_edge             0x8
 #define a_loop_edge             0x10
+#define a_true_edge             0x20
 
 struct blockedge {
     int label;
@@ -217,6 +234,7 @@ struct blockedge {
 
     blockedge(flowblock *pt, int lab, int rev) { point = pt, label = lab; reverse_index = rev; }
     blockedge() {};
+    bool is_true_edge() { return label & a_true_edge;  }
 };
 
 
@@ -268,8 +286,9 @@ struct flowblock {
     flowblock *parent = NULL;
     flowblock *immed_dom = NULL;
 
+    /* 这个index是 反后序遍历的索引，用来计算支配节点数的时候需要用到 */
     int index = 0;
-    int visitcount = 0;
+    int dfnum = 0;
     int numdesc = 0;        // 在 spaning tree中的后代数量
 
     vector<blockedge>   in;
@@ -288,11 +307,13 @@ struct flowblock {
     flowblock*  get_out(int i) { return out[i].point;  }
     flowblock*  get_in(int i) { return in[i].point;  }
     flowblock*  get_block(int i) { return blist[i]; }
+    pcodeop*    get_first_op(void) { return *ops.begin();  }
+    pcodeop*    get_last_op(void) { return *--ops.end();  }
     int         get_out_rev_index(int i) { return out[i].reverse_index;  }
 
     void        set_start_block(flowblock *bl);
     void        set_initial_range(const Address &begin, const Address &end);
-    void        add_edge(flowblock *begin, flowblock *end);
+    void        add_edge(flowblock *begin, flowblock *end, int f);
     void        add_inedge(flowblock *b, int lab);
     void        add_op(pcodeop *);
     void        insert(list<pcodeop *>::iterator iter, pcodeop *inst);
@@ -300,6 +321,7 @@ struct flowblock {
     int         sub_id();
     void        structure_loops(vector<flowblock *> &rootlist);
     void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
+    void        dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist);
     void        calc_forward_dominator(const vector<flowblock *> &rootlist);
     void        clear(void);
     void        build_dom_tree(vector<vector<flowblock *>> &child);
@@ -329,6 +351,7 @@ typedef struct jmptable     jmptable;
 struct op_edge {
     pcodeop *from;
     pcodeop *to;
+    int t = 0;
 
     op_edge(pcodeop *from, pcodeop *to);
     ~op_edge();
@@ -355,7 +378,10 @@ struct jmptable {
     vector<Address>     addresstable;
 
     jmptable(pcodeop *op);
+    jmptable(const jmptable *op2);
     ~jmptable();
+
+    void    update(funcdata *fd);
 };
 
 struct funcdata {
@@ -424,7 +450,7 @@ struct funcdata {
 
     int     intput;         // 这个函数有几个输入参数
     int     output;         // 有几个输出参数
-    vector<func_call_specs *>   qlst;
+    list<func_call_specs *>     qlst;
 
     /* heritage start ................. */
     vector<vector<flowblock *>> domchild;
@@ -461,8 +487,9 @@ struct funcdata {
     int inst_count = 0;
     int inst_max = 1000000;
 
-    /* 这个区域内的所有*/
+    /* 这个区域内的所有可以安全做别名分析的点 */
     RangeList   safezone;
+    intb        safezone_base;
 
     vector<Address>     addrlist;
     pcodeemit2 emitter;
@@ -479,6 +506,8 @@ struct funcdata {
     const Address&  get_addr(void) { return startaddr;  }
     string&      get_name() { return name;  }
     void        set_range(Address &b, Address &e) { baddr = b; eaddr = e; }
+    void        set_op_uniqid(int val) { op_uniqid = val;  }
+    int         get_op_uniqid() { return op_uniqid; }
 
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
@@ -501,11 +530,13 @@ struct funcdata {
     varnode*    create_vn(int s, const Address &m);
     varnode*    create_def(int s, const Address &m, pcodeop *op);
     varnode*    create_def_unique(int s, pcodeop *op);
+    varnode*    xref(varnode *vn);
 
     void        op_resize(pcodeop *op, int size);
     void        op_set_opcode(pcodeop *op, OpCode opc);
     void        op_set_input(pcodeop *op, varnode *vn, int slot);
     void        op_unset_input(pcodeop *op, int slot);
+    void        op_remove_input(pcodeop *op, int slot);
 
     pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
@@ -541,8 +572,12 @@ struct funcdata {
     void        connect_basic();
 
     void        dump_inst();
-    void        dump_inst_dot(const char *postfix);
+    void        dump_block(FILE *fp, blockbasic *b, int pcode);
+    /* flag: 1: enable pcode */
+    void        dump_cfg(const char *postfix, int flag);
     void        dump_pcode(const char *postfix);
+    /* dump dom-joint graph */
+    void        funcdata::dump_djgraph(const char *postfix, int flag);
 
     void        remove_from_codelist(pcodeop *op);
     void        op_insert_before(pcodeop *op, pcodeop *follow);
@@ -552,6 +587,8 @@ struct funcdata {
     void        op_insert_end(pcodeop *op, blockbasic *bl);
     void        inline_flow(funcdata *inlinefd, pcodeop *fd);
     void        inline_clone(funcdata *inelinefd, const Address &retaddr);
+    void        inline_call(string name, int num);
+    void        inline_call(const Address &addr, int num);
     void        inline_ezclone(funcdata *fd, const Address &calladdr);
     bool        check_ezmodel(void);
     void        structure_reset();
@@ -560,11 +597,14 @@ struct funcdata {
     void        mark_alive(pcodeop *op);
     void        fix_jmptable();
     char*       block_color(flowblock *b);
+    char*       edge_color(blockedge *e);
+    int         edge_width(blockedge *e);
     void        build_dom_tree();
     void        start_processing(void);
     void        follow_flow(void);
     void        add_callspec(pcodeop *p, funcdata *fd);
     void        clear_blocks();
+    void        clear_blocks_mark();
     int         inst_size(const Address &addr);
     void        build_adt(void);
     void        calc_phi_placement(const vector<varnode *> &write);
@@ -583,9 +623,16 @@ struct funcdata {
     0: ok
     1: 发现可以被别名分析的load store */
     int         constant_propagation(int listype);
+    /* compute sp要计算必须得满足2个要求
+    
+    1. block 已经被generated
+    2. constant_propagation 被执行过
+    */
+    void        compute_sp(void);
     bool        is_ram(varnode *v);
     bool        is_sp_rel_constant(varnode *v);
 
+    void        set_safezone_base(intb base) { safezone_base = base; }
     void        set_safezone(intb addr, int size);
     bool        in_safezone(intb addr, int size);
     void        enable_safezone(void);
@@ -598,6 +645,8 @@ struct funcdata {
 
     void        set_plt(int v) { flags.plt = v; };
     void        set_exit(int v) { flags.exit = v; }
+    bool        test_hard_inline_restrictions(funcdata *inlinefd, pcodeop *op, Address &retaddr);
+    bool        is_first_op(pcodeop *op);
 };
 
 
@@ -609,6 +658,7 @@ struct func_call_specs {
     ~func_call_specs();
 
     const string &get_name(void) { return fd->name;  }
+    const Address &get_addr() { return fd->get_addr(); }
 };
 
 struct dobc {

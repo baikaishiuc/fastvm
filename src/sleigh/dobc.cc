@@ -28,21 +28,23 @@ class AssemblyRaw : public AssemblyEmit {
 public:
     char *buf = NULL;
     FILE *fp = NULL;
+    int sp = 0;
 
     virtual void dump(const Address &addr, const string &mnem, const string &body) {
         if (!fp) fp = stdout;
 
         if (buf) {
-            sprintf(buf, "<tr><td>0x%08x:</td><td align=\"left\">%s </td><td align=\"left\">%s</td></tr>", (int)addr.getOffset(), mnem.c_str(), body.c_str());
+            sprintf(buf, "<tr><td>%03x:</td><td>0x%04x:</td><td align=\"left\">%s </td><td align=\"left\">%s</td></tr>", sp, (int)addr.getOffset(), mnem.c_str(), body.c_str());
             //sprintf(buf, "0x%08x:%10s %s", (int)addr.getOffset(), mnem.c_str(), body.c_str());
         }
         else {
-            fprintf(fp, "0x%08x: %s %s\n", (int)addr.getOffset(), mnem.c_str(), body.c_str());
+            fprintf(fp, "0x%04x: %s %s\n", (int)addr.getOffset(), mnem.c_str(), body.c_str());
         }
     }
 
     void set_buf(char *b) { buf = b; }
     void set_fp(FILE *f) { fp = f; }
+    void set_sp(int s) { sp = s;  };
 };
 
 static void print_vardata(Translate *trans, FILE *fp, VarnodeData &data)
@@ -74,26 +76,45 @@ static int print_vartype(Translate *trans, char *buf, varnode *data)
         return sprintf(buf, "[]");
 }
 
-static int print_udchain(char *buf, pcodeop *op)
+static int print_udchain(char *buf, pcodeop *op, int emit)
 {
     varnode *out = op->output;
-    int i = 0, j;
+    int i = 0, j, defs = 0;
 
     if (out && out->uses.size()) {
         list<pcodeop *>::iterator iter = out->uses.begin();
         i += sprintf(buf + i, " [u:");
-        for (; iter != out->uses.end(); iter++) {
+        for (j = 0; iter != out->uses.end(); iter++, j++) {
+            /* 最多打印10个use */
+            if (j == 10)
+                break;
+
             i += sprintf(buf + i, "%d ", (*iter)->start.getTime());
+        }
+        if (iter != out->uses.end())
+        /* 遇见没打印完的use，以省略号代替，*/
+            i += sprintf(buf + i, "...]");
+        else {
+            /* 删除末尾多余的空格 */
+            if (j > 0) i--;
+
+            i += sprintf(buf + i, "]");
+        }
+    }
+
+    for (j = 0; j < op->inrefs.size(); j++) {
+        if (op->inrefs[j]->def)
+            defs++;
+    }
+
+    if (defs) {
+        i += sprintf(buf + i, " [d:");
+        for (j = 0; j < op->inrefs.size(); j++) {
+            if (op->inrefs[j]->def)
+                i += sprintf(buf + i, "%d ", op->inrefs[j]->def->start.getTime());
         }
         i += sprintf(buf + i, "]");
     }
-
-    i += sprintf(buf + i, " [d:");
-    for (j = 0; j < op->inrefs.size(); j++) {
-        if (op->inrefs[j]->def)
-            i += sprintf(buf + i, "%d ", op->inrefs[j]->def->start.getTime());
-    }
-    i += sprintf(buf + i, "]");
 
     return i;
 }
@@ -109,7 +130,7 @@ static int print_varnode(Translate *trans, char *buf, varnode *data)
         return sprintf(buf, "ram");
     else if (name == "") {
         if (addr.getSpace()->getIndex() == IPTR_CONSTANT)
-            return sprintf(buf, "(%c%llx)", addr.getSpace()->getShortcut(), addr.getOffset());
+            return sprintf(buf, "(%c%llx:%d)", addr.getSpace()->getShortcut(), addr.getOffset(), data->size);
         else
             return sprintf(buf, "(%c%llx:%d)", addr.getSpace()->getShortcut(), addr.getOffset(), data->size);
     }
@@ -222,21 +243,33 @@ const string& dobc::get_abbrev(const string &name)
     return (iter != abbrev.end()) ? (*iter).second : name;
 }
 
+#define STACKBASE           0x4000000
+
 void dobc::plugin_dvmp360()
 {
+#if 0
+    funcdata *fd_strcmp = find_func("strcmp");
+
+    fd_strcmp->follow_flow();
+    fd_strcmp->heritage();
+
+    fd_strcmp->dump_pcode("1");
+    fd_strcmp->dump_cfg("1", 1);
+    fd_strcmp->dump_djgraph("1", 1);
+    return;
+#endif
+
     funcdata *fd_main = find_func("_Z10__arm_a_21v");
     funcdata *fd_sub = find_func("_Z9__arm_a_0v");
     funcdata *fd_vm = find_func("_Z10__fun_a_18Pcj");
 
+    fd_main->set_safezone_base(STACKBASE);
+    fd_main->set_safezone(-0x148, 4);
+
     fd_main->follow_flow();
 
-    int i;
-    for (i = 0; i < fd_main->qlst.size(); i++) {
-        func_call_specs *cs = fd_main->qlst[i];
-
-        if (cs->get_name() == fd_sub->name) 
-            fd_main->inline_flow(cs->fd, cs->op);
-    }
+    fd_main->inline_call("", 1);
+    fd_main->inline_call("", 1);
 
     fd_main->heritage();
     if (fd_main->constant_propagation(0)) {
@@ -247,12 +280,12 @@ void dobc::plugin_dvmp360()
         if (!fd_main->addrlist.empty()) {
             fd_main->generate_ops();
             fd_main->generate_blocks();
+            fd_main->heritage();
         }
     }
 
-
     fd_main->dump_pcode("1");
-    fd_main->dump_inst_dot("1");
+    fd_main->dump_cfg("1", 1);
 }
 
 funcdata* dobc::find_func(const Address &addr)
@@ -326,7 +359,7 @@ void dobc::dump_function(char *symname)
 
     func->follow_flow();
 
-    func->dump_inst_dot("1");
+    func->dump_cfg("1", 0);
 
     printf("\n");
 }
@@ -427,10 +460,10 @@ void            varnode::set_def(pcodeop *op)
 {
     def = op;
     if (op) {
-        flags.writtern = 1;
+        flags.written = 1;
     }
     else
-        flags.writtern = 0;
+        flags.written = 0;
 }
 
 void            varnode::add_use(pcodeop *op)
@@ -462,14 +495,14 @@ inline bool varnode_cmp_loc_def::operator()(const varnode *a, const varnode *b) 
     if (a->get_addr() != b->get_addr()) return (a->get_addr() < b->get_addr());
     if (a->size != b->size) return (a->size < b->size);
 
-    f1 = ((int)a->flags.input << 1) + a->flags.writtern;
-    f2 = ((int)b->flags.input << 1) + b->flags.writtern;
+    f1 = ((int)a->flags.input << 1) + a->flags.written;
+    f2 = ((int)b->flags.input << 1) + b->flags.written;
 
     /* 这样处理过后，假如一个节点是free的(没有written和Input标记)，那么在和一个带标记的
     节点比较时，就会变大，因为 0 - 1 = 0xffffffff, f1是Unsigned类型，导致他被排后 */
     if (f1 != f2) return (f1 - 1) < (f2 - 1);
 
-    if (a->flags.writtern) {
+    if (a->flags.written) {
         if (a->def->start != b->def->start)
             return a->def->start < b->def->start;
     }
@@ -483,12 +516,12 @@ inline bool varnode_cmp_def_loc::operator()(const varnode *a, const varnode *b) 
 {
     uint4 f1, f2;
 
-    f1 = ((int)a->flags.input << 1) + a->flags.writtern;
-    f2 = ((int)b->flags.input << 1) + b->flags.writtern;
+    f1 = ((int)a->flags.input << 1) + a->flags.written;
+    f2 = ((int)b->flags.input << 1) + b->flags.written;
 
     if (f1 != f2) return (f1 - 1) < (f2 - 1);
 
-    if (a->flags.writtern) {
+    if (a->flags.written) {
         if (a->def->start != b->def->start)
             return a->def->start < b->def->start;
     }
@@ -515,9 +548,20 @@ pcodeop::~pcodeop()
 {
 }
 
-void pcodeop::set_opcode(OpCode op)
+void    pcodeop::set_opcode(OpCode op)
 {
+    if (opcode != CPUI_NULL)
+        flags.changed = 1;
+
     opcode = op;
+}
+
+void    pcodeop::remove_input(int slot)
+{
+    for (int i = slot + 1; i < inrefs.size(); i++)
+        inrefs[i - 1] = inrefs[i];
+
+    inrefs.pop_back();
 }
 
 // 扩展outbuf的内容区，用来做对齐用 
@@ -547,7 +591,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
         i += print_vartype(trans, buf + i, output);
 
     if (flags & PCODE_DUMP_UD)
-        i += print_udchain(buf + i, this);
+        i += print_udchain(buf + i, this, flags & PCODE_OMIT_MORE_USE);
 
     buf[i] = 0;
 
@@ -659,9 +703,6 @@ int             pcodeop::compute(void)
         /* 0:(register,mult_addr,4) = INT_SUB (register,sp,4) (const,0x4,4) */
         else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
             out->set_rel_constant(in0->get_rel(), in0->type.v - in1->type.v);
-
-            if (is_safe_inst())
-                fd->set_safezone(out->type.v, in1->type.v);
         }
         else
             out->type.height = a_top;
@@ -758,8 +799,23 @@ jmptable::jmptable(pcodeop *o)
     opaddr = o->get_addr();
 }
 
+jmptable::jmptable(const jmptable *op2)
+{
+    op = op2->op;
+    opaddr = op2->opaddr;
+    defaultblock = op2->defaultblock;
+    lastblock = op2->lastblock;
+    size = op2->size;
+    addresstable = op2->addresstable;
+}
+
 jmptable::~jmptable()
 {
+}
+
+void    jmptable::update(funcdata *fd)
+{
+    op = fd->find_op(opaddr);
 }
 
 void blockgraph::add_block(blockbasic *b)
@@ -783,17 +839,18 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
     int i, origrootpos;
     vector<flowblock *> rpostorder;
     vector<flowblock *> state;
-    int *istate = NULL;
+    int *visitcount;
     int rpostcount = blist.size();
     flowblock *tmpbl, *child;
 
-    istate = (int *)calloc(1, sizeof(int) * blist.size());
     preorder.reserve(blist.size());
+    rpostorder.resize(blist.size());
+    visitcount = (int *)calloc(1, sizeof(int) * blist.size());
 
     for (i = 0; i < blist.size(); i++) {
         tmpbl = blist[i];
         tmpbl->index = -1;
-        tmpbl->visitcount = -1;
+        tmpbl->dfnum = -1;
         if (tmpbl->in.size() == 0)
             rootlist.push_back(tmpbl);
     }
@@ -801,12 +858,15 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
 
     origrootpos = rootlist.size() - 1;
 
+    visitcount[0] = 0;
     state.push_back(blist[0]);
+    preorder.push_back(blist[0]);
+    blist[0]->dfnum = 0;
 
     while (!state.empty()) {
         flowblock *bl = state.back();
 
-        int index = istate[bl->visitcount];
+        int index = visitcount[bl->dfnum];
 
         /* 当前节点的子节点都遍历完成 */
         if (index == bl->out.size()) {
@@ -814,26 +874,31 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
             bl->index = --rpostcount;
             rpostorder[rpostcount] = bl;
             if (!state.empty())
-                state.back() += bl->numdesc;
+                state.back()->numdesc += bl->numdesc;
         }
         else {
             blockedge &e = bl->out[index];
             child = e.point;
-            istate[bl->visitcount] = index++;
+            visitcount[bl->dfnum] += 1;
 
             /* */
-            if (child->visitcount == -1) {
+            if (child->dfnum == -1) {
                 e.label |= a_tree_edge;
+                state.push_back(child);
 
-                child->visitcount = preorder.size();
+                child->dfnum = preorder.size();
+                /* dfs顺序的就是先序遍历 */
                 preorder.push_back(child);
+                visitcount[child->dfnum] = 0;
                 child->numdesc = 1;
             }
+            /* 假如发现out边上的节点指向的节点，是已经被访问过的，那么这是一条回边 */
             else if (child->index == -1) {
                 e.label |= a_back_edge;
                 e.label |= a_loop_edge;
             }
-            else if (bl->visitcount < child->visitcount) {
+            /**/
+            else if (bl->dfnum < child->dfnum) {
                 e.label |= a_forward_edge;
             }
             else
@@ -841,7 +906,7 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
         }
     }
 
-    free(istate);
+    free(visitcount);
     blist = rpostorder;
 }
 
@@ -863,6 +928,22 @@ void flowblock::structure_loops(vector<flowblock *> &rootlist)
         needrebuild = false;
         find_spanning_tree(preorder, rootlist);
     } while (needrebuild);
+}
+
+void flowblock::dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist)
+{
+    FILE *fp;
+    int i;
+
+    fp = fopen(filename, "w");
+
+    fprintf(fp, "digraph G {\n");
+    fprintf(fp, "node [fontname = \"helvetica\"]\n");
+
+    for (i = 0; i < rootlist.size(); i++) {
+    }
+
+    fclose(fp);
 }
 
 /*
@@ -909,7 +990,7 @@ void  flowblock::calc_forward_dominator(const vector<flowblock *> &rootlist)
 
             /* 感觉这个判断条件是不需要的，但是Ghdira源代码里有 */
             if (b->immed_dom == postorder.back()) {
-                assert(0);
+                continue;
             }
 
             for (j = 0; j < b->in.size(); j++) {
@@ -980,7 +1061,7 @@ void        flowblock::add_inedge(flowblock *b, int lab)
     int isize = in.size();
 
     in.push_back(blockedge(b, lab, osize));
-    b->out.push_back(blockedge(blockedge(this, lab, isize)));
+    b->out.push_back(blockedge(this, lab, isize));
 }
 
 void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
@@ -993,7 +1074,8 @@ void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
 
 int         flowblock::sub_id() 
 { 
-    return (int)fd->startaddr.getOffset();  
+    list<pcodeop *>::const_iterator iter = ops.begin();
+    return (int)((*iter)->start.getAddr().getOffset());
 }
 
 void        flowblock::clear(void)
@@ -1059,9 +1141,11 @@ void        flowblock::add_op(pcodeop *op)
     insert(ops.end(), op);
 }
 
-void        flowblock::add_edge(flowblock *begin, flowblock *end)
+void        flowblock::add_edge(flowblock *begin, flowblock *end, int t)
 {
     end->add_inedge(begin, 0);
+    if (t)
+        begin->out.back().label |= a_true_edge;
 }
 
 funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
@@ -1139,7 +1223,8 @@ varnode*    funcdata::create_vn(int s, const Address &m)
     varnode *vn = new varnode(s, m);
 
     vn->create_index = vbank.create_index++;
-
+    vn->lociter = loc_tree.insert(vn).first;
+    vn->defiter = def_tree.insert(vn).first;
     return vn;
 }
 
@@ -1148,6 +1233,21 @@ varnode*    funcdata::create_def(int s, const Address &m, pcodeop *op)
     varnode *vn = new varnode(s, m);
     vn->create_index = vbank.create_index++;
     vn->set_def(op);
+
+    return xref(vn);
+}
+
+varnode*    funcdata::xref(varnode *vn)
+{
+    pair<varnode_loc_set::iterator, bool> check;
+
+    check = loc_tree.insert(vn);
+    if (!check.second) {
+        throw LowlevelError("vn already be inserted");
+    }
+
+    vn->lociter = check.first;
+    vn->defiter = def_tree.insert(vn).first;
 
     return vn;
 }
@@ -1163,8 +1263,7 @@ varnode*    funcdata::create_def_unique(int s, pcodeop *op)
 
 void        funcdata::op_set_opcode(pcodeop *op, OpCode opc)
 {
-    op->opcode = opc;
-
+    op->set_opcode(opc);
     add_to_codelist(op);
 }
 
@@ -1194,6 +1293,11 @@ void        funcdata::op_unset_input(pcodeop *op, int slot)
 
     vn->del_use(op);
     op->clear_input(slot);
+}
+
+void        funcdata::op_remove_input(pcodeop *op, int slot)
+{
+    op_unset_input(op, slot);
 }
 
 /* 1. 返回这个地址对应的instruction的第一个pcode的地址
@@ -1539,8 +1643,11 @@ branch指令打上call_branch标记
 
         case CPUI_CALL:
             const Address &destaddr(op->get_in(0)->get_addr());
-            if ((fd = d->find_func(destaddr)) && (exit = fd->flags.exit)) {
-                startbasic = true;
+            /* 假如发现某些call的函数有exit标记，则开始新的block，并删除当前inst的接下去的所有pcode，因为走不到了 */
+            if ((fd = d->find_func(destaddr))) {
+                if (exit = fd->flags.exit) startbasic = true;
+
+                add_callspec(op, fd);
             }
             op->flags.exit = exit;
             break;
@@ -1621,7 +1728,7 @@ bool        funcdata::process_instruction(const Address &curaddr, bool &startbas
     某些instruction没有生成pcode */
     if (oiter != deadlist.end()) {
         stat.seqnum = (*oiter)->start;
-        (*oiter)->flags.startmark = 1;
+        (*oiter)->flags.startinst = 1;
 
         xref_control_flow(oiter, startbasic, isfallthru);
     }
@@ -1811,7 +1918,7 @@ pcodeop*    funcdata::fallthru_op(pcodeop *op)
     ++iter;
     if (iter != deadlist.end()) {
         retop = *iter;
-        if (!retop->flags.startmark)
+        if (!retop->flags.startinst)
             return retop;
     }
 
@@ -1855,6 +1962,16 @@ void        funcdata::collect_edges()
             break;
 
         case CPUI_BRANCHIND:
+            if (op->get_in(0)->is_constant()) {
+                Address addr(d->get_code_space(), op->get_in(0)->get_val());
+
+                target_op = find_op(addr);
+                if (!target_op)
+                    throw LowlevelError("not found address ");
+                block_edge.push_back(new op_edge(op, target_op));
+                break;
+            }
+
             jt = find_jmptable(op);
             if (jt == NULL) break;
 
@@ -1886,6 +2003,7 @@ void        funcdata::collect_edges()
 
             target_op1 = branch_target(op);
             block_edge.push_back(new op_edge(op, target_op1));
+            block_edge.back()->t = 1;
 
             /* arm中的单行条件判断指令，如 addls pc, pc, $r3, lsl, #3 */
             if ((target_op1->get_addr() == op->get_addr())) {
@@ -1959,7 +2077,7 @@ void        funcdata::connect_basic()
     iter = block_edge.begin();
     while (iter != block_edge.end()) {
         edge = *iter++;
-        bblocks.add_edge(edge->from->parent, edge->to->parent);
+        bblocks.add_edge(edge->from->parent, edge->to->parent, edge->t);
 
         //printf("0x%x -> 0x%x\n", (int)edge->from->start.getAddr().getOffset(), (int)edge->to->start.getAddr().getOffset());
     }
@@ -2018,7 +2136,7 @@ void        funcdata::generate_blocks()
         if (startblock->in.size()) {
             // 保证入口block没有输入边
             blockbasic *newfront = bblocks.new_block_basic(this);
-            bblocks.add_edge(newfront, startblock);
+            bblocks.add_edge(newfront, startblock, 0);
             bblocks.set_start_block(newfront);
             newfront->set_initial_range(startaddr, startaddr);
         }
@@ -2029,6 +2147,8 @@ void        funcdata::generate_blocks()
     flags.blocks_generated = 1;
 
     op_gen_iter = --deadlist.end();
+
+    structure_reset();
 }
 
 void        funcdata::dump_inst()
@@ -2062,7 +2182,7 @@ void        funcdata::dump_inst()
 void        funcdata::dump_pcode(const char *postfix)
 {
     FILE *fp;
-    char buf[128];
+    char buf[2048];
     Address prev_addr;
     AssemblyRaw assememit;
 
@@ -2094,30 +2214,50 @@ void        funcdata::dump_pcode(const char *postfix)
     fclose(fp);
 }
 
-char*       funcdata::block_color(flowblock *b)
+void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
 {
-    list<pcodeop *>::iterator iter = b->ops.end();
-    if (b->flags.f_entry_point)     return "red";
-
-    iter--;
-    if ((*iter)->opcode == CPUI_RETURN)     return "blue";
-
-    return "white";
-}
-
-void        funcdata::dump_inst_dot(const char *postfix)
-{
-    char obuf[512];
-    Address prev_addr, nextaddr;
-    AssemblyRaw assem;
-    list<pcodeop *>::iterator iter;
-    map<Address, VisitStat>::iterator st_iter;
-    VisitStat stat;
+    Address prev_addr;
     pcodeop *p;
-
-    sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name.c_str(), postfix);
+    list<pcodeop *>::iterator iter;
+    AssemblyRaw assem;
+    char obuf[2048];
 
     assem.set_buf(obuf);
+
+    // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
+    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%x(%d,%d)</font></td></tr>",
+        b->sub_id(),
+        block_color(b),
+        b->sub_id(),
+        b->dfnum,
+        b->index);
+
+    iter = b->ops.begin();
+
+    for (p = NULL;  iter != b->ops.end() ; iter++) {
+        p = *iter;
+
+        if (p->flags.startinst) {
+            assem.set_sp(p->sp);
+            d->trans->printAssembly(assem, p->start.getAddr());
+            fprintf(fp, "%s", obuf);
+        }
+
+        if (flag) {
+            p->dump(obuf, PCODE_DUMP_UD | PCODE_OMIT_MORE_USE);
+            fprintf(fp, "<tr><td></td><td></td><td colspan=\"2\" align=\"left\">%s</td></tr>", obuf);
+        }
+
+        prev_addr = p->start.getAddr();
+    }
+    fprintf(fp, "</table>>]\n");
+}
+
+void        funcdata::dump_djgraph(const char *postfix, int flag)
+{
+    char obuf[512];
+
+    sprintf(obuf, "%s/%s/djgraph_%s.dot", d->filename.c_str(), name.c_str(), postfix);
 
     FILE *fp = fopen(obuf, "w");
     if (NULL == fp) {
@@ -2132,35 +2272,82 @@ void        funcdata::dump_inst_dot(const char *postfix)
     for (i = 0; i < bblocks.blist.size(); ++i) {
         blockbasic *b = bblocks.blist[i];
 
-        // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
-        fprintf(fp, "sub_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%x</font></td></tr>",
-            b->sub_id(),
-            block_color(b),
-            b->sub_id());
+        dump_block(fp, b, flag);
+    }
 
-        iter = b->ops.begin();
-        p = *iter;
+    for (i = 0; i < bblocks.blist.size(); ++i) {
+        blockbasic *b = bblocks.blist[i];
+        blockbasic *idom = b->immed_dom;
 
-        for (p = NULL;  iter != b->ops.end() ; iter++) {
-            p = *iter;
-            /* 一个指令对应多个pcode，跳过同个指令的pcode */
-            if ((iter != b->ops.begin()) && (prev_addr == p->start.getAddr())) continue;
+        if (idom)
+            fprintf(fp, "loc_%x ->loc_%x [color=\"red\" penwidth=3]\n", idom->sub_id(), b->sub_id());
 
-            d->trans->printAssembly(assem, p->start.getAddr());
-            fprintf(fp, "%s", obuf);
+        if (!idom || idom->flags.f_mark) continue;
+        idom->flags.f_mark = 1;
+        for (j = 0; j < idom->out.size(); ++j) {
+            blockedge *e = &idom->out[j];
 
-            prev_addr = p->start.getAddr();
+            if (e->point->immed_dom != idom)
+                fprintf(fp, "loc_%x ->loc_%x [label = \"J\" color=\"blue\" penwidth=2]\n",
+                    idom->sub_id(), e->point->sub_id());
         }
-#if 0
-        if (b->type == a_switch) {
-            fprintf(fp, "<tr><td>----------</td></tr>");
-            for (j = 0; j < b->jmptable->addresstable.size(); j++) {
-                d->trans->printAssembly(assem, b->jmptable->addresstable[j]);
-                fprintf(fp, "%s", obuf);
-            }
-        }
-#endif
-        fprintf(fp, "</table>>]\n");
+    }
+    clear_blocks_mark();
+
+    fprintf(fp, "}");
+}
+
+char*       funcdata::edge_color(blockedge *e)
+{
+    if (e->label & a_tree_edge)     return "red";
+    if (e->label & a_back_edge)     return "blue";
+    if (e->label & a_cross_edge)    return "black";
+    if (e->label & a_forward_edge)  return "green";
+
+    return "black";
+}
+
+int         funcdata::edge_width(blockedge *e)
+{
+    if (e->label & a_tree_edge)     return 1;
+    if (e->label & a_back_edge)     return 1;
+    if (e->label & a_cross_edge)    return 1;
+    if (e->label & a_forward_edge)  return 1;
+
+    return 1;
+}
+
+char*       funcdata::block_color(flowblock *b)
+{
+    list<pcodeop *>::iterator iter = b->ops.end();
+    if (b->flags.f_entry_point)     return "red";
+
+    iter--;
+    if ((*iter)->opcode == CPUI_RETURN)     return "blue";
+
+    return "white";
+}
+
+void        funcdata::dump_cfg(const char *postfix, int flag)
+{
+    char obuf[512];
+
+    sprintf(obuf, "%s/%s/cfg_%s.dot", d->filename.c_str(), name.c_str(), postfix);
+
+    FILE *fp = fopen(obuf, "w");
+    if (NULL == fp) {
+        printf("fopen failure %s", obuf);
+        exit(0);
+    }
+
+    fprintf(fp, "digraph G {\n");
+    fprintf(fp, "node [fontname = \"helvetica\"]\n");
+
+    int i, j;
+    for (i = 0; i < bblocks.blist.size(); ++i) {
+        blockbasic *b = bblocks.blist[i];
+
+        dump_block(fp, b, flag);
     }
 
     for (i = 0; i < bblocks.blist.size(); ++i) {
@@ -2169,8 +2356,8 @@ void        funcdata::dump_inst_dot(const char *postfix)
         for (j = 0; j < b->out.size(); ++j) {
             blockedge *e = &b->out[j];
 
-                fprintf(fp, "sub_%x ->sub_%x [label = \"%s\"]\n",
-                    b->sub_id(), e->point->sub_id(), "true");
+                fprintf(fp, "loc_%x ->loc_%x [label = \"%s\" color=\"%s\" penwidth=%d]\n",
+                    b->sub_id(), e->point->sub_id(),  e->is_true_edge() ? "true":"false", edge_color(e), edge_width(e));
         }
     }
 
@@ -2230,18 +2417,18 @@ void        funcdata::destroy_varnode(varnode *vn)
     }
 
     vn->uses.clear();
-    delete(vn);
+    delete_varnode(vn);
 }
 
 void        funcdata::delete_varnode(varnode *vn)
 {
+    loc_tree.erase(vn->lociter);
+    def_tree.erase(vn->defiter);
     delete(vn);
 }
 
 varnode*    funcdata::set_input_varnode(varnode *vn)
 {
-    varnode *invn;
-
     if (vn->flags.input) return vn;
 
     if (vn->get_addr() == d->sp_addr) {
@@ -2258,7 +2445,7 @@ pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
     pcodeop *newop1 = newop(op->inrefs.size(), seq);
     op_set_opcode(newop1, op->opcode);
 
-    newop1->flags.startmark = op->flags.startmark;
+    newop1->flags.startinst = op->flags.startinst;
     newop1->flags.startblock = op->flags.startblock;
     if (op->output)
         newop1->output = clone_varnode(op->output);
@@ -2298,6 +2485,42 @@ void        funcdata::inline_clone(funcdata *inlinefd, const Address &retaddr)
         else
             cloneop1 = cloneop(op, op->start);
     }
+
+    visited.insert(inlinefd->visited.begin(), inlinefd->visited.end());
+}
+
+void        funcdata::inline_call(string name, int num)
+{
+    list<func_call_specs *>::iterator iter = qlst.begin();
+
+    for (; iter != qlst.end(); iter++) {
+        if (name.empty() || (*iter)->get_name() == name) {
+            inline_call((*iter)->get_addr(), num);
+            break;
+        }
+    }
+}
+
+void        funcdata::inline_call(const Address &addr, int num)
+{
+    int del;
+    while (num--) {
+        list<func_call_specs *>::iterator iter = qlst.begin();
+
+        for (del = 0; iter != qlst.end(); iter++) {
+            func_call_specs *cs = *iter;
+            if ((*iter)->get_addr() == addr) {
+                qlst.erase(iter);
+                inline_flow(cs->fd, cs->op);
+                delete cs;
+                del = 1;
+                break;
+            }
+        }
+
+        if (!del && (iter == qlst.end()))
+            break;
+    }
 }
 
 void        funcdata::inline_ezclone(funcdata *fd, const Address &calladdr)
@@ -2310,12 +2533,12 @@ void        funcdata::inline_ezclone(funcdata *fd, const Address &calladdr)
 
         // 这里原先的Ghidra把inline的所有地址都改成了calladdr里的地址，这个地方我不理解，
         // 这里inline函数的地址统统不改，使用原先的
-        // 另外关于 uniqid，也使用了以前的，我也不理解的，这里统统改成了全新的uniqid，否则会
-        // 出现重复
         //SeqNum seq(calladdr, op->start.getTime());
-        SeqNum seq(op->start.getAddr(), op_uniqid++);
+        SeqNum seq(op->start);
         cloneop(op, seq);
     }
+
+    visited.insert(fd->visited.begin(), fd->visited.end());
 }
 
 void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
@@ -2323,6 +2546,13 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
     funcdata fd(fd1->name.c_str(), fd1->get_addr(), fd1->size, fd1->d);
     pcodeop *firstop;
 
+    if (callop->flags.inlined)
+        throw LowlevelError("callop already be inlined");
+
+    callop->flags.inlined = 1;
+
+    /* inline的fd，从父函数里的op_uniq开始，这样可以保证再inline后，uniq是连续的 */
+    fd.set_op_uniqid(get_op_uniqid());
     fd.set_range(fd1->baddr, fd1->eaddr);
     fd.generate_ops_start();
 
@@ -2346,8 +2576,33 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
     }
     else {
         Address retaddr;
-        assert(0);
+        if (!test_hard_inline_restrictions(&fd, callop, retaddr))
+            return;
+
         inline_clone(&fd, retaddr);
+
+        vector<jmptable *>::const_iterator iter;
+        for (iter = fd.jmpvec.begin(); iter != fd.jmpvec.end(); iter++) {
+            jmptable *jtclone = new jmptable(*iter);
+            jmpvec.push_back(jtclone);
+            jtclone->update(this);
+        }
+
+        while (callop->num_input() > 1)
+            op_remove_input(callop, callop->num_input() - 1);
+
+        op_set_opcode(callop, CPUI_BRANCH);
+        varnode *inlineaddr = new_coderef(fd.get_addr());
+        op_set_input(callop, inlineaddr, 0);
+    }
+
+    /* qlst用来存放所有函数call的链表，当inline一个函数时，需要把它的call列表inline进来 */
+    list<func_call_specs *>::const_iterator it = fd.qlst.begin();
+    for (; it != fd.qlst.end(); it++) {
+        pcodeop *op = find_op((*it)->op->start);
+        func_call_specs *cs = new func_call_specs(op, (*it)->fd);
+
+        qlst.push_back(cs);
     }
 
     /* 原始的Ghidra中，inline只能inline call，但是因为branch也可以模拟call，所以branch也能inline的 */
@@ -2363,7 +2618,8 @@ bool        funcdata::check_ezmodel(void)
 
     while (iter != deadlist.end()) {
         pcodeop *op = *iter;
-        if (op->flags.call || op->flags.branch)
+        //if (op->flags.call || op->flags.branch)
+        if ((op->opcode == CPUI_BRANCH) || (op->opcode == CPUI_CBRANCH))
             return false;
 
         ++iter;
@@ -2399,6 +2655,14 @@ void        funcdata::clear_blocks()
     bblocks.clear();
 
     flags.blocks_generated = 0;
+}
+
+void        funcdata::clear_blocks_mark()
+{
+    int i;
+
+    for (i = 0; i < bblocks.blist.size(); i++)
+        bblocks.blist[i]->flags.f_mark = 0;
 }
 
 void        funcdata::follow_flow(void)
@@ -2469,7 +2733,7 @@ int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<va
     for (; viter != enditer; viter++) {
         vn = *viter;
 
-        if (vn->flags.writtern) {
+        if (vn->flags.written) {
             if (vn->size > maxsize)     maxsize = vn->size;
             write.push_back(vn);
         }
@@ -2491,6 +2755,7 @@ void        funcdata::heritage(void)
     if (maxdepth == -1)
         build_adt();
 
+    printf("heritage scan node.... \n");
     for (i = 0; i < d->trans->numSpaces(); i++) {
         AddrSpace *space = d->trans->getSpace(i);
 
@@ -2500,8 +2765,17 @@ void        funcdata::heritage(void)
         while (iter != enditer) {
             vn = *iter++;
 
-            if (!vn->flags.writtern && vn->has_no_use() && !vn->flags.input)
+            if (!vn->flags.written && vn->has_no_use() && !vn->flags.input)
                 continue;
+
+#if 0
+            char buf[128];
+            print_varnode(d->trans, buf, vn);
+            if (vn->def)
+                printf("%s - %d\n", buf, vn->def->start.getTime());
+            else
+                printf("%s\n", buf);
+#endif
 
             int prev = 0;
             LocationMap::iterator iter = globaldisjoint.add(vn->get_addr(), vn->size, pass, prev);
@@ -2512,6 +2786,7 @@ void        funcdata::heritage(void)
             }
         }
     }
+    printf("heritage scan node end. \n");
     place_multiequal();
     rename();
 }
@@ -2536,7 +2811,7 @@ int     funcdata::constant_propagation(int listype)
     list<pcodeop *>::const_iterator iter;
     list<pcodeop *> w = listype ? safe_storelist:deadlist;
     list<pcodeop *>::const_iterator iter1;
-    int i, ret = 0;
+    int ret = 0;
 
     while (!w.empty()) {
         iter = w.begin();
@@ -2557,14 +2832,27 @@ int     funcdata::constant_propagation(int listype)
     return ret;
 }
 
+void    funcdata::compute_sp(void)
+{
+    if (!flags.blocks_generated)
+        throw LowlevelError("compute sp need block generated");
+}
+
+/* FIXME:set_safezone 函数和 in_safezone 都使用codespace作为空间，我是乱写的 
+因为实际上的AddrSpace基本不参与太具体的运算所以填啥基本都ok，只要不写NULL, 
+我这里实际上想写的是 StackSpace，但是我没找到这么一个StackSpace;
+*/
 void        funcdata::set_safezone(intb addr, int size)
 {
-    safezone.insertRange(NULL, addr, addr + size);
+    addr += safezone_base;
+    safezone.insertRange(d->get_code_space(), addr, addr + size);
 }
 
 bool        funcdata::in_safezone(intb a, int size)
 {
-    Address addr(NULL, a);
+    a += safezone_base;
+
+    Address addr(d->get_code_space(), a);
     return safezone.inRange(addr, size);
 }
 
@@ -2627,6 +2915,34 @@ void        funcdata::calc_load_store_info()
 {
 }
 
+bool        funcdata::test_hard_inline_restrictions(funcdata *inlinefd, pcodeop *op, Address &retaddr)
+{
+    list<pcodeop *>::iterator iter = op->insertiter;
+    ++iter;
+
+    /* 理论上即使指向end也应该可以inline的，但是这里为了处理方便，不关心末尾的特殊情况 */
+    if (iter == deadlist.end())
+        throw LowlevelError("No fallthrough prevents inline here");
+ 
+    pcodeop *nextop = *iter;
+    retaddr = nextop->get_addr();
+
+    nextop->flags.startblock = 1;
+
+    return true;
+}
+
+bool        funcdata::is_first_op(pcodeop *op)
+{
+    if (!flags.blocks_generated)
+        return op == (*deadlist.begin());
+
+    flowblock *b = bblocks.get_block(0);
+    list<pcodeop *>::iterator it = b->ops.begin();
+
+    return *it == op;
+}
+
 bool        funcdata::is_ram(varnode *v) 
 { 
     return (v->loc.getSpace()->getType() == IPTR_CONSTANT) && (v->loc.getOffset() == (uintb)(d->trans->getDefaultCodeSpace())); 
@@ -2651,12 +2967,12 @@ void        funcdata::place_multiequal(void)
     for (iter = disjoint.begin(); iter != disjoint.end(); ++iter) {
         Address addr = (*iter).first;
         int size = (*iter).second.size;
+
         readvars.clear();
         writevars.clear();
         inputvars.clear();
         max = collect(addr, size, readvars, writevars, inputvars);
         if ((size > 4) && (max < size)) {
-            assert(0);
         }
 
         if (readvars.empty() && (addr.getSpace()->getType() == IPTR_INTERNAL))
@@ -2718,7 +3034,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 else 
                     vnnew = stack.back();
 
-                if (vnnew->flags.writtern && (vnnew->def->opcode == CPUI_INDIRECT)) {
+                if (vnnew->flags.written && (vnnew->def->opcode == CPUI_INDIRECT)) {
                 }
 
                 op_set_input(op, vnnew, slot);
