@@ -17,6 +17,9 @@
     "   dot -Tsvg -o ${filename%.*}.svg $filename\n" \
     "done\n" 
 
+#define ENABLE_DUMP_INST                1
+#define ENABLE_DUMP_PCODE               0
+
 static char help[] = {
     "dobc [.sla filename] [filename]"
 };
@@ -73,20 +76,23 @@ static int print_vartype(Translate *trans, char *buf, varnode *data)
         return sprintf(buf, "[%c%s%c%llx]", addr.getShortcut(), name.c_str(), data->type.v > 0 ? '+':'-', abs(data->type.v));
     }
     else 
-        return sprintf(buf, "[]");
+        return sprintf(buf, "");
 }
 
-static int print_udchain(char *buf, pcodeop *op, int emit)
+static int print_udchain(char *buf, pcodeop *op, uint32_t flags)
 {
     varnode *out = op->output;
-    int i = 0, j, defs = 0;
+    int i = 0, j, defs = 0, uses_limit = 10000, defs_limit = 10000;
+
+    if (flags & PCODE_OMIT_MORE_USE)
+        uses_limit = 7;
 
     if (out && out->uses.size()) {
         list<pcodeop *>::iterator iter = out->uses.begin();
         i += sprintf(buf + i, " [u:");
         for (j = 0; iter != out->uses.end(); iter++, j++) {
-            /* 最多打印10个use */
-            if (j == 10)
+            /* 最多打印limit个use */
+            if (j == uses_limit)
                 break;
 
             i += sprintf(buf + i, "%d ", (*iter)->start.getTime());
@@ -108,12 +114,23 @@ static int print_udchain(char *buf, pcodeop *op, int emit)
     }
 
     if (defs) {
+        if (flags & PCODE_OMIT_MORE_DEF)
+            defs_limit = 7;
+
         i += sprintf(buf + i, " [d:");
         for (j = 0; j < op->inrefs.size(); j++) {
+            if (j == defs_limit) break;
+
             if (op->inrefs[j]->def)
                 i += sprintf(buf + i, "%d ", op->inrefs[j]->def->start.getTime());
         }
-        i += sprintf(buf + i, "]");
+
+        if (j == defs_limit)
+            i += sprintf(buf + i, "...]");
+        else {
+            if (j > 0) i--;
+            i += sprintf(buf + i, "]");
+        }
     }
 
     return i;
@@ -162,7 +179,7 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
         fd->op_set_input(op, vn, i);
     }
 
-#if 1
+#if ENABLE_DUMP_PCODE
     fprintf(fp, "    ");
 
     if (outvar) {
@@ -248,7 +265,9 @@ const string& dobc::get_abbrev(const string &name)
 void dobc::plugin_dvmp360()
 {
 #if 0
-    funcdata *fd_strcmp = find_func("strcmp");
+    Address addr(trans->getDefaultCodeSpace(), 0x4fcc);
+    //funcdata *fd_strcmp = find_func("__gnu_Unwind_RaiseException");
+    funcdata *fd_strcmp = find_func("_Z10__fun_a_18Pcj");
 
     fd_strcmp->follow_flow();
     fd_strcmp->heritage();
@@ -272,8 +291,10 @@ void dobc::plugin_dvmp360()
     fd_main->inline_call("", 1);
 
     fd_main->heritage();
+#if 0
     if (fd_main->constant_propagation(0)) {
         fd_main->heritage_clear();
+        fd_main->structure_reset();
         fd_main->heritage();
         fd_main->constant_propagation(1);
 
@@ -283,9 +304,11 @@ void dobc::plugin_dvmp360()
             fd_main->heritage();
         }
     }
+#endif
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
+    fd_main->dump_djgraph("1", 1);
 }
 
 funcdata* dobc::find_func(const Address &addr)
@@ -568,7 +591,7 @@ void    pcodeop::remove_input(int slot)
 #define expand_line(num)        while (i < num) buf[i++] = ' '
 int             pcodeop::dump(char *buf, uint32_t flags)
 {
-    int i = 0, j;
+    int i = 0, j, in_limit = 10000;
     Translate *trans = parent->fd->d->trans;
 
     i += sprintf(buf + i, "    %d:", start.getTime());
@@ -580,10 +603,17 @@ int             pcodeop::dump(char *buf, uint32_t flags)
 
     i += sprintf(buf + i, "%s", get_opname(opcode));
     // Possibly check for a code reference or a space reference
+
+    if (flags & PCODE_OMIT_MORE_IN) in_limit = 4;
+
     for (j = 0; j < inrefs.size(); ++j) {
+        if (j == in_limit) break;
         i += sprintf(buf + i, " ");
         i += print_varnode(trans, buf + i, inrefs[j]);
     }
+
+    if (j == in_limit)
+        i += sprintf(buf + i, "[...]");
 
     expand_line(48);
 
@@ -591,7 +621,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
         i += print_vartype(trans, buf + i, output);
 
     if (flags & PCODE_DUMP_UD)
-        i += print_udchain(buf + i, this, flags & PCODE_OMIT_MORE_USE);
+        i += print_udchain(buf + i, this, flags);
 
     buf[i] = 0;
 
@@ -1252,6 +1282,23 @@ varnode*    funcdata::xref(varnode *vn)
     return vn;
 }
 
+varnode*    funcdata::set_def(varnode *vn, pcodeop *op)
+{
+    if (!vn->is_free()) 
+        throw LowlevelError("Defining varnode which is not free at " + op->get_addr().getShortcut());
+    
+
+    if (vn->is_constant())
+        throw LowlevelError("Assignment to constant at ");
+
+    loc_tree.erase(vn->lociter);
+    def_tree.erase(vn->defiter);
+
+    vn->set_def(op);
+
+    return xref(vn);
+}
+
 varnode*    funcdata::create_def_unique(int s, pcodeop *op)
 {
     Address addr(uniq_space, vbank.uniqid);
@@ -1287,12 +1334,37 @@ void        funcdata::op_set_input(pcodeop *op, varnode *vn, int slot)
     op->inrefs[slot] = vn;
 }
 
+void        funcdata::op_set_output(pcodeop *op, varnode *vn)
+{
+    if (vn == op->get_out())
+        return;
+
+    if (op->get_out())
+        op_unset_output(op);
+
+    if (vn->get_def())
+        op_unset_output(vn->get_def());
+
+    vn = set_def(vn, op);
+
+    op->set_output(vn);
+}
+
 void        funcdata::op_unset_input(pcodeop *op, int slot)
 {
     varnode *vn = op->get_in(slot);
 
     vn->del_use(op);
     op->clear_input(slot);
+}
+
+void        funcdata::op_unset_output(pcodeop *op)
+{
+    varnode *vn = op->get_out();
+
+    if (vn == NULL) return;
+
+    op->set_output(NULL);
 }
 
 void        funcdata::op_remove_input(pcodeop *op, int slot)
@@ -2036,6 +2108,19 @@ void        funcdata::mark_dead(pcodeop *op)
     op->flags.dead = 1;
 }
 
+void        funcdata::mark_free(varnode *vn)
+{
+    loc_tree.erase(vn->lociter);
+    def_tree.erase(vn->defiter);
+
+    vn->set_def(NULL);
+    vn->flags.insert = 0;
+    vn->flags.input = 0;
+
+    vn->lociter = loc_tree.insert(vn).first;
+    vn->defiter = def_tree.insert(vn).first;
+}
+
 void        funcdata::op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter)
 {
     mark_alive(op);
@@ -2244,7 +2329,7 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
         }
 
         if (flag) {
-            p->dump(obuf, PCODE_DUMP_UD | PCODE_OMIT_MORE_USE);
+            p->dump(obuf, PCODE_DUMP_SIMPLE);
             fprintf(fp, "<tr><td></td><td></td><td colspan=\"2\" align=\"left\">%s</td></tr>", obuf);
         }
 
@@ -2448,7 +2533,7 @@ pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
     newop1->flags.startinst = op->flags.startinst;
     newop1->flags.startblock = op->flags.startblock;
     if (op->output)
-        newop1->output = clone_varnode(op->output);
+        op_set_output(newop1, clone_varnode(op->output));
     
     for (i = 0; i < op->inrefs.size(); i++)
         op_set_input(newop1, clone_varnode(op->get_in(i)), i);
@@ -2975,7 +3060,11 @@ void        funcdata::place_multiequal(void)
         if ((size > 4) && (max < size)) {
         }
 
+        /* FIXME:后面那个判断我没看懂，抄Ghidra的 */
         if (readvars.empty() && (addr.getSpace()->getType() == IPTR_INTERNAL))
+            continue;
+
+        if (readvars.empty() && writevars.empty())
             continue;
 
         calc_phi_placement(writevars);

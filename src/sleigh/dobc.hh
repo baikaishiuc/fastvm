@@ -133,6 +133,7 @@ struct varnode {
     bool            has_no_use(void) { return uses.empty();  }
 
     void            set_def(pcodeop *op);
+    pcodeop*        get_def() { return def;  }
     bool            is_constant(void) const { return type.height == a_constant;  }
     void            set_val(intb v) { type.height = a_constant;  type.v = v; }
     bool            is_rel_constant(void) { return type.height == a_rel_constant;  }
@@ -142,6 +143,7 @@ struct varnode {
 
     void            add_use(pcodeop *op);
     void            del_use(pcodeop *op);
+    bool            is_free() { return !flags.written && !flags.input;  }
 };
 
 #define PCODE_DUMP_VAL              0x01
@@ -152,8 +154,11 @@ struct varnode {
 */
 
 #define PCODE_OMIT_MORE_USE         0x08            
+#define PCODE_OMIT_MORE_DEF         0x10            
+#define PCODE_OMIT_MORE_BUILD       0x20            
+#define PCODE_OMIT_MORE_IN          0x40
 
-#define PCODE_DUMP_ALL              ~PCODE_OMIT_MORE_USE
+#define PCODE_DUMP_ALL              ~(PCODE_OMIT_MORE_USE | PCODE_OMIT_MORE_DEF | PCODE_OMIT_MORE_BUILD | PCODE_OMIT_MORE_IN)
 #define PCODE_DUMP_SIMPLE           0xffffffff
 
 struct pcodeop {
@@ -199,6 +204,7 @@ struct pcodeop {
 
     void            set_opcode(OpCode op);
     varnode*        get_in(int slot) { return inrefs[slot];  }
+    varnode*        get_out() { return output;  }
     const Address&  get_addr() { return start.getAddr();  }
 
     int             num_input() { return inrefs.size();  }
@@ -531,11 +537,14 @@ struct funcdata {
     varnode*    create_def(int s, const Address &m, pcodeop *op);
     varnode*    create_def_unique(int s, pcodeop *op);
     varnode*    xref(varnode *vn);
+    varnode*    set_def(varnode *vn, pcodeop *op);
 
     void        op_resize(pcodeop *op, int size);
     void        op_set_opcode(pcodeop *op, OpCode opc);
     void        op_set_input(pcodeop *op, varnode *vn, int slot);
+    void        op_set_output(pcodeop *op, varnode *vn);
     void        op_unset_input(pcodeop *op, int slot);
+    void        op_unset_output(pcodeop *op);
     void        op_remove_input(pcodeop *op, int slot);
 
     pcodeop*    find_op(const Address &addr);
@@ -595,6 +604,7 @@ struct funcdata {
 
     void        mark_dead(pcodeop *op);
     void        mark_alive(pcodeop *op);
+    void        mark_free(varnode *vn);
     void        fix_jmptable();
     char*       block_color(flowblock *b);
     char*       edge_color(blockedge *e);
