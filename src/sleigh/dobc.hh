@@ -291,11 +291,12 @@ struct flowblock {
 
     flowblock *parent = NULL;
     flowblock *immed_dom = NULL;
+    flowblock *copymap = NULL;
 
     /* 这个index是 反后序遍历的索引，用来计算支配节点数的时候需要用到 */
     int index = 0;
     int dfnum = 0;
-    int numdesc = 0;        // 在 spaning tree中的后代数量
+    int numdesc = 1;        // 在 spaning tree中的后代数量，自己也是自己的后代，所以假如正式计算后代数量，自己起始为1
 
     vector<blockedge>   in;
     vector<blockedge>   out;
@@ -329,11 +330,20 @@ struct flowblock {
     void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
     void        dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist);
     void        calc_forward_dominator(const vector<flowblock *> &rootlist);
-    void        clear(void);
     void        build_dom_tree(vector<vector<flowblock *>> &child);
     int         build_dom_depth(vector<int> &depth);
+    bool        find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount);
+    void        calc_loop();
+
     int         get_size(void) { return blist.size();  }
     Address     get_start(void);
+
+
+    bool        is_back_edge_in(int i) { return in[i].label & a_back_edge; }
+    void        set_mark() { flags.f_mark = 1;  }
+    void        clear_mark() { flags.f_mark = 0;  }
+    bool        is_mark() { return flags.f_mark;  }
+    void        clear(void);
 
 };
 
@@ -657,6 +667,7 @@ struct funcdata {
     void        set_exit(int v) { flags.exit = v; }
     bool        test_hard_inline_restrictions(funcdata *inlinefd, pcodeop *op, Address &retaddr);
     bool        is_first_op(pcodeop *op);
+    bool        loop_unrolling(flowblock *h);
 };
 
 

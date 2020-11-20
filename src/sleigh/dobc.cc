@@ -26,6 +26,11 @@ static char help[] = {
 
 static dobc *g_dobc = NULL;
 
+#define COLOR_ASM_INST_MNEM             "#3933ff"               
+#define COLOR_ASM_INST_BODY             "#3933ff"               
+#define COLOR_ASM_ADDR                  "#33A2FF"               
+#define COLOR_ASM_STACK_DEPTH           "green"
+
 class AssemblyRaw : public AssemblyEmit {
 
 public:
@@ -37,7 +42,12 @@ public:
         if (!fp) fp = stdout;
 
         if (buf) {
-            sprintf(buf, "<tr><td>%03x:</td><td>0x%04x:</td><td align=\"left\">%s </td><td align=\"left\">%s</td></tr>", sp, (int)addr.getOffset(), mnem.c_str(), body.c_str());
+            sprintf(buf, "<tr>"
+                "<td><font color=\"" COLOR_ASM_STACK_DEPTH "\">%03x:</font></td>"
+                "<td><font color=\"" COLOR_ASM_ADDR "\">0x%04x:</font></td>"
+                "<td align=\"left\"><font color=\"" COLOR_ASM_INST_MNEM "\">%s </font></td>"
+                "<td align=\"left\"><font color=\"" COLOR_ASM_INST_BODY "\">%s</font></td></tr>",
+                sp, (int)addr.getOffset(), mnem.c_str(), body.c_str());
             //sprintf(buf, "0x%08x:%10s %s", (int)addr.getOffset(), mnem.c_str(), body.c_str());
         }
         else {
@@ -305,6 +315,7 @@ void dobc::plugin_dvmp360()
         }
     }
 #endif
+    fd_main->loop_unrolling(NULL);
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
@@ -881,6 +892,7 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
         tmpbl = blist[i];
         tmpbl->index = -1;
         tmpbl->dfnum = -1;
+        tmpbl->copymap = tmpbl;
         if (tmpbl->in.size() == 0)
             rootlist.push_back(tmpbl);
     }
@@ -951,13 +963,10 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
 void flowblock::structure_loops(vector<flowblock *> &rootlist)
 {
     vector<flowblock *> preorder;
-    bool needrebuild;
     int irreduciblecount = 0;
 
-    do {
-        needrebuild = false;
-        find_spanning_tree(preorder, rootlist);
-    } while (needrebuild);
+    find_spanning_tree(preorder, rootlist);
+    find_irrereducible(preorder, irreduciblecount);
 }
 
 void flowblock::dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist)
@@ -1164,6 +1173,70 @@ Address     flowblock::get_start(void)
     }
 
     return range->getFirstAddr();
+}
+
+/* 
+Testing Flow Graph Reducibility
+https://core.ac.uk/download/pdf/82032035.pdf */
+bool        flowblock::find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount)
+{
+    vector<flowblock *> reachunder;
+    bool needrebuild = false;
+    int xi = preorder.size() - 1, i;
+
+    while (xi >= 0) {
+        flowblock *x = preorder[xi];
+        xi -= 1;
+        int sizein = x->in.size();
+        for (i = 0; i < sizein; ++i) {
+            if (!x->is_back_edge_in(i))
+                continue;
+
+            flowblock *y = x->get_in(i);
+            if (y == x)
+                continue;
+
+            reachunder.push_back(y->copymap);
+            y->copymap->set_mark();
+        }
+        int q = 0;
+        while (q < reachunder.size()) {
+            flowblock *t = reachunder[q];
+            q += 1;
+
+            int sizein_t = t->in.size();
+            for (i = 0; i < sizein_t; i++) {
+                flowblock *y = t->get_in(i);
+                flowblock *yprime = y->copymap;         // y' = FIND(y)
+
+                if ((x->dfnum > yprime->dfnum) || ((x->dfnum + x->numdesc) <= yprime->dfnum)) {
+                    throw LowlevelError("we not support irreducible edge");
+                }
+                else if (!yprime->is_mark() && (yprime != x)) {
+                    reachunder.push_back(yprime);
+                    yprime->set_mark();
+                }
+            }
+        }
+
+        for (i = 0; i < reachunder.size(); i++) {
+            flowblock *s = reachunder[i];
+            s->clear_mark();
+            s->copymap = x;
+        }
+
+        reachunder.clear();
+    }
+
+    return false;
+}
+
+void        flowblock::calc_loop()
+{
+    int i;
+
+    for (i = 0; i < blist.size(); i++) {
+    }
 }
 
 void        flowblock::add_op(pcodeop *op)
@@ -3026,6 +3099,29 @@ bool        funcdata::is_first_op(pcodeop *op)
     list<pcodeop *>::iterator it = b->ops.begin();
 
     return *it == op;
+}
+
+bool       funcdata::loop_unrolling(flowblock *h, int times)
+{
+    int unroll_times = 0;
+    int i, sizein = h->in.size();
+    flowblock *pre;
+    vector<pcodeop *>   track;
+
+    /* 查找入口节点的非循环前驱节点，也就是哪个节点可以进来 */
+    for (i = 0; i < sizein; i++) {
+        pre = h->get_in(i);
+        
+        if (pre->dfnum < h->dfnum)
+            break;
+    }
+
+    track.push_back(pre->get_last_op());
+
+    while (1) {
+        pcodeop *lastop = track.back();
+        flowblock *b = lastop->parent;
+    }
 }
 
 bool        funcdata::is_ram(varnode *v) 
