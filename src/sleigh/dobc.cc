@@ -315,7 +315,7 @@ void dobc::plugin_dvmp360()
         }
     }
 #endif
-    fd_main->loop_unrolling(NULL);
+    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
@@ -438,7 +438,7 @@ dobc::~dobc()
 #define CSPEC_FILE          "../../../Processors/ARM/data/languages/ARM.cspec"
 #define TEST_SO             "../../../data/vmp/360_1/libjiagu.so"
 
-#if 1 //defined(DOBC)
+#if defined(DOBC)
 int main(int argc, char **argv)
 {
     if (argc != 3) {
@@ -639,13 +639,14 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     return i;
 }
 
-int             pcodeop::compute(void)
+int             pcodeop::compute(int inslot, Address *branch)
 {
+    pcodeop *op;
     varnode *in0, *in1, *in2, *out;
     funcdata *fd = parent->fd;
     dobc *d = fd->d;
     uint1 buf[8];
-    int i;
+    int i, ret = 0;
 
     out = output;
     in0 = get_in(0);
@@ -708,6 +709,35 @@ int             pcodeop::compute(void)
             output->type = in2->type;
 
             return 1;
+        }
+        break;
+
+    case CPUI_BRANCH:
+        in0 = get_in(0);
+        if (in0->is_constant()) {
+            Address addr(d->get_code_space(), in0->get_val());
+
+            op = fd->find_op(addr);
+            ret = ERR_MEET_CALC_BRANCH;
+        }
+        break;
+
+    case CPUI_CBRANCH:
+        in1 = get_in(1);
+        if (in1->is_constant() && in0->is_constant()) {
+            Address addr = in0->get_val() ? parent->get_true_addr() : parent->get_false_addr();
+
+            op = fd->find_op(addr);
+            if (!op) {
+                printf("we found a new address[%llx] to analaysis\n", addr.getOffset());
+                fd->addrlist.push_back(addr);
+                ret = ERR_UNPROCESSED_ADDR;
+            }
+            else {
+                ret = ERR_MEET_CALC_BRANCH;
+            }
+
+            *branch = op->get_addr();
         }
         break;
 
@@ -777,16 +807,21 @@ int             pcodeop::compute(void)
         break;
 
     case CPUI_MULTIEQUAL:
-        for (i = 1; i < inrefs.size(); i++) {
-            in1 = get_in(i);
-            if (in0->type != in1->type)
-                break;
+        if (inslot >= 0) {
+            output->type = get_in(inslot)->type;
         }
+        else {
+            for (i = 1; i < inrefs.size(); i++) {
+                in1 = get_in(i);
+                if (in0->type != in1->type)
+                    break;
+            }
 
-        if (i == inrefs.size())
-            output->type = in0->type;
-        else
-            output->type.height = a_top;
+            if (i == inrefs.size())
+                output->type = in0->type;
+            else
+                output->type.height = a_top;
+        }
         break;
 
     case CPUI_SUBPIECE:
@@ -802,7 +837,7 @@ int             pcodeop::compute(void)
         break;
     }
 
-    return 0;
+    return ret;
 }
 
 bool            pcodeop::is_safe_inst()
@@ -925,7 +960,7 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
 
             /* */
             if (child->dfnum == -1) {
-                e.label |= a_tree_edge;
+                bl->set_out_edge_flag(index, a_tree_edge);
                 state.push_back(child);
 
                 child->dfnum = preorder.size();
@@ -936,15 +971,14 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
             }
             /* 假如发现out边上的节点指向的节点，是已经被访问过的，那么这是一条回边 */
             else if (child->index == -1) {
-                e.label |= a_back_edge;
-                e.label |= a_loop_edge;
+                bl->set_out_edge_flag(index, a_back_edge | a_loop_edge);
             }
             /**/
             else if (bl->dfnum < child->dfnum) {
-                e.label |= a_forward_edge;
+                bl->set_out_edge_flag(index, a_forward_edge);
             }
             else
-                e.label |= a_cross_edge;
+                bl->set_out_edge_flag(index, a_cross_edge);
         }
     }
 
@@ -966,6 +1000,7 @@ void flowblock::structure_loops(vector<flowblock *> &rootlist)
     int irreduciblecount = 0;
 
     find_spanning_tree(preorder, rootlist);
+    /* vm360的图是不可规约的，还不确认不可规约的图会对优化造成什么影响 */
     find_irrereducible(preorder, irreduciblecount);
 }
 
@@ -1094,15 +1129,6 @@ void        blockgraph::set_initial_range(const Address &b, const Address &e)
 }
 
 
-void        flowblock::add_inedge(flowblock *b, int lab)
-{
-    int osize = b->out.size();
-    int isize = in.size();
-
-    in.push_back(blockedge(b, lab, osize));
-    b->out.push_back(blockedge(this, lab, isize));
-}
-
 void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
 {
     list<pcodeop *>::iterator newiter;
@@ -1125,6 +1151,132 @@ void        flowblock::clear(void)
         delete *iter;
 
     blist.clear();
+}
+
+void        flowblock::clear_marks()
+{
+    int i;
+
+    for (i = 0; i < blist.size(); i++)
+        blist[i]->clear_mark();
+}
+
+void        flowblock::remove_edge(flowblock *begin, flowblock *end)
+{
+    int i;
+    for (i = 0; i < end->in.size(); i++) {
+        if (end->in[i].point == begin)
+            break;
+    }
+
+    end->remove_in_edge(i);
+}
+
+void        flowblock::add_edge(flowblock *begin, flowblock *end)
+{
+    end->add_in_edge(begin, 0);
+}
+
+void        flowblock::add_in_edge(flowblock *b, int lab)
+{
+    int outrev = b->out.size();
+    int brev = in.size();
+    in.push_back(blockedge(b, lab, outrev));
+    b->out.push_back(blockedge(this, lab, brev));
+}
+
+void        flowblock::remove_in_edge(int slot)
+{
+    flowblock *b = in[slot].point;
+    int rev = in[slot].reverse_index;
+
+    half_delete_in_edge(slot);
+    b->half_delete_out_edge(rev);
+}
+
+void        flowblock::half_delete_out_edge(int slot)
+{
+    while (slot < (out.size() - 1)) {
+        blockedge &edge(out[slot]);
+        edge = out[slot + 1];
+
+        blockedge &edge2(edge.point->in[edge.reverse_index]);
+        edge2.reverse_index -= 1;
+        slot += 1;
+    }
+
+    out.pop_back();
+}
+
+void        flowblock::half_delete_in_edge(int slot)
+{
+    while (slot < in.size()) {
+        blockedge &edge(in[slot]);
+        edge = in[slot + 1];
+
+        blockedge &edge2(edge.point->out[edge.reverse_index]);
+        edge.reverse_index -= 1;
+        slot += 1;
+    }
+    in.pop_back();
+}
+
+int         flowblock::get_back_edge_count(void)
+{
+    int i, count = 0;
+
+    for (i = 0; i < in.size(); i++) {
+        if (in[i].label & a_back_edge) count++;
+    }
+
+    return count;
+}
+
+Address flowblock::get_true_addr(void)
+{
+    pcodeop *op = get_last_op();
+    int i;
+
+    if (op->opcode != CPUI_BRANCH)
+        throw LowlevelError("get_true_addr() only support CPUI_CBRANCH");
+
+
+    for (i = 0; i < out.size(); i++) {
+        if (out[i].label & a_true_edge)
+            return out[i].point->get_start();
+    }
+
+    throw LowlevelError("not found true edge in flowblock");
+}
+
+Address flowblock::get_false_addr(void)
+{
+    pcodeop *op = get_last_op();
+    int i;
+
+    if (op->opcode != CPUI_BRANCH)
+        throw LowlevelError("get_false_addr() only support CPUI_CBRANCH");
+
+    for (i = 0; i < out.size(); i++) {
+        if (!(out[i].label & a_true_edge))
+            return out[i].point->get_start();
+    }
+
+    throw LowlevelError("not found false edge in flowblock");
+}
+
+void        flowblock::set_out_edge_flag(int i, uint4 lab)
+{
+    flowblock *bbout = out[i].point;
+    out[i].label |= lab;
+    bbout->in[out[i].reverse_index].label |= lab;
+}
+
+void        flowblock::clear_out_edge_flag(int i, uint4 lab)
+{
+    flowblock *bbout = out[i].point;
+    out[i].label &= ~lab;
+    bbout->in[out[i].reverse_index].label &= ~lab;
 }
 
 void        flowblock::build_dom_tree(vector<vector<flowblock *>> &child)
@@ -1210,7 +1362,9 @@ bool        flowblock::find_irrereducible(const vector<flowblock *> &preorder, i
                 flowblock *yprime = y->copymap;         // y' = FIND(y)
 
                 if ((x->dfnum > yprime->dfnum) || ((x->dfnum + x->numdesc) <= yprime->dfnum)) {
-                    throw LowlevelError("we not support irreducible edge");
+                    printf("warn: dfnum[%d] irreducible to dfnum[%d]\n", x->dfnum, yprime->dfnum);
+                    clear_marks();
+                    return true;
                 }
                 else if (!yprime->is_mark() && (yprime != x)) {
                     reachunder.push_back(yprime);
@@ -1242,13 +1396,6 @@ void        flowblock::calc_loop()
 void        flowblock::add_op(pcodeop *op)
 {
     insert(ops.end(), op);
-}
-
-void        flowblock::add_edge(flowblock *begin, flowblock *end, int t)
-{
-    end->add_inedge(begin, 0);
-    if (t)
-        begin->out.back().label |= a_true_edge;
 }
 
 funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
@@ -2229,13 +2376,18 @@ void        funcdata::op_insert_end(pcodeop *op, blockbasic *bl)
 
 void        funcdata::connect_basic()
 {
+    flowblock *from;
     op_edge *edge;
     list<op_edge *>::const_iterator iter;
 
     iter = block_edge.begin();
     while (iter != block_edge.end()) {
         edge = *iter++;
-        bblocks.add_edge(edge->from->parent, edge->to->parent, edge->t);
+        from = edge->from->parent;
+        bblocks.add_edge(from, edge->to->parent);
+
+        if (edge->t)
+            from->set_out_edge_flag(from->out.size() - 1, a_true_edge);
 
         //printf("0x%x -> 0x%x\n", (int)edge->from->start.getAddr().getOffset(), (int)edge->to->start.getAddr().getOffset());
     }
@@ -2294,7 +2446,7 @@ void        funcdata::generate_blocks()
         if (startblock->in.size()) {
             // 保证入口block没有输入边
             blockbasic *newfront = bblocks.new_block_basic(this);
-            bblocks.add_edge(newfront, startblock, 0);
+            bblocks.add_edge(newfront, startblock);
             bblocks.set_start_block(newfront);
             newfront->set_initial_range(startaddr, startaddr);
         }
@@ -2970,13 +3122,14 @@ int     funcdata::constant_propagation(int listype)
     list<pcodeop *> w = listype ? safe_storelist:deadlist;
     list<pcodeop *>::const_iterator iter1;
     int ret = 0;
+    Address branch;
 
     while (!w.empty()) {
         iter = w.begin();
         pcodeop *op = *iter;
         w.erase(iter);
 
-        ret |= op->compute();
+        ret |= op->compute(-1, &branch);
 
         varnode *out = op->output;
         if (!out) continue;
@@ -3101,27 +3254,127 @@ bool        funcdata::is_first_op(pcodeop *op)
     return *it == op;
 }
 
-bool       funcdata::loop_unrolling(flowblock *h, int times)
+pcodeop*    funcdata::loop_pre_get(flowblock *h, int index)
 {
-    int unroll_times = 0;
+    flowblock *pre = NULL;
     int i, sizein = h->in.size();
-    flowblock *pre;
-    vector<pcodeop *>   track;
 
     /* 查找入口节点的非循环前驱节点，也就是哪个节点可以进来 */
     for (i = 0; i < sizein; i++) {
         pre = h->get_in(i);
         
         if (pre->dfnum < h->dfnum)
-            break;
+            return pre->get_last_op();
     }
 
-    track.push_back(pre->get_last_op());
+    return NULL;
+}
 
-    while (1) {
-        pcodeop *lastop = track.back();
-        flowblock *b = lastop->parent;
+bool        funcdata::trace_push(vector<pcodeop *> trace, pcodeop *op)
+{
+    return true;
+}
+
+void        funcdata::trace_push_block(vector<pcodeop *> trace, flowblock *next)
+{
+}
+
+bool       funcdata::loop_unrolling(flowblock *h, int times)
+{
+    int unroll_times = 0;
+    int i, inslot, ret;
+    flowblock *start,  *cur, *prev;
+    list<pcodeop *>::const_iterator it;
+    vector<pcodeop *>   trace;
+    pcodeop *p, *op;
+    Address addr, branch;
+
+    printf("loop_unrolling sub_%x \n", h->sub_id());
+
+    /* loop execute */
+    while (times--) {
+        /* 取loop的进入节点*/
+        prev = start = loop_pre_get(h, 0)->parent;
+        /* FIXME:压入trace堆栈 
+        这种压入方式有问题，无法识别 undefined bcond
+        */
+        trace_push(trace, start->get_last_op());
+        cur = h;
+
+         do {
+            it = cur->ops.begin();
+            inslot = cur->get_inslot(prev);
+            assert(inslot >= 0);
+
+            for (; it != cur->ops.end(); it++) {
+                p = *it;
+
+                ret = p->compute(inslot, &branch);
+                switch (ret) {
+                case ERR_MEET_CALC_BRANCH:
+                    break;
+
+                default:
+                    break;
+                }
+                trace.push_back(p);
+            }
+            
+            if (ret != ERR_MEET_CALC_BRANCH) {
+                throw LowlevelError("loop_unrolling meet unsupport branch");
+            }
+
+            p = find_op(branch);
+            prev = cur;
+            cur = p->parent;
+         } while (cur != h);
+
+         trace.clear();
     }
+
+    /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
+    cur = bblocks.new_block_basic(this);
+    for (i = 0; i < trace.size(); i++) {
+        p = trace[i];
+        /* 最后一个节点的jmp指令不删除 */
+        if ((i != trace.size() - 1) && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT))
+            continue;
+
+        const SeqNum sq(p->get_addr(), op_uniqid++);
+        op = cloneop(p, sq);
+        op_insert(op, cur, cur->ops.end());
+    }
+
+    /* 因为我们可能循环展开到一半终止，方便调试，所以我们需要还原induction variable 
+    比如:
+
+    int i, j = 0;
+    for (i = 0; i < 100; i++)  j++;
+
+    展开2次以后
+    j = 2;
+    for (i = 2; i < 100; i++) i 要修复成2
+
+    算法:
+    遍历 loop_header的phi节点，发现phi节点的值假如被修改过，分析是第几个in节点造成
+    out的值被修改，然后把这个值还原到原始def过的地方即可。
+    */
+    for (it = h->ops.begin(); it != h->ops.end(); it++) {
+        p = *it;
+        /* 碰到第一个非phi节点，*/
+        if (p->opcode != CPUI_MULTIEQUAL) break;
+
+        varnode *out = p->output;
+    }
+
+    /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
+    bblocks.remove_edge(start, h);
+    bblocks.add_edge(start, cur);
+    bblocks.add_edge(cur, h);
+
+    structure_reset();
+
+    return true;
 }
 
 bool        funcdata::is_ram(varnode *v) 
@@ -3305,6 +3558,22 @@ void        funcdata::calc_phi_placement(const vector<varnode *> &write)
 
     for (i = 0; i < phiflags.size(); ++i)
         phiflags[i] &= ~(mark_node | merged_node );
+}
+
+flowblock*  funcdata::get_vm_loop_header(void)
+{
+    int i, max_count = -1, t;
+    flowblock *max = NULL;
+
+    for (i = 0; i < bblocks.blist.size(); i++) {
+        t = bblocks.blist[i]->get_back_edge_count();
+        if (t  > max_count) {
+            max_count = t;
+            max = bblocks.blist[i];
+        }
+    }
+
+    return max;
 }
 
 func_call_specs::func_call_specs(pcodeop *o, funcdata *f)

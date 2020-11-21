@@ -97,6 +97,7 @@ typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
 typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
 
 struct varnode {
+    /* varnode的值类型和值，在编译分析过后就不会被改*/
     valuetype   type;
 
     struct {
@@ -218,10 +219,29 @@ struct pcodeop {
         return -1;
     }
     int             dump(char *buf, uint32_t flags);
-    int             compute(void);
+    /* trace compute 
+    这个compute_t 和传统的compute不一样，普通的comupte只能用来做常量传播，这个compute_t
+    是在循环展开时，沿某条路径开始计算
+
+    compute_t 和 模拟执行是完全不一样的， 模拟执行会给所有系统寄存器赋值，然后走入函数，
+    compute_t 不会做这样，compute_t是在某条路径上执行，假如可以计算，就计算，假如不能计算
+    就跳过
+
+@inslot         常量传播时，填-1，假如在做trace分析时，填从哪个快进入
+@return     
+            1       unknown bcond
+    */
+
+    /* 碰见了可以计算出的跳转地址 */
+#define         ERR_MEET_CALC_BRANCH            1
+#define         ERR_UNPROCESSED_ADDR            2
+    int             compute(int inslot, Address *addr);
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
+
+#define ERR_UNKNOWN_BCOND      1
+    int             compute_t(vector<pcodeop *> &t, Address &branch, int prev_slot);
 };
 
 typedef struct blockedge            blockedge;
@@ -320,8 +340,6 @@ struct flowblock {
 
     void        set_start_block(flowblock *bl);
     void        set_initial_range(const Address &begin, const Address &end);
-    void        add_edge(flowblock *begin, flowblock *end, int f);
-    void        add_inedge(flowblock *b, int lab);
     void        add_op(pcodeop *);
     void        insert(list<pcodeop *>::iterator iter, pcodeop *inst);
 
@@ -342,9 +360,31 @@ struct flowblock {
     bool        is_back_edge_in(int i) { return in[i].label & a_back_edge; }
     void        set_mark() { flags.f_mark = 1;  }
     void        clear_mark() { flags.f_mark = 0;  }
+    void        clear_marks();
     bool        is_mark() { return flags.f_mark;  }
     void        clear(void);
+    void        remove_edge(flowblock *begin, flowblock *end);
+    void        add_edge(flowblock *begin, flowblock *end);
+    void        add_in_edge(flowblock *b, int lab);
+    void        remove_in_edge(int slot);
+    void        half_delete_out_edge(int slot);
+    void        half_delete_in_edge(int slot);
+    int         get_back_edge_count(void);
+    /* 当这个block的末尾节点为cbranch节点时，返回条件为真或假的跳转地址 */
+    Address     get_true_addr(void);
+    Address     get_false_addr(void);
 
+    void        set_out_edge_flag(int i, uint4 lab);
+    void        clear_out_edge_flag(int i, uint4 lab);
+
+    int         get_inslot(flowblock *inblock) {
+        for (int i = 0; i < in.size(); i++) {
+            if (in[i].point == inblock)
+                return i;
+        }
+
+        return -1;
+    }
 };
 
 typedef struct priority_queue   priority_queue;
@@ -667,7 +707,13 @@ struct funcdata {
     void        set_exit(int v) { flags.exit = v; }
     bool        test_hard_inline_restrictions(funcdata *inlinefd, pcodeop *op, Address &retaddr);
     bool        is_first_op(pcodeop *op);
-    bool        loop_unrolling(flowblock *h);
+
+    /* 获取loop 的头节点的in 节点，假如有多个，按index顺序取一个 */
+    pcodeop*    loop_pre_get(flowblock *h, int index);
+    bool        trace_push(vector<pcodeop *> trace, pcodeop *op);
+    void        trace_push_block(vector<pcodeop *> trace, flowblock *next);
+    bool        loop_unrolling(flowblock *h, int times);
+    flowblock*  get_vm_loop_header(void);
 };
 
 
