@@ -210,7 +210,7 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
 int valuetype::cmp(const valuetype &b)
 {
     if (height == b.height) {
-        if (height == a_top) return 1;
+        if (height == a_top) return 0;
 
         if (height == a_constant)
             return v - b.v;
@@ -301,7 +301,7 @@ void dobc::plugin_dvmp360()
     fd_main->inline_call("", 1);
 
     fd_main->heritage();
-#if 0
+#if 1
     if (fd_main->constant_propagation(0)) {
         fd_main->heritage_clear();
         fd_main->structure_reset();
@@ -311,11 +311,10 @@ void dobc::plugin_dvmp360()
         if (!fd_main->addrlist.empty()) {
             fd_main->generate_ops();
             fd_main->generate_blocks();
-            fd_main->heritage();
         }
     }
 #endif
-    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
+    //fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
@@ -1140,7 +1139,7 @@ void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
 int         flowblock::sub_id() 
 { 
     list<pcodeop *>::const_iterator iter = ops.begin();
-    return (int)((*iter)->start.getAddr().getOffset());
+    return (*iter)->start.getTime();
 }
 
 void        flowblock::clear(void)
@@ -2535,10 +2534,10 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
     assem.set_buf(obuf);
 
     // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
-    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%x(%d,%d)</font></td></tr>",
+    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%llx(%d,%d)</font></td></tr>",
         b->sub_id(),
         block_color(b),
-        b->sub_id(),
+        b->get_start().getOffset(),
         b->dfnum,
         b->index);
 
@@ -3134,9 +3133,11 @@ int     funcdata::constant_propagation(int listype)
         varnode *out = op->output;
         if (!out) continue;
 
-        for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
-            pcodeop *use = *iter1;
-            w.push_back(use);
+        if (out->is_constant()) {
+            for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
+                pcodeop *use = *iter1;
+                w.push_back(use);
+            }
         }
     }
 
@@ -3289,7 +3290,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
     pcodeop *p, *op;
     Address addr, branch;
 
-    printf("loop_unrolling sub_%x \n", h->sub_id());
+    printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
     /* loop execute */
     while (times--) {
@@ -3301,7 +3302,9 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
         trace_push(trace, start->get_last_op());
         cur = h;
 
-         do {
+        do {
+            printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
+
             it = cur->ops.begin();
             inslot = cur->get_inslot(prev);
             assert(inslot >= 0);
@@ -3310,26 +3313,29 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
                 p = *it;
 
                 ret = p->compute(inslot, &branch);
-                switch (ret) {
-                case ERR_MEET_CALC_BRANCH:
-                    break;
 
-                default:
-                    break;
-                }
+#if 1
+                char buf[256];
+                p->dump(buf, PCODE_DUMP_SIMPLE);
+                printf("%s\n", buf);
+#endif
+
                 trace.push_back(p);
             }
-            
+
             if (ret != ERR_MEET_CALC_BRANCH) {
                 throw LowlevelError("loop_unrolling meet unsupport branch");
             }
 
             p = find_op(branch);
+            if (!p)
+                throw LowlevelError("meet unknown address");
+
             prev = cur;
             cur = p->parent;
-         } while (cur != h);
+        } while (cur != h);
 
-         trace.clear();
+        trace.clear();
     }
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */

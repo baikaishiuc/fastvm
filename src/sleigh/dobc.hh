@@ -356,7 +356,6 @@ struct flowblock {
     int         get_size(void) { return blist.size();  }
     Address     get_start(void);
 
-
     bool        is_back_edge_in(int i) { return in[i].label & a_back_edge; }
     void        set_mark() { flags.f_mark = 1;  }
     void        clear_mark() { flags.f_mark = 0;  }
