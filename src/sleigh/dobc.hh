@@ -211,6 +211,7 @@ struct pcodeop {
     int             num_input() { return inrefs.size();  }
     void            clear_input(int slot) { inrefs[slot] = NULL; }
     void            remove_input(int slot);
+    void            insert_input(int slot);
 
     int             get_slot(const varnode *vn) { 
         int i, n; n = inrefs.size(); 
@@ -235,13 +236,11 @@ struct pcodeop {
     /* 碰见了可以计算出的跳转地址 */
 #define         ERR_MEET_CALC_BRANCH            1
 #define         ERR_UNPROCESSED_ADDR            2
-    int             compute(int inslot, Address *addr);
+#define         ERR_CONST_CBRANCH               4
+    int             compute(int inslot, flowblock **branch);
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
-
-#define ERR_UNKNOWN_BCOND      1
-    int             compute_t(vector<pcodeop *> &t, Address &branch, int prev_slot);
 };
 
 typedef struct blockedge            blockedge;
@@ -294,15 +293,22 @@ struct flowblock {
         unsigned f_break_goto : 1;
         unsigned f_continue_goto : 1;
         unsigned f_entry_point : 1;
+        /* 
+        1. 在cbranch中被分析为不可达，确认为死 */
         unsigned f_dead : 1;
 
         unsigned f_switch_case : 1;
         unsigned f_switch_default : 1;
 
-        /* 在某些算法中，做临时性标记用 */
+        /* 在某些算法中，做临时性标记用 
+
+        1. reachable测试
+        2. reducible测试
+        */
         unsigned f_mark : 1;
 
         unsigned f_return : 1;
+
     } flags = { 0 };
 
     RangeList cover;
@@ -321,6 +327,8 @@ struct flowblock {
     vector<blockedge>   in;
     vector<blockedge>   out;
     vector<flowblock *> blist;
+    /* 有些block是不可到达的，都放到这个列表内 */
+    vector<flowblock *> deadlist;
 
     jmptable *jmptable = NULL;
 
@@ -334,8 +342,8 @@ struct flowblock {
     flowblock*  get_out(int i) { return out[i].point;  }
     flowblock*  get_in(int i) { return in[i].point;  }
     flowblock*  get_block(int i) { return blist[i]; }
-    pcodeop*    get_first_op(void) { return *ops.begin();  }
-    pcodeop*    get_last_op(void) { return *--ops.end();  }
+    pcodeop*    first_op(void) { return *ops.begin();  }
+    pcodeop*    last_op(void) { return *--ops.end();  }
     int         get_out_rev_index(int i) { return out[i].reverse_index;  }
 
     void        set_start_block(flowblock *bl);
@@ -359,19 +367,25 @@ struct flowblock {
     bool        is_back_edge_in(int i) { return in[i].label & a_back_edge; }
     void        set_mark() { flags.f_mark = 1;  }
     void        clear_mark() { flags.f_mark = 0;  }
-    void        clear_marks();
+    void        clear_marks(void);
     bool        is_mark() { return flags.f_mark;  }
+    bool        is_entry_point() { return flags.f_entry_point;  }
+    flowblock*  get_entry_point(void);
+    int         get_in_index(const flowblock *bl);
+    int         get_out_index(const flowblock *bl);
+
     void        clear(void);
     void        remove_edge(flowblock *begin, flowblock *end);
     void        add_edge(flowblock *begin, flowblock *end);
     void        add_in_edge(flowblock *b, int lab);
     void        remove_in_edge(int slot);
+    void        remove_out_edge(int slot);
     void        half_delete_out_edge(int slot);
     void        half_delete_in_edge(int slot);
     int         get_back_edge_count(void);
     /* 当这个block的末尾节点为cbranch节点时，返回条件为真或假的跳转地址 */
-    Address     get_true_addr(void);
-    Address     get_false_addr(void);
+    blockedge*  get_true_edge(void);
+    blockedge*  get_false_edge(void);
 
     void        set_out_edge_flag(int i, uint4 lab);
     void        clear_out_edge_flag(int i, uint4 lab);
@@ -384,6 +398,16 @@ struct flowblock {
 
         return -1;
     }
+
+    void        set_dead(void) { flags.f_dead = 1;  }
+    int         is_dead(void) { return flags.f_dead;  }
+    void        remove_from_flow(flowblock *bl);
+    void        remove_op(pcodeop *inst);
+    void        remove_block(flowblock *bl);
+    void        collect_reachable(vector<flowblock *> &res, flowblock *bl, bool un) const;
+    void        splice_block(flowblock *bl);
+    void        move_out_edge(flowblock *blold, int slot, flowblock *blnew);
+    void        replace_in_edge(int num, flowblock *b);
 };
 
 typedef struct priority_queue   priority_queue;
@@ -547,6 +571,8 @@ struct funcdata {
     intb        safezone_base;
 
     vector<Address>     addrlist;
+    /* 常量cbranch列表 */
+    vector<pcodeop *>    cbrlist;
     pcodeemit2 emitter;
 
     struct {
@@ -568,10 +594,14 @@ struct funcdata {
     pcodeop*    newop(int inputs, const Address &pc);
     pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
     void        op_destroy_raw(pcodeop *op);
+    void        op_destroy(pcodeop *op);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
     varnode*    new_varnode(int s, const Address &m);
+    /* new_coderef是用来创建一些程序位置的引用点的，但是这个函数严格来说是错的····，因为标识函数在pcode
+    的体系中，多个位置他们的address可能是一样的
+    */
     varnode*    new_coderef(const Address &m);
     varnode*    new_unique(int s);
     varnode*    new_unique_out(int s, pcodeop *op);
@@ -595,6 +625,8 @@ struct funcdata {
     void        op_unset_input(pcodeop *op, int slot);
     void        op_unset_output(pcodeop *op);
     void        op_remove_input(pcodeop *op, int slot);
+    void        op_insert_input(pcodeop *op, varnode *vn, int slot);
+    void        op_zero_multi(pcodeop *op);
 
     pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
@@ -682,6 +714,15 @@ struct funcdata {
     0: ok
     1: 发现可以被别名分析的load store */
     int         constant_propagation(int listype);
+    int         cond_constant_propagation();
+    int         in_cbrlist(pcodeop *op) {
+        for (int i = 0; i < cbrlist.size(); i++) {
+            if (cbrlist[i] == op)
+                return 1;
+        }
+
+        return 0;
+    }
     /* compute sp要计算必须得满足2个要求
     
     1. block 已经被generated
@@ -713,6 +754,14 @@ struct funcdata {
     void        trace_push_block(vector<pcodeop *> trace, flowblock *next);
     bool        loop_unrolling(flowblock *h, int times);
     flowblock*  get_vm_loop_header(void);
+
+    bool        use_outside(varnode *vn);
+    void        use2undef(varnode *vn);
+    void        branch_remove(blockbasic *bb, int num);
+    void        branch_remove_internal(blockbasic *bb, int num);
+    void        block_remove_internal(blockbasic *bb, bool unreachable);
+    bool        remove_unreachable_blocks(bool issuewarnning, bool checkexistence);
+    void        splice_block_basic(blockbasic *bl);
 };
 
 
