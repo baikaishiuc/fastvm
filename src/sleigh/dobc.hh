@@ -158,6 +158,7 @@ struct varnode {
 #define PCODE_OMIT_MORE_DEF         0x10            
 #define PCODE_OMIT_MORE_BUILD       0x20            
 #define PCODE_OMIT_MORE_IN          0x40
+#define PCODE_HTML_COLOR            0x80
 
 #define PCODE_DUMP_ALL              ~(PCODE_OMIT_MORE_USE | PCODE_OMIT_MORE_DEF | PCODE_OMIT_MORE_BUILD | PCODE_OMIT_MORE_IN)
 #define PCODE_DUMP_SIMPLE           0xffffffff

@@ -61,7 +61,6 @@ public:
 };
 
 static void print_vardata(Translate *trans, FILE *fp, VarnodeData &data)
-
 {
     string name = trans->getRegisterName(data.space, data.offset, data.size);
 
@@ -73,20 +72,21 @@ static void print_vardata(Translate *trans, FILE *fp, VarnodeData &data)
 
 static int print_vartype(Translate *trans, char *buf, varnode *data)
 {
-    if (!data)
-        return 0;
+    if (!data) {
+        return sprintf(buf, " ");
+    }
 
     if (data->type.height == a_constant)
-        return sprintf(buf, "[%llx]", data->type.v);
+        return sprintf(buf, "(%llx)", data->type.v);
     else if (data->type.height == a_rel_constant) {
         Address &addr = data->get_rel();
         string name = trans->getRegisterName(addr.getSpace(), addr.getOffset(), data->size);
         name = g_dobc->get_abbrev(name);
 
-        return sprintf(buf, "[%c%s%c%llx]", addr.getShortcut(), name.c_str(), data->type.v > 0 ? '+':'-', abs(data->type.v));
+        return sprintf(buf, "(%c%s%c%llx)", addr.getShortcut(), name.c_str(), data->type.v > 0 ? '+':'-', abs(data->type.v));
     }
     else 
-        return sprintf(buf, "");
+        return sprintf(buf, "(T)");
 }
 
 static int print_udchain(char *buf, pcodeop *op, uint32_t flags)
@@ -632,7 +632,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     int i = 0, j, in_limit = 10000;
     Translate *trans = parent->fd->d->trans;
 
-    i += sprintf(buf + i, "    %d:", start.getTime());
+    i += sprintf(buf + i, "    p%d:", start.getTime());
 
     if (output) {
         i += print_varnode(trans, buf + i, output);
@@ -655,8 +655,11 @@ int             pcodeop::dump(char *buf, uint32_t flags)
 
     expand_line(48);
 
-    if (flags & PCODE_DUMP_VAL)
+    if (flags & PCODE_DUMP_VAL) {
+        if (flags & PCODE_HTML_COLOR)   i += sprintf(buf + i, "<font color=\"red\"> ");
         i += print_vartype(trans, buf + i, output);
+        if (flags & PCODE_HTML_COLOR)   i += sprintf(buf + i, " </font>");
+    }
 
     if (flags & PCODE_DUMP_UD)
         i += print_udchain(buf + i, this, flags);
@@ -2827,7 +2830,7 @@ void        funcdata::dump_pcode(const char *postfix)
             d->trans->printAssembly(assememit, p->get_addr());
         }
 
-        p->dump(buf, PCODE_DUMP_ALL);
+        p->dump(buf, PCODE_DUMP_ALL & ~PCODE_HTML_COLOR);
         fprintf(fp, "%s\n", buf);
 
         prev_addr = (*iter)->get_addr();
@@ -2866,7 +2869,7 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
         }
 
         if (flag) {
-            p->dump(obuf, PCODE_DUMP_SIMPLE);
+            p->dump(obuf, PCODE_DUMP_SIMPLE | PCODE_HTML_COLOR);
             fprintf(fp, "<tr><td></td><td></td><td colspan=\"2\" align=\"left\">%s</td></tr>", obuf);
         }
 
