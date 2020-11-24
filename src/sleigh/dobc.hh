@@ -292,6 +292,7 @@ struct flowblock {
         unsigned f_goto_goto : 1;
         unsigned f_break_goto : 1;
         unsigned f_continue_goto : 1;
+        unsigned f_switch_out : 1;
         unsigned f_entry_point : 1;
         /* 
         1. 在cbranch中被分析为不可达，确认为死 */
@@ -370,6 +371,7 @@ struct flowblock {
     void        clear_marks(void);
     bool        is_mark() { return flags.f_mark;  }
     bool        is_entry_point() { return flags.f_entry_point;  }
+    bool        is_switch_out(void) { return flags.f_switch_out;  }
     flowblock*  get_entry_point(void);
     int         get_in_index(const flowblock *bl);
     int         get_out_index(const flowblock *bl);
@@ -762,6 +764,8 @@ struct funcdata {
     void        block_remove_internal(blockbasic *bb, bool unreachable);
     bool        remove_unreachable_blocks(bool issuewarnning, bool checkexistence);
     void        splice_block_basic(blockbasic *bl);
+
+    void        redundbranch_appy();
 };
 
 

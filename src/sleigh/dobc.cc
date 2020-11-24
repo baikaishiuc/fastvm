@@ -323,7 +323,6 @@ void dobc::plugin_dvmp360()
             fd_main->cond_constant_propagation();
             /* 发生了条件常量传播以后，整个程序的结构发生了变化，整个结构必须得重来 */
             fd_main->heritage_clear();
-            fd_main->structure_reset();
             fd_main->heritage();
             changed = 1;
         }
@@ -2408,6 +2407,7 @@ void        funcdata::recover_jmptable(pcodeop *op, int elmsize)
 void        funcdata::fix_jmptable()
 {
     int i, j;
+    flowblock *bb;
 
     for (i = 0; i < jmpvec.size(); i++) {
         jmptable *jt = jmpvec[i];
@@ -2418,7 +2418,9 @@ void        funcdata::fix_jmptable()
             if (!op->flags.startblock)
                 throw LowlevelError("indirect jmp not is start block");
 
-            op->parent->jmptable = jt;
+            bb = op->parent;
+            bb->jmptable = jt;
+            bb->flags.f_switch_out = 1;
         }
 
         jt->op->parent->type = a_switch;
@@ -3509,6 +3511,8 @@ int         funcdata::cond_constant_propagation()
 
     printf("after cbr remove, now blocks size = %d, dead is = %d\n", bblocks.get_size(), bblocks.deadlist.size());
 
+    redundbranch_appy();
+
     return 0;
 }
 
@@ -4115,6 +4119,28 @@ void        funcdata::splice_block_basic(blockbasic *bl)
     }
     bblocks.splice_block(bl);
     structure_reset();
+}
+
+void        funcdata::redundbranch_appy()
+{
+    int i;
+    flowblock *bb, *bl;
+
+    for (i = 0; i < bblocks.get_size(); i++) {
+        bb = bblocks.get_block(i);
+        if (bb->out.size() == 0)
+            continue;
+
+        bl = bb->get_out(0);
+        if (bb->out.size() == 1) {
+            if ((bl->in.size() == 1) && !bl->is_entry_point() && !bb->is_switch_out()) {
+                printf("found a block can splice, [%llx, %d]\n", bl->get_start().getOffset(), bl->dfnum);
+
+                splice_block_basic(bb);
+                i -= 1;
+            }
+        }
+    }
 }
 
 func_call_specs::func_call_specs(pcodeop *o, funcdata *f)
