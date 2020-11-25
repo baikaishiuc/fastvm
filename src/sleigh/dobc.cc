@@ -1775,7 +1775,6 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
     alias(nm),
     searchvn(0, Address(Address::m_minimal))
 {
-    char buf[256];
     d = d1;
 
     emitter.fd = this;
@@ -3376,7 +3375,7 @@ void        funcdata::clear_blocks_mark()
 void        funcdata::follow_flow(void)
 {
     char buf[128];
-    sprintf(buf, "%s/%s", d->filename.c_str(), nm);
+    sprintf(buf, "%s/%s", d->filename.c_str(), name.c_str());
     mdir_make(buf);
 
     generate_ops_start();
