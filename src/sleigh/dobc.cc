@@ -76,8 +76,12 @@ static int print_vartype(Translate *trans, char *buf, varnode *data)
         return sprintf(buf, " ");
     }
 
-    if (data->type.height == a_constant)
-        return sprintf(buf, "(%llx)", data->type.v);
+    if (data->type.height == a_constant) {
+        if (data->size == 8)
+            return sprintf(buf, "(%llx)", data->type.v);
+        else 
+            return sprintf(buf, "(%x)", (u4)data->type.v);
+    }
     else if (data->type.height == a_rel_constant) {
         Address &addr = data->get_rel();
         string name = trans->getRegisterName(addr.getSpace(), addr.getOffset(), data->size);
@@ -217,10 +221,23 @@ void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, Varn
 
 }
 
+#define zext(in,insiz,outsiz)               in
+
+intb sext(intb in, int insiz, int outsz)
+{
+    if (in & ((intb)1 << (insiz - 1)))
+        return (~(((intb)1 << insiz) - 1)) | in;
+
+    return in;
+}
+
 int valuetype::cmp(const valuetype &b)
 {
     if (height == b.height) {
-        if (height == a_top) return 0;
+        /* a_top代表的是 unknown或者undefined，这个值无法做比较， 例如数里面的 无限大 和 无限大 无法做比较。
+        他们都是不相等
+        */
+        if (height == a_top) return 1;
 
         if (height == a_constant)
             return v - b.v;
@@ -298,10 +315,11 @@ void dobc::plugin_dvmp360()
     fd_strcmp->dump_djgraph("1", 1);
     return;
 #endif
-
     funcdata *fd_main = find_func("_Z10__arm_a_21v");
-    funcdata *fd_sub = find_func("_Z9__arm_a_0v");
-    funcdata *fd_vm = find_func("_Z10__fun_a_18Pcj");
+    fd_main->set_alias("vm_func1");
+
+    set_func_alias("_Z9__arm_a_0v", "vm_enter");
+    set_func_alias("_Z10__fun_a_18Pcj", "vm_run");
 
     fd_main->set_safezone_base(STACKBASE);
     fd_main->set_safezone(-0x148, 4);
@@ -319,6 +337,7 @@ void dobc::plugin_dvmp360()
 
         fd_main->constant_propagation(0);
 
+        // 发现CBRANCH列表不为空，说明有条件判断语句为常量
         if (!fd_main->cbrlist.empty()) {
             fd_main->cond_constant_propagation();
             /* 发生了条件常量传播以后，整个程序的结构发生了变化，整个结构必须得重来 */
@@ -327,9 +346,11 @@ void dobc::plugin_dvmp360()
             changed = 1;
         }
 
+        // 发现新地址
         if (!fd_main->addrlist.empty()) {
             fd_main->generate_ops();
             fd_main->generate_blocks();
+            changed = 1;
         }
     }
 #endif
@@ -338,6 +359,7 @@ void dobc::plugin_dvmp360()
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
     fd_main->dump_djgraph("1", 1);
+    fd_main->dump_store_info("1");
 }
 
 funcdata* dobc::find_func(const Address &addr)
@@ -397,30 +419,6 @@ void dobc::gen_sh(void)
     file_save(buf, GEN_SH, strlen(GEN_SH));
 }
 
-void dobc::dump_function(char *symname)
-{
-    funcdata *func;
-
-    func = find_func(symname);
-    if (!func) {
-        printf("not found function %s", symname);
-        exit(-1);
-    }
-
-    printf("function:%s\n", symname);
-
-    func->follow_flow();
-
-    func->dump_cfg("1", 0);
-
-    printf("\n");
-}
-
-void dobc::add_func(funcdata *fd)
-{
-    mlist_add(funcs, fd, node);
-}
-
 dobc::dobc(const char *sla, const char *bin) 
     : fullpath(bin)
 {
@@ -449,6 +447,49 @@ dobc::dobc(const char *sla, const char *bin)
 
 dobc::~dobc()
 {
+}
+
+void dobc::dump_function(char *symname)
+{
+    funcdata *func;
+
+    func = find_func(symname);
+    if (!func) {
+        printf("not found function %s", symname);
+        exit(-1);
+    }
+
+    printf("function:%s\n", symname);
+
+    func->follow_flow();
+
+    func->dump_cfg("1", 0);
+
+    printf("\n");
+}
+
+void dobc::add_func(funcdata *fd)
+{
+    mlist_add(funcs, fd, node);
+}
+
+void        dobc::set_func_alias(const string &func, const string &alias)
+{
+    funcdata *fd = find_func(func.c_str());
+
+    fd->set_alias(alias);
+}
+
+funcdata* dobc::find_func_by_alias(const string &alias)
+{
+    funcdata *fd;
+    int i;
+    mlist_for_each(funcs, fd, node, i) {
+        if (alias == fd->alias)
+            return fd;
+    }
+
+    return NULL;
 }
 
 #define SLA_FILE            "../../../Processors/ARM/data/languages/ARM8_le.sla"
@@ -676,6 +717,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
     dobc *d = fd->d;
     uint1 buf[8];
     int i, ret = 0;
+    pcodeop *load, *store, *op;
 
     out = output;
     in0 = get_in(0);
@@ -719,7 +761,10 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 fd->op_set_input(this, in2, 2);
             }
 
-            return 1;
+            ret = 1;
+        }
+        else if ((store = fd->trace_store_query(in1))) {
+            out->type = store->get_in(2)->type;
         }
         else
             out->type.height = a_top;
@@ -737,7 +782,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
 
             output->type = in2->type;
 
-            return 1;
+            ret = 1;
         }
         break;
 
@@ -765,9 +810,13 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         if (in0->is_constant()) {
             Address addr(d->get_code_space(), in0->get_val());
 
-            if (!fd->find_op(addr)) {
+            if (!(op = fd->find_op(addr))) {
                 printf("we found a new address[%llx] to analaysis\n", addr.getOffset());
                 fd->addrlist.push_back(addr);
+            }
+            else {
+                *branch = op->parent;
+                ret = ERR_MEET_CALC_BRANCH;
             }
         }
         break;
@@ -821,6 +870,32 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         in1 = get_in(1);
         if (in0->is_constant() && in1->is_constant()) {
             output->set_val((uint8)in0->get_val() <= (uint8)in1->get_val());
+        }
+        else
+            output->type.height = a_top;
+        break;
+
+    case CPUI_INT_ZEXT:
+        if (in0->is_constant()) {
+            if (in0->size < output->size) {
+                output->set_val(zext(in0->get_val(), in0->size, out->size));
+            }
+            else if (in0->size > output->size) {
+                throw LowlevelError("zext in size > ouput size");
+            }
+        }
+        else
+            output->type.height = a_top;
+        break;
+
+    case CPUI_INT_SEXT:
+        if (in0->is_constant()) {
+            if (in0->size < output->size) {
+                output->set_val(sext(in0->get_val(), in0->size, out->size));
+            }
+            else if (in0->size > output->size) {
+                throw LowlevelError("zext in size > ouput size");
+            }
         }
         else
             output->type.height = a_top;
@@ -972,6 +1047,9 @@ int             pcodeop::compute(int inslot, flowblock **branch)
     default:
         break;
     }
+
+    if ((this == parent->last_op()) && (parent->out.size() == 1))
+        *branch = parent->get_out(0);
 
     return ret;
 }
@@ -1694,6 +1772,7 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
     : startaddr(a),
     bblocks(this),
     name(nm),
+    alias(nm),
     searchvn(0, Address(Address::m_minimal))
 {
     char buf[256];
@@ -1701,14 +1780,9 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
 
     emitter.fd = this;
 
-    sprintf(buf, "%s/%s", d->filename.c_str(), nm);
-    mdir_make(buf);
-
     memstack.size = 256 * 1024;
     memstack.bottom = (u1 *)malloc(sizeof (u1) * memstack.size);
     memstack.top = memstack.bottom + memstack.size;
-
-    op_gen_iter = deadlist.end();
 
     vbank.uniqbase = 0x100000;
     vbank.uniqid = vbank.uniqbase;
@@ -2463,16 +2537,6 @@ void        funcdata::generate_ops_start()
     addrlist.push_back(startaddr);
 
     generate_ops();
-}
-
-list<pcodeop *>::const_iterator funcdata::get_gen_op_iter(void)
-{
-    if (op_gen_iter == deadlist.end())
-        return deadlist.begin();
-
-    list<pcodeop *>::const_iterator it = op_gen_iter;
-
-    return ++it;
 }
 
 void        funcdata::generate_ops(void)
@@ -3311,6 +3375,10 @@ void        funcdata::clear_blocks_mark()
 
 void        funcdata::follow_flow(void)
 {
+    char buf[128];
+    sprintf(buf, "%s/%s", d->filename.c_str(), nm);
+    mdir_make(buf);
+
     generate_ops_start();
     generate_blocks();
 }
@@ -3646,13 +3714,81 @@ pcodeop*    funcdata::loop_pre_get(flowblock *h, int index)
     return NULL;
 }
 
-bool        funcdata::trace_push(vector<pcodeop *> trace, pcodeop *op)
+bool        funcdata::trace_push(pcodeop *op)
 {
+    flowblock *bb;
+    list<pcodeop *>::const_iterator it;
+
+    if (trace.empty()) {
+        bb = op->parent;
+
+        for (it = bb->ops.begin(); it != bb->ops.end(); it++) {
+            trace_push_op(op);
+        }
+    }
+    else
+        trace_push_op(op);
+
     return true;
 }
 
-void        funcdata::trace_push_block(vector<pcodeop *> trace, flowblock *next)
+void        funcdata::trace_push_op(pcodeop *op)
 {
+    trace.push_back(op);
+
+    switch (op->opcode) {
+    case CPUI_STORE:
+        aliaslist.push_back(op);
+        break;
+
+    case CPUI_LOAD:
+        aliaslist.push_back(op);
+        break;
+
+    default:break;
+    }
+}
+
+void        funcdata::trace_clear()
+{
+    trace.clear();
+    aliaslist.clear();
+}
+
+pcodeop*    funcdata::trace_load_query(varnode *vn)
+{
+    list<pcodeop *>::reverse_iterator it;
+    pcodeop *p;
+    varnode *in;
+
+    for (it = aliaslist.rbegin(); it != aliaslist.rend(); it++) {
+        p = *it;
+        if (p->opcode == CPUI_LOAD) {
+            in = p->get_in(1);
+            if (in->type == vn->type)
+                return p;
+        }
+    }
+
+    return NULL;
+}
+
+pcodeop*    funcdata::trace_store_query(varnode *vn)
+{
+    list<pcodeop *>::reverse_iterator it;
+    pcodeop *p;
+    varnode *in;
+
+    for (it = aliaslist.rbegin(); it != aliaslist.rend(); it++) {
+        p = *it;
+        if (p->opcode == CPUI_STORE) {
+            in = p->get_in(1);
+            if (in->type == vn->type)
+                return p;
+        }
+    }
+
+    return NULL;
 }
 
 bool       funcdata::loop_unrolling(flowblock *h, int times)
@@ -3661,7 +3797,6 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
     int i, inslot, ret;
     flowblock *start,  *cur, *prev, *br;
     list<pcodeop *>::const_iterator it;
-    vector<pcodeop *>   trace;
     const SeqNum sq;
     pcodeop *p, *op;
     Address addr;
@@ -3675,7 +3810,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
         /* FIXME:压入trace堆栈 
         这种压入方式有问题，无法识别 undefined bcond
         */
-        trace_push(trace, start->last_op());
+        trace_push(start->last_op());
         cur = h;
 
         do {
@@ -3693,14 +3828,14 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
 
 #if 1
                 char buf[256];
-                p->dump(buf, PCODE_DUMP_SIMPLE);
+                p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
                 printf("%s\n", buf);
 #endif
 
-                trace.push_back(p);
+                trace_push(p);
             }
 
-            if (ret != ERR_MEET_CALC_BRANCH) {
+            if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
                 throw LowlevelError("loop_unrolling meet unsupport branch");
             }
 
@@ -3708,7 +3843,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
             cur = br;
         } while (cur != h);
 
-        trace.clear();
+        trace_clear();
     }
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
@@ -4144,6 +4279,36 @@ void        funcdata::redundbranch_appy()
             }
         }
     }
+}
+
+void        funcdata::dump_store_info(const char *postfix)
+{
+    char obuf[256];
+    list<pcodeop *>::const_iterator it;
+    pcodeop *op;
+    varnode *vn;
+    FILE *fp;
+
+    sprintf(obuf, "%s/%s/store_%s.txt", d->filename.c_str(), name.c_str(), postfix);
+
+    fp = fopen(obuf, "w");
+
+    for (it = storelist.begin(); it != storelist.end(); it++) {
+        op = *it;
+        vn = op->get_in(1);
+
+        print_vartype(d->trans, obuf, vn);
+        fprintf(fp, "%s\n", obuf);
+
+        op->dump(obuf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
+        fprintf(fp, "%s\n", obuf);
+    }
+
+    fclose(fp);
+}
+
+void        funcdata::dump_load_info(const char *postfix)
+{
 }
 
 func_call_specs::func_call_specs(pcodeop *o, funcdata *f)

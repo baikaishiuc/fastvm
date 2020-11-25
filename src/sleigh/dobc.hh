@@ -501,6 +501,7 @@ struct funcdata {
     list<pcodeop *>::iterator op_gen_iter;
     /* deadlist用来存放所有pcode */
     list<pcodeop *>     deadlist;
+    list<pcodeop *>     alivelist;
     list<pcodeop *>     storelist;
     list<pcodeop *>     loadlist;
     list<pcodeop *>     useroplist;
@@ -554,6 +555,9 @@ struct funcdata {
     int pass = 0;
 
     /* heritage end  ============================================= */
+    vector<pcodeop *>   trace;
+    list<pcodeop *> aliaslist;
+    /*---*/
 
     Address startaddr;
 
@@ -561,6 +565,7 @@ struct funcdata {
     Address eaddr;
     string fullpath;
     string name;
+    string alias;
     int size = 0;
 
     /* 扫描到的最小和最大指令地址 */
@@ -588,7 +593,9 @@ struct funcdata {
     ~funcdata(void);
 
     const Address&  get_addr(void) { return startaddr;  }
-    string&      get_name() { return name;  }
+    string&     get_name() { return name;  }
+    void        set_alias(string a) { alias = a;  }
+    string&     get_alias(void) { return alias;  }
     void        set_range(Address &b, Address &e) { baddr = b; eaddr = e; }
     void        set_op_uniqid(int val) { op_uniqid = val;  }
     int         get_op_uniqid() { return op_uniqid; }
@@ -653,7 +660,6 @@ struct funcdata {
     pcodeop*    xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru);
     void        generate_ops_start(void);
     void        generate_ops(void);
-    list<pcodeop *>::const_iterator get_gen_op_iter(void);
     bool        process_instruction(const Address &curaddr, bool &startbasic);
     void        recover_jmptable(pcodeop *op, int indexsize);
     void        analysis_jmptable(pcodeop *op);
@@ -672,7 +678,6 @@ struct funcdata {
     /* dump dom-joint graph */
     void        funcdata::dump_djgraph(const char *postfix, int flag);
 
-    void        remove_from_codelist(pcodeop *op);
     void        op_insert_before(pcodeop *op, pcodeop *follow);
     void        op_insert_after(pcodeop *op, pcodeop *prev);
     void        op_insert(pcodeop *op, blockbasic *bl, list<pcodeop *>::iterator iter);
@@ -744,6 +749,7 @@ struct funcdata {
     intb        get_stack_value(intb offset, int size);
     void        set_stack_value(intb offset, int size, intb val);
     void        add_to_codelist(pcodeop *op);
+    void        remove_from_codelist(pcodeop *op);
     void        calc_load_store_info();
 
     void        set_plt(int v) { flags.plt = v; };
@@ -753,8 +759,11 @@ struct funcdata {
 
     /* 获取loop 的头节点的in 节点，假如有多个，按index顺序取一个 */
     pcodeop*    loop_pre_get(flowblock *h, int index);
-    bool        trace_push(vector<pcodeop *> trace, pcodeop *op);
-    void        trace_push_block(vector<pcodeop *> trace, flowblock *next);
+    bool        trace_push(pcodeop *op);
+    void        trace_push_op(pcodeop *op);
+    void        trace_clear();
+    pcodeop*    trace_load_query(varnode *vn);
+    pcodeop*    trace_store_query(varnode *vn);
     bool        loop_unrolling(flowblock *h, int times);
     flowblock*  get_vm_loop_header(void);
 
@@ -767,8 +776,9 @@ struct funcdata {
     void        splice_block_basic(blockbasic *bl);
 
     void        redundbranch_appy();
+    void        dump_store_info(const char *postfix);
+    void        dump_load_info(const char *postfix);
 };
-
 
 struct func_call_specs {
     pcodeop *op;
@@ -810,19 +820,15 @@ struct dobc {
 
     void init();
     /* 初始化位置位置无关代码，主要时分析原型 */
-    void dobc::init_plt(void);
+    void        init_plt(void);
 
-    /* 在一个函数内inline另外一个函数 */
-    int inline_func(LoadImageFunc &func1, LoadImageFunc &func2);
-    int loop_unrolling(LoadImageFunc &func1, Address &pos);
-    /* 设置安全区，安全区内的代码是可以做别名分析的 */
-
-    void analysis();
-    void run();
-    void dump_function(char *name);
-    void add_func(funcdata *fd);
-    funcdata* find_func(const Address &addr);
-    funcdata* find_func(const char *name);
+    void        run();
+    void        dump_function(char *name);
+    void        add_func(funcdata *fd);
+    void        set_func_alias(const string &func, const string &alias);
+    funcdata*   find_func(const char *name);
+    funcdata*   find_func(const Address &addr);
+    funcdata*   find_func_by_alias(const string &name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
     AddrSpace *get_uniq_space() { return trans->getUniqueSpace();  }
 
