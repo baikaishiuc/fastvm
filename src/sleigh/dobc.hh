@@ -189,7 +189,10 @@ struct pcodeop {
 
     OpCode opcode;
     /* 一个指令对应于多个pcode，这个是用来表示inst的 */
-    SeqNum start;               
+    SeqNum start;
+    /* 循环展开时，会复制一部分节点出去形成新的block，这些block的节点的地址和以前循环内的地址重复了，所以我们需要分配一个新
+    的地址给他，但是这样会导致在disassembly的时候，生成错误的数据 */
+    pcodeop *ref = NULL;
     flowblock *parent;
     /* 我们认为程序在分析的时候，sp的值是可以静态分析的，他表示的并不是sp寄存器，而是系统当前堆栈的深度 */
     int     sp = 0;
@@ -208,12 +211,15 @@ struct pcodeop {
     varnode*        get_in(int slot) { return inrefs[slot];  }
     varnode*        get_out() { return output;  }
     const Address&  get_addr() { return start.getAddr();  }
+    /* dissasembly 时用到的地址 */
+    const Address&  get_dis_addr(void) { return ref ? ref->get_dis_addr() : get_addr(); }
 
     int             num_input() { return inrefs.size();  }
     void            clear_input(int slot) { inrefs[slot] = NULL; }
     void            remove_input(int slot);
     void            insert_input(int slot);
 
+    void            set_input(varnode *vn, int slot) { inrefs[slot] = vn; }
     int             get_slot(const varnode *vn) { 
         int i, n; n = inrefs.size(); 
         for (i = 0; i < n; i++)
@@ -311,6 +317,8 @@ struct flowblock {
 
         unsigned f_return : 1;
 
+        /* 这个block快内有call函数 */
+        unsigned f_call : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -319,6 +327,10 @@ struct flowblock {
 
     flowblock *parent = NULL;
     flowblock *immed_dom = NULL;
+    /* 
+    1. 测试可规约性
+    2. clone web时有用
+    */
     flowblock *copymap = NULL;
 
     /* 这个index是 反后序遍历的索引，用来计算支配节点数的时候需要用到 */
@@ -411,6 +423,7 @@ struct flowblock {
     void        splice_block(flowblock *bl);
     void        move_out_edge(flowblock *blold, int slot, flowblock *blnew);
     void        replace_in_edge(int num, flowblock *b);
+
 };
 
 typedef struct priority_queue   priority_queue;
@@ -481,6 +494,12 @@ struct funcdata {
         unsigned exit : 1;              // 有些函数有直接结束整个程序的作用，比如stack_check_fail, exit, abort
     } flags = { 0 };
 
+    enum {
+        a_local,
+        a_global,
+        a_plt,
+    } symtype;
+
     int op_generated = 0;
 
     pcodeop_tree     optree;
@@ -508,6 +527,8 @@ struct funcdata {
     list<pcodeop *>     deadandgone;
     /* 可以做别名分析的 storelist */
     list<pcodeop *>     safe_storelist;
+    intb user_step = 0x10000;
+    intb user_offset = 0x10000;
     int op_uniqid = 0;
 
     map<Address,VisitStat> visited;
@@ -637,6 +658,9 @@ struct funcdata {
     void        op_remove_input(pcodeop *op, int slot);
     void        op_insert_input(pcodeop *op, varnode *vn, int slot);
     void        op_zero_multi(pcodeop *op);
+    void        op_unlink(pcodeop *op);
+    void        op_uninsert(pcodeop *op);
+    void        clear_block_phi(flowblock *b);
 
     pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
@@ -765,6 +789,10 @@ struct funcdata {
     pcodeop*    trace_load_query(varnode *vn);
     pcodeop*    trace_store_query(varnode *vn);
     bool        loop_unrolling(flowblock *h, int times);
+    /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
+    这个是为了方便调试以及还原
+    */
+    void        dead_code_elimination(vector<flowblock *> blks);
     flowblock*  get_vm_loop_header(void);
 
     bool        use_outside(varnode *vn);
@@ -778,6 +806,11 @@ struct funcdata {
     void        redundbranch_appy();
     void        dump_store_info(const char *postfix);
     void        dump_load_info(const char *postfix);
+
+    /* 循环展开时用，从start节点开始，搜索start可以到的所有节点到 end为止，全部复制出来
+    最后的web包含start，不包含end */
+    flowblock*  clone_web(flowblock *start, flowblock *end);
+    flowblock*  clone_block(flowblock *f);
 };
 
 struct func_call_specs {

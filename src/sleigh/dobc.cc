@@ -354,7 +354,7 @@ void dobc::plugin_dvmp360()
         }
     }
 #endif
-    //fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
+    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg("1", 1);
@@ -1973,6 +1973,49 @@ void        funcdata::op_zero_multi(pcodeop *op)
         op_set_opcode(op, CPUI_COPY);
 }
 
+void        funcdata::op_unlink(pcodeop *op)
+{
+    int i;
+
+    op_unset_output(op);
+
+    for (i = 0; i < op->inrefs.size(); i++)
+        op_unset_input(op, i);
+    if (op->parent)
+        op_uninsert(op);
+}
+
+void        funcdata::op_uninsert(pcodeop *op)
+{
+    mark_dead(op);
+    op->parent->remove_op(op);
+}
+
+void        funcdata::clear_block_phi(flowblock *b)
+{
+    varnode *out;
+    pcodeop *p, *use;
+    list<pcodeop *>::iterator it;
+    int slot;
+
+    while ((p = b->ops.front())->opcode == CPUI_MULTIEQUAL) {
+        out = p->output;
+        list<pcodeop *> copy = out->uses;
+        it = copy.begin();
+        for (; it != copy.end(); it++) {
+            use = *it;
+            if (use == p) continue;
+
+            slot = use->get_slot(out);
+            assert(slot >= 0);
+            op_set_input(use, new_varnode(out->size, out->get_addr()), slot);
+        }
+
+        op_destroy(p);
+    }
+}
+
+
 /* 1. 返回这个地址对应的instruction的第一个pcode的地址
    2. 假如这个地址上的instruction没有产生pcode，返回顺序的下一个instruction的首pcode的地址 */
 pcodeop*    funcdata::target(const Address &addr) const
@@ -2889,14 +2932,14 @@ void        funcdata::dump_pcode(const char *postfix)
         p = *iter;
         if (p->flags.dead) continue;
 
-        if (p->get_addr() != prev_addr) {
-            d->trans->printAssembly(assememit, p->get_addr());
+        if (p->get_dis_addr() != prev_addr) {
+            d->trans->printAssembly(assememit, p->get_dis_addr());
         }
 
         p->dump(buf, PCODE_DUMP_ALL & ~PCODE_HTML_COLOR);
         fprintf(fp, "%s\n", buf);
 
-        prev_addr = (*iter)->get_addr();
+        prev_addr = (*iter)->get_dis_addr();
     }
 
     fclose(fp);
@@ -2927,7 +2970,7 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
 
         if (p->flags.startinst) {
             assem.set_sp(p->sp);
-            d->trans->printAssembly(assem, p->start.getAddr());
+            d->trans->printAssembly(assem, p->get_dis_addr());
             fprintf(fp, "%s", obuf);
         }
 
@@ -2936,7 +2979,7 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
             fprintf(fp, "<tr><td></td><td></td><td colspan=\"2\" align=\"left\">%s</td></tr>", obuf);
         }
 
-        prev_addr = p->start.getAddr();
+        prev_addr = p->get_dis_addr();
     }
     fprintf(fp, "</table>>]\n");
 }
@@ -3095,6 +3138,10 @@ void        funcdata::destroy_varnode(varnode *vn)
 
     for (iter = vn->uses.begin(); iter != vn->uses.end(); ++iter) {
         pcodeop *op = *iter;
+        /* 
+        1. clear_block_phi在清理multi节点的use时，会把out的use中被处理过的置空
+        */
+        if (!op) continue;
 
         op->inrefs[op->get_slot(vn)] = NULL;
     }
@@ -3722,7 +3769,7 @@ bool        funcdata::trace_push(pcodeop *op)
         bb = op->parent;
 
         for (it = bb->ops.begin(); it != bb->ops.end(); it++) {
-            trace_push_op(op);
+            trace_push_op(*it);
         }
     }
     else
@@ -3794,11 +3841,11 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
 {
     int unroll_times = 0;
     int i, inslot, ret;
-    flowblock *start,  *cur, *prev, *br;
+    flowblock *start,  *cur, *prev, *br, *web;
     list<pcodeop *>::const_iterator it;
     const SeqNum sq;
     pcodeop *p, *op;
-    Address addr;
+    int unrolling;
 
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
@@ -3812,6 +3859,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
         trace_push(start->last_op());
         cur = h;
 
+        unrolling = 0;
         do {
             printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
 
@@ -3831,8 +3879,16 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
                 printf("%s\n", buf);
 #endif
 
+                if (p->opcode == CPUI_CALL) {
+                    unrolling = 1;
+                    break;
+                }
+
                 trace_push(p);
             }
+
+            if (unrolling)
+                break;
 
             if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
                 throw LowlevelError("loop_unrolling meet unsupport branch");
@@ -3841,22 +3897,38 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
             prev = cur;
             cur = br;
         } while (cur != h);
+    }
 
-        trace_clear();
+    cur = trace.back()->parent;
+    while (trace.back()->parent == cur) {
+        trace.pop_back();
     }
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
+    br = trace.back()->parent;
     cur = bblocks.new_block_basic(this);
-    for (i = 0; i < trace.size(); i++) {
+    user_offset += user_step;
+    Address addr(d->get_code_space(), user_offset);
+    /* 进入节点抛弃 */
+    for (i = 0; trace[i]->parent == start; i++);
+    /* 从主循环开始 */
+    for (; i < trace.size(); i++) {
         p = trace[i];
         /* 最后一个节点的jmp指令不删除 */
-        if ((i != trace.size() - 1) && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT))
+        if ((i != trace.size() - 1) && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL))
             continue;
 
-        const SeqNum sq(p->get_addr(), op_uniqid++);
+        Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
+        const SeqNum sq(addr2, op_uniqid++);
         op = cloneop(p, sq);
+        op->ref = p;
         op_insert(op, cur, cur->ops.end());
     }
+    cur->set_initial_range(addr, addr);
+
+    web = clone_web(br->get_out(0), h);
+
+    bblocks.add_edge(cur, web);
 
     /* 因为我们可能循环展开到一半终止，方便调试，所以我们需要还原induction variable 
     比如:
@@ -3872,6 +3944,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
     遍历 loop_header的phi节点，发现phi节点的值假如被修改过，分析是第几个in节点造成
     out的值被修改，然后把这个值还原到原始def过的地方即可。
     */
+#if 0
     for (it = h->ops.begin(); it != h->ops.end(); it++) {
         p = *it;
         /* 碰到第一个非phi节点，*/
@@ -3879,15 +3952,52 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
 
         varnode *out = p->output;
     }
+#endif
 
     /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
     bblocks.remove_edge(start, h);
     bblocks.add_edge(start, cur);
-    bblocks.add_edge(cur, h);
+    //bblocks.add_edge(web, h);
 
     structure_reset();
 
+#if 0
+    while ((p = h->ops.front())->opcode == CPUI_MULTIEQUAL) {
+        op_unlink(p);
+    }
+#else
+    clear_block_phi(h);
+#endif
+
+    heritage_clear();
+    heritage();
+
+    constant_propagation(0);
+
     return true;
+}
+
+void        funcdata::dead_code_elimination(vector<flowblock *> blks)
+{
+    flowblock *b;
+    list<pcodeop *>::iterator it;
+    list<pcodeop *> deads;
+    pcodeop *op;
+    int i;
+
+    for (i = blks.size() - 1; i >= 0; i--) {
+        b = blks[i];
+
+        for (it = b->ops.begin(); it != b->ops.end(); it++) {
+            op = *it;
+            if (op->output && op->output->has_no_use()) {
+                deads.push_back(op);
+            }
+        }
+    }
+
+    while (!deads.empty()) {
+    }
 }
 
 bool        funcdata::is_ram(varnode *v) 
@@ -4308,6 +4418,82 @@ void        funcdata::dump_store_info(const char *postfix)
 
 void        funcdata::dump_load_info(const char *postfix)
 {
+}
+
+flowblock*  funcdata::clone_block(flowblock *f)
+{
+    list<pcodeop *>::iterator it;
+    flowblock *b;
+    pcodeop *op, *p;
+
+
+    b = bblocks.new_block_basic(this);
+    user_offset += user_step;
+
+    Address addr(d->trans->getDefaultCodeSpace(), user_offset);
+
+    for (it = f->ops.begin(); it != f->ops.end(); it++) {
+        op = *it;
+
+        Address addr2(d->get_code_space(), user_offset + op->get_addr().getOffset());
+        SeqNum seq(addr2, op_uniqid++);
+        p = cloneop(op, seq);
+        p->ref = op;
+
+        op_insert(p, b, b->ops.end());
+    }
+
+    b->set_initial_range(addr, addr);
+
+    return b;
+}
+
+flowblock*  funcdata::clone_web(flowblock *start, flowblock *end)
+{
+    int i, j;
+    blockbasic *b, *out;
+    vector<flowblock *> stack;
+    vector<flowblock *> webs;
+
+    stack.push_back(start);
+
+    while (!stack.empty()) {
+        b = stack.back();
+        stack.pop_back();
+        b->set_mark();
+        webs.push_back(b);
+
+        for (i = 0; i < b->out.size(); i++) {
+            out = b->get_out(i);
+            if (out == end) continue;
+
+            if (!out->is_mark()) {
+                stack.push_back(out);
+            }
+        }
+    }
+
+    for (i = 0; i < webs.size(); i++) {
+        b = clone_block(webs[i]);
+        webs[i]->copymap = b;
+    }
+
+    for (i = 0; i < webs.size(); i++) {
+        for (j = 0; j < webs[i]->out.size(); j++) {
+            out = webs[i]->get_out(j);
+
+            bblocks.add_edge(webs[i]->copymap, out->copymap);
+        }
+    }
+
+    b = webs[0]->copymap;
+
+    for (i = 0; i < webs.size(); i++) {
+        webs[i]->copymap = NULL;
+        webs[i]->clear_mark();
+    }
+
+    return b;
 }
 
 func_call_specs::func_call_specs(pcodeop *o, funcdata *f)
