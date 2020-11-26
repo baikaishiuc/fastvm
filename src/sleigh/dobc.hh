@@ -809,7 +809,7 @@ struct funcdata {
 
     /* 循环展开时用，从start节点开始，搜索start可以到的所有节点到 end为止，全部复制出来
     最后的web包含start，不包含end */
-    flowblock*  clone_web(flowblock *start, flowblock *end);
+    flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_block(flowblock *f);
 };
 

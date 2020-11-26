@@ -3915,7 +3915,8 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
     for (; i < trace.size(); i++) {
         p = trace[i];
         /* 最后一个节点的jmp指令不删除 */
-        if ((i != trace.size() - 1) && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL))
+        if ((i != trace.size() - 1) 
+            && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND))
             continue;
 
         Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
@@ -3926,53 +3927,26 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
     }
     cur->set_initial_range(addr, addr);
 
-    web = clone_web(br->get_out(0), h);
+    vector<flowblock *> cloneblks;
+    web = clone_web(br->get_out(0), h, cloneblks);
+    cloneblks.push_back(cur);
 
     bblocks.add_edge(cur, web);
-
-    /* 因为我们可能循环展开到一半终止，方便调试，所以我们需要还原induction variable 
-    比如:
-
-    int i, j = 0;
-    for (i = 0; i < 100; i++)  j++;
-
-    展开2次以后
-    j = 2;
-    for (i = 2; i < 100; i++) i 要修复成2
-
-    算法:
-    遍历 loop_header的phi节点，发现phi节点的值假如被修改过，分析是第几个in节点造成
-    out的值被修改，然后把这个值还原到原始def过的地方即可。
-    */
-#if 0
-    for (it = h->ops.begin(); it != h->ops.end(); it++) {
-        p = *it;
-        /* 碰到第一个非phi节点，*/
-        if (p->opcode != CPUI_MULTIEQUAL) break;
-
-        varnode *out = p->output;
-    }
-#endif
 
     /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
     bblocks.remove_edge(start, h);
     bblocks.add_edge(start, cur);
-    //bblocks.add_edge(web, h);
 
     structure_reset();
 
-#if 0
-    while ((p = h->ops.front())->opcode == CPUI_MULTIEQUAL) {
-        op_unlink(p);
-    }
-#else
     clear_block_phi(h);
-#endif
 
     heritage_clear();
     heritage();
 
     constant_propagation(0);
+
+    dead_code_elimination(cloneblks);
 
     return true;
 }
@@ -3981,22 +3955,49 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
 {
     flowblock *b;
     list<pcodeop *>::iterator it;
-    list<pcodeop *> deads;
+    list<pcodeop *> worklist;
+    vector<flowblock *> marks;
     pcodeop *op;
+    varnode *out;
     int i;
+
+    marks.clear();
+    marks.resize(bblocks.get_size());
 
     for (i = blks.size() - 1; i >= 0; i--) {
         b = blks[i];
 
+        marks[b->dfnum] = b;
+
         for (it = b->ops.begin(); it != b->ops.end(); it++) {
             op = *it;
             if (op->output && op->output->has_no_use()) {
-                deads.push_back(op);
+                worklist.push_back(op);
             }
         }
     }
 
-    while (!deads.empty()) {
+    while (!worklist.empty()) {
+        it = worklist.begin();
+        op = *it;
+        worklist.erase(it);
+
+        if (op->flags.dead) continue;
+
+        //printf("delete pcode = %d\n", op->start.getTime());
+
+        if (!op->output->has_no_use()) continue;
+
+
+        for (int i = 0; i < op->num_input(); i++) {
+            varnode *in = op->get_in(i);
+            /* 有些varnode节点是常量传播出来得常量，有些天然常量 */
+            if (in->get_addr().isConstant()) continue;
+            worklist.push_back(in->def);
+        }
+
+        if (marks[op->parent->dfnum])
+            op_destroy(op);
     }
 }
 
@@ -4448,7 +4449,7 @@ flowblock*  funcdata::clone_block(flowblock *f)
     return b;
 }
 
-flowblock*  funcdata::clone_web(flowblock *start, flowblock *end)
+flowblock*  funcdata::clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks)
 {
     int i, j;
     blockbasic *b, *out;
@@ -4476,6 +4477,8 @@ flowblock*  funcdata::clone_web(flowblock *start, flowblock *end)
     for (i = 0; i < webs.size(); i++) {
         b = clone_block(webs[i]);
         webs[i]->copymap = b;
+
+        cloneblks.push_back(b);
     }
 
     for (i = 0; i < webs.size(); i++) {
