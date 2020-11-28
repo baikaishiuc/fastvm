@@ -8,6 +8,8 @@ typedef struct varnode      varnode;
 typedef struct flowblock    flowblock, blockbasic, blockgraph;
 typedef struct dobc         dobc;
 typedef struct jmptable     jmptable;
+typedef struct cpuctx       cpuctx;
+typedef struct funcproto    funcproto;
 typedef struct func_call_specs  func_call_specs;
 typedef map<Address, vector<varnode *>> variable_stack;
 typedef struct valuetype    valuetype;
@@ -76,8 +78,8 @@ enum height {
 };
 
 struct valuetype {
-    enum height height;
-    intb v;
+    enum height height = a_top;
+    intb v = 0;
     Address rel;
 
     int cmp(const valuetype &b);
@@ -96,6 +98,12 @@ struct varnode_cmp_def_loc {
 typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
 typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
 
+struct varnode_cmp_gvn {
+    bool operator()(const varnode *a, const varnode *b) const;
+};
+
+typedef map<varnode *, vector<pcodeop *>, varnode_cmp_gvn> varnode_gvn_map;
+
 struct varnode {
     /* varnode的值类型和值，在编译分析过后就不会被改*/
     valuetype   type;
@@ -112,6 +120,7 @@ struct varnode {
         unsigned    readonly : 1;
 
         unsigned    covertdirty : 1;    // cover没跟新
+        unsigned    virtualnode: 1;     // 虚拟节点，用来做load store分析用
     } flags = { 0 };
 
     int size = 0;
@@ -185,6 +194,7 @@ struct pcodeop {
         unsigned exit : 1;          // 这个指令起结束作用
         unsigned inlined : 1;       // 这个opcode已经被inline过了
         unsigned changed : 1;       // 这个opcode曾经被修改过
+        unsigned aa : 1;            // 是否被别名分析过
     } flags;
 
     OpCode opcode;
@@ -199,6 +209,9 @@ struct pcodeop {
 
     varnode *output = NULL;
     vector<varnode *> inrefs;
+    cpuctx* callctx = NULL;
+
+    funcdata *callfd = NULL;   // 当opcode为call指令时，调用的
 
     list<pcodeop *>::iterator basiciter;
     list<pcodeop *>::iterator insertiter;
@@ -248,6 +261,10 @@ struct pcodeop {
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
+
+    bool            is_dead(void) { return flags.dead;  }
+    bool            have_virtualnode(void) { return inrefs.size() == 3;  }
+    varnode*        get_virtualnode(void) { return inrefs[2];  }
 };
 
 typedef struct blockedge            blockedge;
@@ -266,7 +283,9 @@ struct blockedge {
 
     blockedge(flowblock *pt, int lab, int rev) { point = pt, label = lab; reverse_index = rev; }
     blockedge() {};
-    bool is_true_edge() { return label & a_true_edge;  }
+    bool is_true() { return label & a_true_edge;  }
+    void set_true(void) { label |= a_true_edge; }
+    void set_false(void) { label &= a_true_edge;  }
 };
 
 
@@ -423,7 +442,10 @@ struct flowblock {
     void        splice_block(flowblock *bl);
     void        move_out_edge(flowblock *blold, int slot, flowblock *blnew);
     void        replace_in_edge(int num, flowblock *b);
-
+    list<pcodeop *>::reverse_iterator get_rev_iterator(pcodeop *op);
+    flowblock*  add_block_if(flowblock *b, flowblock *cond, flowblock *tc);
+    bool        is_dowhile(flowblock *b);
+    pcodeop*    first_callop(flowblock *b);
 };
 
 typedef struct priority_queue   priority_queue;
@@ -456,11 +478,17 @@ struct funcproto {
     struct {
         unsigned vararg : 1;        // variable argument
         unsigned exit : 1;          // 调用了这个函数会导致整个流程直接结束，比如 exit, stack_check_fail
-    } flags;
-    int     inputs;
-    int     output;
+        unsigned side_effect : 1;
+    } flags = { 0 };
+    int     inputs = 0;
+    int     output = 0;
     string  name;
     Address addr;
+
+    funcproto() { flags.side_effect = 1;  }
+    ~funcproto() {}
+
+    void set_side_effect(int v) { flags.side_effect = v;  }
 };
 
 struct jmptable {
@@ -477,6 +505,20 @@ struct jmptable {
     ~jmptable();
 
     void    update(funcdata *fd);
+};
+
+typedef funcdata* (*test_cond_inline_fn)(dobc *d, intb addr);
+
+struct cpuctx {
+    varnode*    r0 = NULL;
+    varnode*    r1 = NULL;
+    varnode*    r2 = NULL;
+    varnode*    r3 = NULL;
+    varnode*    sp = NULL;
+    varnode*    lr = NULL;
+
+    cpuctx() {}
+    ~cpuctx() {}
 };
 
 struct funcdata {
@@ -504,6 +546,7 @@ struct funcdata {
 
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;
+    funcproto       funcp;
 
     struct {
         funcdata *next = NULL;
@@ -578,6 +621,7 @@ struct funcdata {
     /* heritage end  ============================================= */
     vector<pcodeop *>   trace;
     list<pcodeop *> aliaslist;
+    int             virtualbase = 0x10000;
     /*---*/
 
     Address startaddr;
@@ -603,6 +647,10 @@ struct funcdata {
     /* 常量cbranch列表 */
     vector<pcodeop *>    cbrlist;
     pcodeemit2 emitter;
+
+    /* 做条件inline时用到 */
+    funcdata *caller = NULL;
+    pcodeop *callop = NULL;
 
     struct {
         int     size;
@@ -711,6 +759,40 @@ struct funcdata {
     void        inline_clone(funcdata *inelinefd, const Address &retaddr);
     void        inline_call(string name, int num);
     void        inline_call(const Address &addr, int num);
+    /* 条件inline
+    
+    当我们需要inline一个函数的时候，某些时候可能不需要inline他的全部代码，只inline部分
+
+    比如 一个vmp_ops函数
+
+    function vmp_ops(VMState *s, int val1, int val2) {
+        optype = stack_top(s);
+        if (optype == 17) {
+            vmp_ops2(s, val1, val2);
+        }
+        else if (optype == 16) {
+        }
+        else {
+        }
+    }
+
+    假如我们外层代码在调用vmp_ops的时候，代码如下
+
+    stack_push(s, 17);
+    vmp_ops(s, 1, 2);
+
+    那么实际上vmp_ops进入以后，只会进入17的那个分支，我们在inline一个函数时，
+    把当前的上下文环境传入进去(记住这里不是模拟执行)，然后在vmp_ops内做编译优化，
+    并对它调用的函数，也做同样的cond_inline。
+
+    这种奇怪的优化是用来对抗vmp保护的，一般的vmp他们在解构函数时，会形成大量的opcode
+    然后这些opcode，理论上是可以放到一个大的switch里面处理掉的，有些写壳的作者会硬是把
+    这个大的switch表拆成多个函数
+    */
+    void        cond_inline(funcdata *inlinefd, pcodeop *fd);
+    void        cond_pass(void);
+    void        set_caller(funcdata *caller, pcodeop *callop);
+
     void        inline_ezclone(funcdata *fd, const Address &calladdr);
     bool        check_ezmodel(void);
     void        structure_reset();
@@ -788,6 +870,7 @@ struct funcdata {
     void        trace_clear();
     pcodeop*    trace_load_query(varnode *vn);
     pcodeop*    trace_store_query(varnode *vn);
+    pcodeop*    store_query(pcodeop *load);
     bool        loop_unrolling(flowblock *h, int times);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
@@ -811,6 +894,43 @@ struct funcdata {
     最后的web包含start，不包含end */
     flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_block(flowblock *f);
+
+    char*       get_dir(char *buf);
+    int         get_input_sp_val();
+
+    void        alias_collect(void);
+    void        alias_propagation(void);
+    void        alias_analysis(void);
+
+    bool        have_side_effect(void) { return funcp.flags.side_effect;  }
+    void        alias_clear(void);
+    /* 循环展开时用
+    
+    do {
+        inst1
+    } while (cond)
+
+    转成
+
+    inst1
+    if (cond) {
+        do {
+            inst1
+        } while (cond)
+    }
+
+    然后inst1在解码完以后，会得出cond的条件，假如为真，则继续展开
+
+    inst1
+    inst1
+    if (cond) {
+        do {
+            inst1
+        } while (cond)
+    }
+    一直到cond条件为假，删除整个if块即可
+    */
+    flowblock*  dowhile2ifwhile(vector<flowblock *> &dowhile);
 };
 
 struct func_call_specs {
@@ -844,8 +964,13 @@ struct dobc {
     int min_funcsymbol_size;
     int max_instructions;
     map<string, string>     abbrev;
+    test_cond_inline_fn test_cond_inline;
 
     Address     sp_addr;
+    Address     r0_addr;
+    Address     r1_addr;
+    Address     r2_addr;
+    Address     r3_addr;
     Address     lr_addr;
 
     dobc(const char *slafilename, const char *filename);
@@ -854,11 +979,13 @@ struct dobc {
     void init();
     /* 初始化位置位置无关代码，主要时分析原型 */
     void        init_plt(void);
+    void        init_local(void);
 
     void        run();
     void        dump_function(char *name);
     void        add_func(funcdata *fd);
     void        set_func_alias(const string &func, const string &alias);
+    void        set_test_cond_inline_fn(test_cond_inline_fn fn1) { test_cond_inline = fn1;  }
     funcdata*   find_func(const char *name);
     funcdata*   find_func(const Address &addr);
     funcdata*   find_func_by_alias(const string &name);
