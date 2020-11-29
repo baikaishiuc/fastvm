@@ -377,7 +377,7 @@ void dobc::plugin_dvmp360()
 #if 1
     changed = 1;
     fd_main->heritage();
-    fd_main->dump_cfg("orig", 1);
+    fd_main->dump_cfg(fd_main->name, "orig", 1);
     while (changed) {
         changed = 0;
 
@@ -385,7 +385,7 @@ void dobc::plugin_dvmp360()
 
         // 发现CBRANCH列表不为空，说明有条件判断语句为常量
         if (!fd_main->cbrlist.empty()) {
-            fd_main->dump_cfg("before_ccp", 1);
+            fd_main->dump_cfg(fd_main->name, "before_ccp", 1);
             fd_main->cond_constant_propagation();
             /* 发生了条件常量传播以后，整个程序的结构发生了变化，整个结构必须得重来 */
             fd_main->heritage_clear();
@@ -404,7 +404,7 @@ void dobc::plugin_dvmp360()
     fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1);
 
     fd_main->dump_pcode("1");
-    fd_main->dump_cfg("1", 1);
+    fd_main->dump_cfg(fd_main->name, "1", 1);
     fd_main->dump_djgraph("1", 1);
     fd_main->dump_store_info("1");
 }
@@ -515,7 +515,7 @@ void dobc::dump_function(char *symname)
 
     func->follow_flow();
 
-    func->dump_cfg("1", 0);
+    func->dump_cfg(func->name, "1", 0);
 
     printf("\n");
 }
@@ -789,7 +789,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     if (flags & PCODE_DUMP_UD)
         i += print_udchain(buf + i, this, flags);
 
-    if (opcode == CPUI_CALL) {
+    if (is_call()) {
         if (flags & PCODE_HTML_COLOR)   i += sprintf(buf + i, "<font color=\"red\"> ");
         i += sprintf(buf + i, "[r0:");
         i += print_vartype(trans, buf + i, callctx->r0);
@@ -858,7 +858,8 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         else if ((inslot >= 0) && (store = fd->trace_store_query(in1))) { // trace流中
             out->type = store->get_in(2)->type;
         }
-        else
+        /* 假如这个值确认来自于外部，不要跟新他 */
+        else if (!flags.input)
             out->type.height = a_top;
         break;
 
@@ -1777,7 +1778,7 @@ bool        flowblock::is_dowhile(flowblock *b)
     return false;
 }
 
-pcodeop*    flowblock::first_callop(flowblock *b)
+pcodeop*    flowblock::first_callop(void)
 {
     list<pcodeop *>::iterator it;
 
@@ -1789,6 +1790,30 @@ pcodeop*    flowblock::first_callop(flowblock *b)
 
     return NULL;
 }
+
+pcodeop*    flowblock::first_callop_vmp(flowblock *end)
+{
+    list<pcodeop *>::iterator it;
+    pcodeop *op;
+    dobc *d = fd->d;
+
+    for (int i = 0; i < blist.size(); i++) {
+        flowblock *b = blist[i];
+
+        if (b == end)
+            return NULL;
+
+        for (it = b->ops.begin(); it != b->ops.end(); it++) {
+            op = *it;
+            if (op->is_call() && d->test_cond_inline(d, op->get_call_offset()))
+                return op;
+        }
+    }
+
+    return NULL;
+}
+
+bool        in_loop(flowblock *h);
 
 void        flowblock::build_dom_tree(vector<vector<flowblock *>> &child)
 {
@@ -3079,7 +3104,16 @@ void        funcdata::dump_pcode(const char *postfix)
         if (p->flags.dead) continue;
 
         if (p->get_dis_addr() != prev_addr) {
-            d->trans->printAssembly(assememit, p->get_dis_addr());
+            if (p->opcode == CPUI_MULTIEQUAL) {
+                fprintf(fp, "<tr>"
+                    "<td><font color=\"" COLOR_ASM_STACK_DEPTH "\">000</font></td>"
+                    "<td><font color=\"" COLOR_ASM_ADDR "\">0000</font></td>"
+                    "<td align=\"left\"><font color=\"" COLOR_ASM_INST_MNEM "\">phi--------------</font></td>"
+                    "<td align=\"left\"><font color=\"" COLOR_ASM_INST_BODY "\"></font></td></tr>");
+            }
+            else {
+                d->trans->printAssembly(assememit, p->get_dis_addr());
+            }
         }
 
         p->dump(buf, PCODE_DUMP_ALL & ~PCODE_HTML_COLOR);
@@ -3206,11 +3240,11 @@ char*       funcdata::block_color(flowblock *b)
     return "white";
 }
 
-void        funcdata::dump_cfg(const char *postfix, int dumppcode)
+void        funcdata::dump_cfg(const string &name, const char *postfix, int dumppcode)
 {
     char obuf[512];
 
-    sprintf(obuf, "%s/cfg_%s.dot", get_dir(obuf), postfix);
+    sprintf(obuf, "%s/cfg_%s_%s.dot", get_dir(obuf), name.c_str(), postfix);
 
     FILE *fp = fopen(obuf, "w");
     if (NULL == fp) {
@@ -3314,15 +3348,11 @@ void        funcdata::delete_varnode(varnode *vn)
 
 varnode*    funcdata::set_input_varnode(varnode *vn)
 {
+    varnode *v1;
     if (vn->flags.input) return vn;
 
-    if (caller) {
-        if (vn->get_addr() == d->r0_addr) vn->type = callop->callctx->r0->type;
-        else if (vn->get_addr() == d->r1_addr) vn->type = callop->callctx->r1->type;
-        else if (vn->get_addr() == d->r2_addr) vn->type = callop->callctx->r2->type;
-        else if (vn->get_addr() == d->r3_addr) vn->type = callop->callctx->r3->type;
-        else if (vn->get_addr() == d->sp_addr) vn->type = callop->callctx->sp->type;
-        else if (vn->get_addr() == d->lr_addr) vn->type = callop->callctx->lr->type;
+    if (caller && (v1 = callop->callctx->get_vn(vn->get_addr()))) {
+        vn->type = v1->type;
     }
     else if (vn->get_addr() == d->sp_addr) {
         vn->set_rel_constant(d->sp_addr, 0);
@@ -3533,6 +3563,8 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     if (callop->flags.inlined)
         throw LowlevelError("callop already be inlined");
 
+    printf("try cond inline p%d[%llx, %s]\n", callop->start.getTime(), callop->callfd->get_addr().getOffset(), callop->callfd->name.c_str());
+
     /* inline的fd，从父函数里的op_uniq开始，这样可以保证再inline后，uniq是连续的 */
     fd.set_caller(this, callop);
     fd.set_op_uniqid(get_op_uniqid());
@@ -3543,12 +3575,15 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
 
     fd.cond_pass();
 
-    fd.dump_cfg("cond", 1);
+    fd.dump_cfg(fd.name, "cond", 1);
 }
 
 void        funcdata::cond_pass(void)
 {
     int changed = 1;
+    pcodeop *p;
+    funcdata *inlinefd;
+
     while (changed) {
         changed = 0;
 
@@ -3560,6 +3595,20 @@ void        funcdata::cond_pass(void)
             heritage_clear();
             heritage();
             changed = 1;
+
+            while ((p = bblocks.first_callop_vmp(NULL))) {
+                /* FIXME:这里判断的过于粗糙，还需要判断整个p->parent是否再循环内*/
+                if (bblocks.is_dowhile(p->parent)) {
+                    vector<flowblock *> v;
+                    v.push_back(p->parent);
+                    dowhile2ifwhile(v);
+                    p = bblocks.first_callop_vmp(NULL);
+                    heritage_clear();
+                    heritage();
+                }
+
+                cond_inline(p->callfd, p);
+            }
         }
     }
 }
@@ -3836,11 +3885,11 @@ int         funcdata::cond_constant_propagation()
 
     printf("after cbr remove, now blocks size = %d, dead is = %d\n", bblocks.get_size(), bblocks.deadlist.size());
 
-    dump_cfg("after_ccp", 1);
+    dump_cfg(name, "after_ccp", 1);
 
     redundbranch_appy();
 
-    dump_cfg("after_ccp2", 1);
+    dump_cfg(name, "after_ccp2", 1);
 
     return 0;
 }
@@ -4072,8 +4121,11 @@ pcodeop*    funcdata::store_query(pcodeop *load)
 
         if (b->is_entry_point()) {
             if (b->fd->caller) {
-                b = callop->parent;
-                it = b->get_rev_iterator(callop);
+                pcodeop *p1 = b->fd->callop;
+                b =  b->fd->callop->parent;
+                it = b->get_rev_iterator(p1);
+                // skip , FIXME:没有处理当这个op已经为第一个的情况
+                ++it;
             }
             else
                 break;
@@ -4244,25 +4296,20 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
 
     dead_code_elimination(cloneblks);
 
-    p = NULL;
-    for (i = 0; i < cloneblks.size(); i++) {
-        cur = cloneblks[i];
-        for (it = cur->ops.begin(); it != cur->ops.end(); it++) {
-            p = *it;
-            if (p->opcode == CPUI_CALL) break;
-        }
-        if (p->opcode == CPUI_CALL) break;
-    }
+    p = bblocks.first_callop_vmp(h);
 
-    funcdata *inlinefd;
-    if ((p->opcode == CPUI_CALL) && (inlinefd = d->test_cond_inline(d, p->get_in(0)->get_addr().getOffset()))) {
+    if (p) {
+        /* FIXME:我们暂时只处理简单的dowhile情形，实际上要做condinline的block，当前不能允许在任何dowhile块内，
+        你需要判断自己是不是在循环内，假如是的话，就要一直展开*/
         if (bblocks.is_dowhile(p->parent)) {
             vector<flowblock *> v;
             v.push_back(p->parent);
-            dowhile2ifwhile(v);
+            p = dowhile2ifwhile(v)->first_callop();
+            heritage_clear();
+            heritage();
         }
 
-        cond_inline(inlinefd, p);
+        cond_inline(p->callfd, p);
     }
 
     return true;
@@ -4421,7 +4468,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
             }
         }
 
-        if (op->opcode == CPUI_CALL) {
+        if (op->is_call()) {
             if (op->callctx) delete op->callctx;
 
             cpuctx *ctx = new cpuctx();
@@ -4638,6 +4685,7 @@ bool        funcdata::remove_unreachable_blocks(bool issuewarnning, bool checkex
     vector<flowblock *> list;
     int i;
 
+#if 0
     for (i = 0; i < bblocks.get_size(); i++) {
         flowblock *blk = bblocks.get_block(i);
 
@@ -4650,8 +4698,10 @@ bool        funcdata::remove_unreachable_blocks(bool issuewarnning, bool checkex
 
     if (i == bblocks.get_size())
         return false;
+#endif
 
     bblocks.collect_reachable(list, bblocks.get_entry_point(), true);
+    if (list.size() == 0) return false;
 
     for (i = 0; i < list.size(); i++) {
         list[i]->set_dead();
@@ -4685,7 +4735,7 @@ void        funcdata::splice_block_basic(blockbasic *bl)
 
     if (!bl->ops.empty()) {
         pcodeop *jumpop = bl->last_op();
-        if (jumpop->opcode == CPUI_BRANCH)
+        if ((jumpop->opcode == CPUI_BRANCH) || (jumpop->opcode == CPUI_CBRANCH))
             op_destroy(jumpop);
     }
 
@@ -4783,7 +4833,7 @@ flowblock*  funcdata::clone_block(flowblock *f)
         Address addr2(d->get_code_space(), user_offset + op->get_addr().getOffset());
         SeqNum seq(addr2, op_uniqid++);
         p = cloneop(op, seq);
-        p->ref = op;
+        p->ref = op->ref ? op->ref:op;
 
         op_insert(p, b, b->ops.end());
     }
@@ -4795,8 +4845,12 @@ flowblock*  funcdata::clone_block(flowblock *f)
 
 char*       funcdata::get_dir(char *buf)
 {
-    if (caller)
-        sprintf(buf, "%s/%s", d->filename.c_str(), caller->name.c_str());
+    funcdata *p = caller;
+
+    while (p && p->caller) p = p->caller;
+
+    if (p)
+        sprintf(buf, "%s/%s", d->filename.c_str(), p->name.c_str());
     else 
         sprintf(buf, "%s/%s", d->filename.c_str(), name.c_str());
 
@@ -4901,7 +4955,7 @@ flowblock*  funcdata::dowhile2ifwhile(vector<flowblock *> &dowhile)
     dw = dowhile[0];
 
     before = (dw->get_in(0) == dw) ? dw->get_in(1):dw->get_in(0);
-    after = (dw->get_out(0) == dw) ? dw->get_out(1) : dw->get_in(0);
+    after = (dw->get_out(0) == dw) ? dw->get_out(1) : dw->get_out(0);
 
     b = clone_block(dowhile[0]);
 
@@ -4925,7 +4979,7 @@ void        funcdata::alias_analysis(void)
         if (load->is_dead()) continue;
 
         if (load->start.getTime() == 3082) {
-            printf("a\n");
+            //printf("a\n");
         }
 
         pcodeop *store = store_query(load);
@@ -4935,6 +4989,7 @@ void        funcdata::alias_analysis(void)
         /* 来自于caller，假如来自caller就无法建立use-def链了，直接把值复制过来 */
         if (store->parent->fd != this) {
             load->output->type = store->get_in(2)->type;
+            load->flags.input = 1;
             continue;
         }
 

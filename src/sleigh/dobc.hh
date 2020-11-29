@@ -147,6 +147,7 @@ struct varnode {
     bool            is_constant(void) const { return type.height == a_constant;  }
     void            set_val(intb v) { type.height = a_constant;  type.v = v; }
     bool            is_rel_constant(void) { return type.height == a_rel_constant;  }
+    bool            is_input(void) { return flags.input; }
     void            set_rel_constant(Address &r, int v) { type.height = a_rel_constant; type.v = v;  type.rel = r;  }
     intb            get_val(void);
     Address         &get_rel(void) { return type.rel; }
@@ -194,7 +195,7 @@ struct pcodeop {
         unsigned exit : 1;          // 这个指令起结束作用
         unsigned inlined : 1;       // 这个opcode已经被inline过了
         unsigned changed : 1;       // 这个opcode曾经被修改过
-        unsigned aa : 1;            // 是否被别名分析过
+        unsigned input : 1;         // input有2种，一种是varnode的input，代表这个寄存器来自于
     } flags;
 
     OpCode opcode;
@@ -265,6 +266,9 @@ struct pcodeop {
     bool            is_dead(void) { return flags.dead;  }
     bool            have_virtualnode(void) { return inrefs.size() == 3;  }
     varnode*        get_virtualnode(void) { return inrefs[2];  }
+    bool            is_call(void) { return (opcode == CPUI_CALL) || callfd; }
+    void            set_input() { flags.input = 1;  }
+    intb            get_call_offset() { return get_in(0)->get_addr().getOffset(); }
 };
 
 typedef struct blockedge            blockedge;
@@ -445,7 +449,10 @@ struct flowblock {
     list<pcodeop *>::reverse_iterator get_rev_iterator(pcodeop *op);
     flowblock*  add_block_if(flowblock *b, flowblock *cond, flowblock *tc);
     bool        is_dowhile(flowblock *b);
-    pcodeop*    first_callop(flowblock *b);
+    pcodeop*    first_callop();
+    /* 搜索到哪个节点为止 */
+    pcodeop*    first_callop_vmp(flowblock *end);
+    bool        in_loop(flowblock *h);
 };
 
 typedef struct priority_queue   priority_queue;
@@ -519,6 +526,16 @@ struct cpuctx {
 
     cpuctx() {}
     ~cpuctx() {}
+
+    varnode *get_vn(const Address &a) {
+        if (r0 && (r0->get_addr() == a)) return r0;
+        if (r1 && (r1->get_addr() == a)) return r1;
+        if (r2 && (r2->get_addr() == a)) return r2;
+        if (r3 && (r3->get_addr() == a)) return r3;
+        if (sp && (sp->get_addr() == a)) return sp;
+        if (lr && (lr->get_addr() == a)) return lr;
+        return NULL;
+    }
 };
 
 struct funcdata {
@@ -745,7 +762,7 @@ struct funcdata {
     void        dump_inst();
     void        dump_block(FILE *fp, blockbasic *b, int pcode);
     /* flag: 1: enable pcode */
-    void        dump_cfg(const char *postfix, int flag);
+    void        dump_cfg(const string &name, const char *postfix, int flag);
     void        dump_pcode(const char *postfix);
     /* dump dom-joint graph */
     void        funcdata::dump_djgraph(const char *postfix, int flag);
