@@ -98,6 +98,12 @@ struct varnode_cmp_def_loc {
 typedef set<varnode *, varnode_cmp_loc_def> varnode_loc_set;
 typedef set<varnode *, varnode_cmp_def_loc> varnode_def_set;
 
+struct pcodeop_cmp_def {
+    bool operator() ( const pcodeop *a, const pcodeop *b ) const;
+};
+
+typedef set<pcodeop *, pcodeop_cmp_def> pcodeop_def_set;
+
 struct varnode_cmp_gvn {
     bool operator()(const varnode *a, const varnode *b) const;
 };
@@ -196,17 +202,16 @@ struct pcodeop {
         unsigned inlined : 1;       // 这个opcode已经被inline过了
         unsigned changed : 1;       // 这个opcode曾经被修改过
         unsigned input : 1;         // input有2种，一种是varnode的input，代表这个寄存器来自于
+        unsigned epi_callspec : 1;  // 末尾的指令需要加上对r0-r15的引用
     } flags;
 
     OpCode opcode;
     /* 一个指令对应于多个pcode，这个是用来表示inst的 */
     SeqNum start;
-    /* 循环展开时，会复制一部分节点出去形成新的block，这些block的节点的地址和以前循环内的地址重复了，所以我们需要分配一个新
-    的地址给他，但是这样会导致在disassembly的时候，生成错误的数据 */
-    pcodeop *ref = NULL;
     flowblock *parent;
     /* 我们认为程序在分析的时候，sp的值是可以静态分析的，他表示的并不是sp寄存器，而是系统当前堆栈的深度 */
     int     sp = 0;
+    Address *disaddr = NULL;
 
     varnode *output = NULL;
     vector<varnode *> inrefs;
@@ -226,7 +231,7 @@ struct pcodeop {
     varnode*        get_out() { return output;  }
     const Address&  get_addr() { return start.getAddr();  }
     /* dissasembly 时用到的地址 */
-    const Address&  get_dis_addr(void) { return ref ? ref->get_dis_addr() : get_addr(); }
+    const Address&  get_dis_addr(void) { return disaddr ? disaddr[0] : get_addr(); }
 
     int             num_input() { return inrefs.size();  }
     void            clear_input(int slot) { inrefs[slot] = NULL; }
@@ -335,6 +340,8 @@ struct flowblock {
 
         1. reachable测试
         2. reducible测试
+        3. augment dominator tree收集df
+        4. djgraph 收集df
         */
         unsigned f_mark : 1;
 
@@ -487,8 +494,10 @@ struct funcproto {
         unsigned exit : 1;          // 调用了这个函数会导致整个流程直接结束，比如 exit, stack_check_fail
         unsigned side_effect : 1;
     } flags = { 0 };
-    int     inputs = 0;
-    int     output = 0;
+    /* -1 代表不知道 
+    */
+    int     inputs = -1;
+    int     output = -1;
     string  name;
     Address addr;
 
@@ -585,8 +594,12 @@ struct funcdata {
     list<pcodeop *>     loadlist;
     list<pcodeop *>     useroplist;
     list<pcodeop *>     deadandgone;
-    /* 可以做别名分析的 storelist */
-    list<pcodeop *>     safe_storelist;
+    list<pcodeop *>     philist;
+    /* 安全的别名信息，可以传播用 */
+    list<pcodeop *>     safe_aliaslist;
+
+    /* 我们不能清除顶层名字空间的变量，因为他可能会被外部使用 */
+    pcodeop_def_set topname;
     intb user_step = 0x10000;
     intb user_offset = 0x10000;
     int op_uniqid = 0;
@@ -621,11 +634,12 @@ struct funcdata {
     vector<vector<flowblock *>> augment;
 #define boundary_node       1
 #define mark_node           2
-#define merged_node          3
+#define merged_node          4
     vector<uint4>   phiflags;   
     vector<int>     domdepth;
     /* dominate frontier */
     vector<flowblock *>     merge;      // 哪些block包含phi节点
+    vector<flowblock *>     mergedj;
     priority_queue pq;
 
     int maxdepth = -1;
@@ -685,6 +699,10 @@ struct funcdata {
     void        set_range(Address &b, Address &e) { baddr = b; eaddr = e; }
     void        set_op_uniqid(int val) { op_uniqid = val;  }
     int         get_op_uniqid() { return op_uniqid; }
+    void        set_user_offset(int v) { user_offset = v;  }
+    int         get_user_offset() { return user_offset; }
+    void        set_virtualbase(int v) { virtualbase = v;  }
+    int         get_virtualbase(void) { return virtualbase; }
 
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
@@ -830,6 +848,9 @@ struct funcdata {
     int         inst_size(const Address &addr);
     void        build_adt(void);
     void        calc_phi_placement(const vector<varnode *> &write);
+    void        calc_phi_placement2(const vector<varnode *> &write);
+    void        visit_dj(const vector<varnode *> &write,  flowblock *v);
+    bool        in_mergedj(flowblock *v);
     void        visit_incr(flowblock *qnode, flowblock *vnode);
     void        place_multiequal(void);
     void        rename();
@@ -860,7 +881,7 @@ struct funcdata {
     2. constant_propagation 被执行过
     */
     void        compute_sp(void);
-    bool        is_ram(varnode *v);
+    bool        is_code(varnode *v);
     bool        is_sp_rel_constant(varnode *v);
 
     void        set_safezone_base(intb base) { safezone_base = base; }
@@ -948,6 +969,7 @@ struct funcdata {
     一直到cond条件为假，删除整个if块即可
     */
     flowblock*  dowhile2ifwhile(vector<flowblock *> &dowhile);
+    void        update_return_callspec(void);
 };
 
 struct func_call_specs {
@@ -989,6 +1011,7 @@ struct dobc {
     Address     r2_addr;
     Address     r3_addr;
     Address     lr_addr;
+    Address     cy_addr;
 
     dobc(const char *slafilename, const char *filename);
     ~dobc();
@@ -996,7 +1019,6 @@ struct dobc {
     void init();
     /* 初始化位置位置无关代码，主要时分析原型 */
     void        init_plt(void);
-    void        init_local(void);
 
     void        run();
     void        dump_function(char *name);
