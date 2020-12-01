@@ -135,6 +135,8 @@ struct varnode {
 
     pcodeop     *def = NULL;
     uintb       nzm;
+    /* ssa的版本号，方便定位 */
+    int         version = -1;
 
     varnode_loc_set::iterator lociter;  // sort by location
     varnode_def_set::iterator defiter;  // sort by definition
@@ -202,7 +204,8 @@ struct pcodeop {
         unsigned inlined : 1;       // 这个opcode已经被inline过了
         unsigned changed : 1;       // 这个opcode曾经被修改过
         unsigned input : 1;         // input有2种，一种是varnode的input，代表这个寄存器来自于
-        unsigned epi_callspec : 1;  // 末尾的指令需要加上对r0-r15的引用
+        unsigned phi : 1;           // 给opcode为cpy的节点使用，在删除只有2个入边的join node时，会导致这个节点的phi节点修改成
+                                    // copy，这里要标识一下
     } flags;
 
     OpCode opcode;
@@ -729,6 +732,7 @@ struct funcdata {
     varnode*    create_vn(int s, const Address &m);
     varnode*    create_def(int s, const Address &m, pcodeop *op);
     varnode*    create_def_unique(int s, pcodeop *op);
+    varnode*    create_constant_vn(intb val, int size);
     varnode*    xref(varnode *vn);
     varnode*    set_def(varnode *vn, pcodeop *op);
 
@@ -969,7 +973,7 @@ struct funcdata {
     一直到cond条件为假，删除整个if块即可
     */
     flowblock*  dowhile2ifwhile(vector<flowblock *> &dowhile);
-    void        update_return_callspec(void);
+    char*       print_indent();
 };
 
 struct func_call_specs {

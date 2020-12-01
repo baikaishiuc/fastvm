@@ -166,7 +166,7 @@ static int print_varnode(Translate *trans, char *buf, varnode *data)
             return sprintf(buf, "(%c%llx:%d)", addr.getSpace()->getShortcut(), addr.getOffset(), data->size);
     }
     else
-        return sprintf(buf, "(%c%s:%d)", addr.getSpace()->getShortcut(), name.c_str(), data->size);
+        return sprintf(buf, "(%c%s.%d:%d)", addr.getSpace()->getShortcut(), name.c_str(), data->version, data->size);
 }
 
 void pcodeemit2::dump(const Address &addr, OpCode opc, VarnodeData *outvar, VarnodeData *vars, int4 isize)
@@ -843,10 +843,26 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             d->loader->loadFill(buf, out->size, addr);
 
             out->set_val(*(intb *)buf);
+
+            while (num_input() > 0)
+                fd->op_remove_input(this, 0);
+
+            fd->op_set_opcode(this, CPUI_COPY);
+            fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
         }
         else if (in2) { // 别名分析过
             varnode *def = in2->def->output;
             output->type = def->type;
+
+#if 0
+            if (in2->uses.size() == 1) {
+                fd->op_remove_input(this, 0);
+                fd->op_remove_input(this, 1);
+                fd->op_remove_input(this, 2);
+                fd->op_set_opcode(this, CPUI_COPY);
+                fd->op_set_input(this, in2->def->get_in(2), 0);
+            }
+#endif
         }
         else if ((inslot >= 0) && (store = fd->trace_store_query(in1))) { // trace流中
             out->type = store->get_in(2)->type;
@@ -2053,8 +2069,17 @@ varnode*    funcdata::create_def_unique(int s, pcodeop *op)
     return create_def(s, addr, op);
 }
 
+varnode*    funcdata::create_constant_vn(intb val, int size)
+{
+    Address addr(d->trans->getConstantSpace(), val);
+
+    return create_vn(size, addr);
+}
+
 void        funcdata::op_set_opcode(pcodeop *op, OpCode opc)
 {
+    if (opc)
+        remove_from_codelist(op);
     op->set_opcode(opc);
     add_to_codelist(op);
 }
@@ -2068,7 +2093,6 @@ void        funcdata::op_set_input(pcodeop *op, varnode *vn, int slot)
 {
     while (op->inrefs.size() < (slot + 1))
         op->inrefs.push_back(NULL);
-
 
     if (vn == op->get_in(slot))
         return; 
@@ -2133,8 +2157,10 @@ void        funcdata::op_zero_multi(pcodeop *op)
     if (op->num_input() == 0) {
         assert(0);
     }
-    else if (op->num_input() == 1)
+    else if (op->num_input() == 1) {
         op_set_opcode(op, CPUI_COPY);
+        op->flags.phi = 1;
+    }
 }
 
 void        funcdata::op_unlink(pcodeop *op)
@@ -2162,7 +2188,9 @@ void        funcdata::clear_block_phi(flowblock *b)
     list<pcodeop *>::iterator it;
     int slot;
 
-    while ((p = b->ops.front())->opcode == CPUI_MULTIEQUAL) {
+    while ((p = b->ops.front())) {
+        if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.phi) break;
+
         out = p->output;
         list<pcodeop *> copy = out->uses;
         it = copy.begin();
@@ -3583,7 +3611,6 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
 void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
 {
     funcdata fd(inlinefd->name.c_str(), inlinefd->get_addr(), 0, d);
-    pcodeop *firstop;
     char buf[32];
     bool ez = false;
 
@@ -3628,15 +3655,15 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     op_destroy(callop);
 }
 
-int g_time = 0;
 
 void        funcdata::cond_pass(void)
 {
     int changed = 1;
     pcodeop *p;
-    funcdata *inlinefd;
 
     constant_propagation(0);
+
+    int g_time = 0;
 
     while (changed) {
         changed = 0;
@@ -3650,8 +3677,14 @@ void        funcdata::cond_pass(void)
             heritage();
             dead_code_elimination(bblocks.blist);
 
-            if (g_time == 1)
-                dump_cfg(name, "check", 1);
+#if 1
+            if (g_time > 0) {
+                char buf[128];
+                sprintf(buf, "_inline%d", g_time);
+                dump_cfg(name, buf, 1);
+                exit(0);
+            }
+#endif
 
             continue;
         }
@@ -3680,6 +3713,11 @@ void        funcdata::cond_pass(void)
     }
 
     dead_code_elimination(bblocks.blist);
+
+    if (this->callop->parent->fd->callop == NULL) {
+        dump_cfg(name, "check", 1);
+        exit(1);
+    }
 }
 
 void        funcdata::set_caller(funcdata *caller1, pcodeop *callop1)
@@ -3835,7 +3873,7 @@ void        funcdata::heritage(void)
     if (maxdepth == -1)
         build_adt();
 
-    printf("heritage scan node.... \n");
+    printf("%sheritage scan node.... \n", print_indent());
     for (i = 0; i < d->trans->numSpaces(); i++) {
         AddrSpace *space = d->trans->getSpace(i);
 
@@ -3866,13 +3904,13 @@ void        funcdata::heritage(void)
             }
         }
     }
-    printf("heritage scan node end. \n");
     place_multiequal();
     rename();
 
     constant_propagation(0);
     alias_analysis();
     constant_propagation(1);
+    printf("%sheritage scan node end. \n", print_indent());
 }
 
 void    funcdata::heritage_clear()
@@ -3934,7 +3972,7 @@ int         funcdata::cond_constant_propagation()
         op = cbrlist[i];
         parent = op->parent;
 
-        printf("find cbr block:%llx:%d\n", op->get_addr().getOffset(), parent->dfnum);
+        printf("%sfind cbr block:%llx:%d\n", print_indent(), op->get_addr().getOffset(), parent->dfnum);
 
         in = op->get_in(1);
         assert(in->is_constant());
@@ -3953,13 +3991,10 @@ int         funcdata::cond_constant_propagation()
     cbrlist.clear();
     remove_unreachable_blocks(true, true);
 
-    printf("after cbr remove, now blocks size = %d, dead is = %d\n", bblocks.get_size(), bblocks.deadlist.size());
-
-    dump_cfg(name, "after_ccp", 1);
+    printf("%safter cbr remove, now blocks size = %d, dead is = %d\n", print_indent(), bblocks.get_size(), bblocks.deadlist.size());
 
     redundbranch_appy();
 
-    dump_cfg(name, "after_ccp2", 1);
 
     return 0;
 }
@@ -4040,6 +4075,18 @@ void        funcdata::add_to_codelist(pcodeop *op)
         break;
 
     default:break;
+    }
+}
+
+void        funcdata::remove_from_codelist(pcodeop *op)
+{
+    switch (op->opcode) {
+    case CPUI_LOAD:
+        loadlist.erase(op->codeiter);
+        break;
+
+    case CPUI_STORE:
+        storelist.erase(op->codeiter);
     }
 }
 
@@ -4529,6 +4576,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 if (stack.empty()) {
                     vnnew = new_varnode(vnin->size, vnin->get_addr());
                     vnnew = set_input_varnode(vnnew);
+                    vnnew->version = stack.size();
                     stack.push_back(vnnew);
                 }
                 else 
@@ -4572,6 +4620,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
 
         vnout = op->output;
         if (vnout == NULL) continue;
+        vnout->version = varstack[vnout->get_addr()].size();
         varstack[vnout->get_addr()].push_back(vnout);
         writelist.push_back(vnout);
     }
@@ -4591,6 +4640,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
             if (stack.empty()) {
                 vnnew = new_varnode(vnin->size, vnin->get_addr());
                 vnnew = set_input_varnode(vnnew);
+                vnnew->version = stack.size();
                 stack.push_back(vnnew);
             }
             else
@@ -4787,7 +4837,6 @@ void        funcdata::branch_remove_internal(blockbasic *bb, int num)
 {
     blockbasic *bbout;
     list<pcodeop *>::iterator iter;
-    pcodeop *op;
     int blocknum;
 
     if (bb->out.size() == 2)
@@ -4796,6 +4845,8 @@ void        funcdata::branch_remove_internal(blockbasic *bb, int num)
     bbout = (blockbasic *)bb->get_out(num);
     blocknum = bbout->get_in_index(bb);
     bblocks.remove_edge(bb, bbout);
+    clear_block_phi(bbout);
+#if 0
     for (iter = bbout->ops.begin(); iter != bbout->ops.end(); iter++) {
         op = *iter;
         if (op->opcode != CPUI_MULTIEQUAL) continue;
@@ -4804,6 +4855,7 @@ void        funcdata::branch_remove_internal(blockbasic *bb, int num)
         op_remove_input(op, blocknum);
         op_zero_multi(op);
     }
+#endif
 }
 
 void        funcdata::block_remove_internal(blockbasic *bb, bool unreachable)
@@ -4930,7 +4982,7 @@ void        funcdata::redundbranch_appy()
         bl = bb->get_out(0);
         if (bb->out.size() == 1) {
             if ((bl->in.size() == 1) && !bl->is_entry_point() && !bb->is_switch_out()) {
-                printf("found a block can splice, [%llx, %d]\n", bl->get_start().getOffset(), bl->dfnum);
+                printf("%sfound a block can splice, [%llx, %d]\n", print_indent(), bl->get_start().getOffset(), bl->dfnum);
 
                 splice_block_basic(bb);
                 i -= 1;
@@ -5129,6 +5181,27 @@ flowblock*  funcdata::dowhile2ifwhile(vector<flowblock *> &dowhile)
     return b;
 }
 
+char*       funcdata::print_indent(void)
+{
+    static char buf[128];
+    int i = 0;
+
+    pcodeop *c = callop;
+
+    while (c) {
+        buf[i++] = ' ';
+        buf[i++] = ' ';
+        buf[i++] = ' ';
+        buf[i++] = ' ';
+
+        c = c->parent->fd->callop;
+    }
+    buf[i] = 0;
+
+    return buf;
+}
+
+
 void        funcdata::alias_analysis(void)
 {
     list<pcodeop *>::iterator it = loadlist.begin();
@@ -5169,7 +5242,7 @@ void        funcdata::alias_analysis(void)
         }
     }
 
-    printf("alias_analysis spent %dms\n", clock() - start);
+    printf("%salias_analysis spent %dms\n", print_indent(), clock() - start);
 }
 
 flowblock*  funcdata::clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks)
