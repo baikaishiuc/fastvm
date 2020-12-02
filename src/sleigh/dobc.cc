@@ -854,6 +854,30 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             varnode *def = in2->def->output;
             output->type = def->type;
 
+            /* load - store 严格别名测试下Ok */
+            if (fd->test_strict_alias(this, in2->def)) {
+                /* 假如是类似于
+                1. mem[sp] = r0;
+                ... 
+                ...
+                n. r0 = mem[sp];
+                假如1 和 n之间没有更多的对r0的定义，我们认为可以删除这2条指令
+
+                n处的r0的版本号只能比 1出的r0版本号大1
+                */
+                varnode *ref = in2->def->get_in(2);
+                if ((output->get_addr() == ref->get_addr()) 
+                    && (output->version == (ref->version + 1))
+                    && (def->uses.size() == 1)) {
+
+                    while (num_input() > 0)
+                        fd->op_remove_input(this, 0);
+                    fd->op_set_opcode(this, CPUI_COPY);
+                    fd->op_set_input(this, ref, 0);
+
+                    fd->op_destroy(in2->def);
+                }
+            }
 #if 0
             if (in2->uses.size() == 1) {
                 fd->op_remove_input(this, 0);
@@ -2183,27 +2207,13 @@ void        funcdata::op_uninsert(pcodeop *op)
 
 void        funcdata::clear_block_phi(flowblock *b)
 {
-    varnode *out;
-    pcodeop *p, *use;
+    pcodeop *p;
     list<pcodeop *>::iterator it;
-    int slot;
 
     while ((p = b->ops.front())) {
         if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.phi) break;
 
-        out = p->output;
-        list<pcodeop *> copy = out->uses;
-        it = copy.begin();
-        for (; it != copy.end(); it++) {
-            use = *it;
-            if (use == p) continue;
-
-            slot = use->get_slot(out);
-            assert(slot >= 0);
-            op_set_input(use, new_varnode(out->size, out->get_addr()), slot);
-        }
-
-        op_destroy(p);
+        op_destroy_ssa(p);
     }
 }
 
@@ -3465,6 +3475,27 @@ void        funcdata::op_destroy(pcodeop *op)
     }
 }
 
+void        funcdata::op_destroy_ssa(pcodeop *p)
+{
+    varnode *out = p->output;
+    list<pcodeop *>::iterator it;
+    list<pcodeop *> copy = out->uses;
+    pcodeop *use;
+    int slot;
+
+    it = copy.begin();
+    for (; it != copy.end(); it++) {
+        use = *it;
+        if (use == p) continue;
+
+        slot = use->get_slot(out);
+        assert(slot >= 0);
+        op_set_input(use, new_varnode(out->size, out->get_addr()), slot);
+    }
+
+    op_destroy(p);
+}
+
 void        funcdata::inline_clone(funcdata *inlinefd, const Address &retaddr)
 {
     list<pcodeop *>::const_iterator iter;
@@ -4564,8 +4595,14 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
     int i, slot;
 
     for (oiter = bl->ops.begin(); oiter != bl->ops.end(); oiter++) {
-        op = *oiter;
+        op = *oiter ;
         if (op->opcode != CPUI_MULTIEQUAL) {
+            if ((op->opcode == CPUI_COPY) && (op->output->get_addr() == op->get_in(0)->get_addr())) {
+                oiter--;
+                op_destroy_ssa(op);
+                continue;
+            }
+
             for (slot = 0; slot < op->inrefs.size(); ++slot) {
                 vnin = op->get_in(slot);
 
@@ -5199,6 +5236,27 @@ char*       funcdata::print_indent(void)
     buf[i] = 0;
 
     return buf;
+}
+
+bool        funcdata::test_strict_alias(pcodeop *load, pcodeop *store)
+{
+    if (load->parent != store->parent) {
+        return false;
+    }
+
+    list<pcodeop *>::iterator it = store->basiciter;
+
+    for (; it != load->basiciter; it++) {
+        pcodeop *p = *it;
+
+        if (p->opcode != CPUI_STORE) continue;
+
+        /* 发现store - load链上有一个的地址无法识别，直接停止 */
+        if (p->get_in(1)->type.height == a_top)
+            return false;
+    }
+
+    return true;
 }
 
 

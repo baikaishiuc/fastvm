@@ -712,6 +712,7 @@ struct funcdata {
     pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
     void        op_destroy_raw(pcodeop *op);
     void        op_destroy(pcodeop *op);
+    void        op_destroy_ssa(pcodeop *op);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
@@ -974,6 +975,8 @@ struct funcdata {
     */
     flowblock*  dowhile2ifwhile(vector<flowblock *> &dowhile);
     char*       print_indent();
+    /* 跟严格的别名测试 */
+    bool        test_strict_alias(pcodeop *load, pcodeop *store);
 };
 
 struct func_call_specs {
