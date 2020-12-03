@@ -163,6 +163,8 @@ struct varnode {
     void            add_use(pcodeop *op);
     void            del_use(pcodeop *op);
     bool            is_free() { return !flags.written && !flags.input;  }
+    /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
+    bool            in_liverange(pcodeop *p);
 };
 
 #define PCODE_DUMP_VAL              0x01
@@ -206,6 +208,8 @@ struct pcodeop {
         unsigned input : 1;         // input有2种，一种是varnode的input，代表这个寄存器来自于
         unsigned phi : 1;           // 给opcode为cpy的节点使用，在删除只有2个入边的join node时，会导致这个节点的phi节点修改成
                                     // copy，这里要标识一下
+        unsigned vm_vis : 1;        // 给vm做标记用的
+        unsigned vm_eip : 1;
     } flags;
 
     OpCode opcode;
@@ -266,17 +270,23 @@ struct pcodeop {
 #define         ERR_MEET_CALC_BRANCH            1
 #define         ERR_UNPROCESSED_ADDR            2
 #define         ERR_CONST_CBRANCH               4
-    int             compute(int inslot, flowblock **branch);
+    /* 
+
+    branch:         计算的时候发现可以跳转的地址
+    wlist:          工作表，当我们跟新某些节点的时候，发现另外一些节点也需要跟新，就把它加入到这个链表内
+    */
+    int             compute(int inslot, flowblock **branch, list<pcodeop *> *wlist);
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
 
     bool            is_dead(void) { return flags.dead;  }
     bool            have_virtualnode(void) { return inrefs.size() == 3;  }
-    varnode*        get_virtualnode(void) { return inrefs[2];  }
+    varnode*        get_virtualnode(void) { return inrefs.size() == 3 ? inrefs[2]:NULL;  }
     bool            is_call(void) { return (opcode == CPUI_CALL) || callfd; }
     void            set_input() { flags.input = 1;  }
     intb            get_call_offset() { return get_in(0)->get_addr().getOffset(); }
+    bool            is_prev_op(pcodeop *p);
 };
 
 typedef struct blockedge            blockedge;
@@ -1038,8 +1048,8 @@ struct dobc {
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
     AddrSpace *get_uniq_space() { return trans->getUniqueSpace();  }
 
-    void plugin_dvmp360();
-    void plugin_dvmp();
+    void    plugin_dvmp360();
+    void    vmp360_dump(pcodeop *p);
 
     void gen_sh(void);
     void init_abbrev();
