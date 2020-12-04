@@ -1222,6 +1222,15 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
             out->type.height = a_top;
         break;
 
+    case CPUI_INT_NEGATE:
+        if (in0->is_constant()) {
+            intb v = in0->get_val();
+            out->set_val(~v);
+        }
+        else
+            out->type.height = a_top;
+        break;
+
     case CPUI_INT_XOR:
         in1 = get_in(1);
         if (in0->is_constant() && in1->is_constant()) {
@@ -1259,6 +1268,9 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
         break;
 
     case CPUI_BOOL_NEGATE:
+        if (start.getTime() == 9725)
+            printf("a\n");
+
         if (in0->is_constant()) {
             out->set_val(in0->get_val() ? 0:1);
         }
@@ -1644,6 +1656,8 @@ void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
 
 int         flowblock::sub_id() 
 { 
+    if (ops.size() == 0) return 0;
+
     list<pcodeop *>::const_iterator iter = ops.begin();
     return (*iter)->start.getTime();
 }
@@ -3355,6 +3369,8 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
     AssemblyRaw assem;
     char obuf[2048];
 
+    if (b->ops.size() == 0) return;
+
     assem.set_buf(obuf);
 
     // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
@@ -3490,8 +3506,8 @@ void        funcdata::dump_cfg(const string &name, const char *postfix, int dump
         for (j = 0; j < b->out.size(); ++j) {
             blockedge *e = &b->out[j];
 
-                fprintf(fp, "loc_%x ->loc_%x [label = \"%s\" color=\"%s\" penwidth=%d]\n",
-                    b->sub_id(), e->point->sub_id(),  e->is_true() ? "true":"false", edge_color(e), edge_width(e));
+            fprintf(fp, "loc_%x ->loc_%x [label = \"%s\" color=\"%s\" penwidth=%d]\n",
+                b->sub_id(), e->point->sub_id(),  e->is_true() ? "true":"false", edge_color(e), edge_width(e));
         }
     }
 
@@ -3604,6 +3620,11 @@ pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
         op_set_input(newop1, clone_varnode(op->get_in(i)), i);
 
     newop1->callfd = op->callfd;
+    newop1->disaddr = new Address (op->get_dis_addr());
+
+    if (newop1->get_dis_addr().getOffset() == 0x536e84) {
+        printf("a\n");
+    }
 
     return newop1;
 }
@@ -3625,7 +3646,7 @@ void        funcdata::op_destroy(pcodeop *op)
 {
     int i;
 
-    if (op->start.getTime() == 8978) {
+    if (op->start.getTime() == 9078) {
         printf("a\n");
     }
 
@@ -3848,7 +3869,6 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
         Address addr2(d->get_code_space(), user_offset + p->get_addr().getOffset());
         SeqNum seq(addr2, op_uniqid++);
         op = cloneop(p, seq);
-        op->disaddr = new Address (p->get_addr());
 
         op_insert(op, callop->parent, callop->basiciter);
     }
@@ -3877,15 +3897,6 @@ void        funcdata::cond_pass(void)
             heritage_clear();
             heritage();
             dead_code_elimination(bblocks.blist);
-
-#if 1
-            if (g_time > 3) {
-                char buf[128];
-                sprintf(buf, "_inline%d", g_time);
-                dump_cfg(name, buf, 1);
-                exit(0);
-            }
-#endif
 
             continue;
         }
@@ -4111,14 +4122,14 @@ void        funcdata::heritage(void)
 
     constant_propagation(0);
 
+    alias_analysis();
+    constant_propagation(1);
+
     if (callop) {
         char buf[128];
         sprintf(buf, "cond_%d_orig", callop->start.getTime());
         dump_cfg(name, buf, 1);
     }
-
-    alias_analysis();
-    constant_propagation(1);
     printf("%sheritage scan node end. \n", print_indent());
 }
 
@@ -4598,7 +4609,6 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
         Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
         const SeqNum sq(addr2, op_uniqid++);
         op = cloneop(p, sq);
-        op->disaddr = new Address(p->get_dis_addr());
         op_insert(op, cur, cur->ops.end());
     }
     cur->set_initial_range(addr, addr);
@@ -4702,8 +4712,10 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
             worklist.push_back(in->def);
         }
 
-        if (marks[op->parent->dfnum])
+        if (marks[op->parent->dfnum]) {
+            //printf("dce pcode: %d\n", op->start.getTime());
             op_destroy(op);
+        }
     }
 }
 
@@ -4798,7 +4810,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
             for (slot = 0; slot < op->inrefs.size(); ++slot) {
                 vnin = op->get_in(slot);
 
-                if (vnin->flags.annotation || vnin->is_constant())
+                if (vnin->flags.annotation || (vnin->is_constant() && vnin->get_addr().isConstant()))
                     continue;
 
                 vector<varnode *> &stack(varstack[vnin->get_addr()]);
@@ -5273,7 +5285,6 @@ flowblock*  funcdata::clone_block(flowblock *f)
         Address addr2(d->get_code_space(), user_offset + op->get_addr().getOffset());
         SeqNum seq(addr2, op_uniqid++);
         p = cloneop(op, seq);
-        p->disaddr = new Address(op->get_dis_addr());
 
         op_insert(p, b, b->ops.end());
     }
