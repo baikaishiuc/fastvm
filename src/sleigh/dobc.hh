@@ -433,10 +433,11 @@ struct flowblock {
     int         get_out_index(const flowblock *bl);
 
     void        clear(void);
-    void        remove_edge(flowblock *begin, flowblock *end);
+    int         remove_edge(flowblock *begin, flowblock *end);
     void        add_edge(flowblock *begin, flowblock *end);
+    void        add_edge(flowblock *b, flowblock *e, int label);
     void        add_in_edge(flowblock *b, int lab);
-    void        remove_in_edge(int slot);
+    int         remove_in_edge(int slot);
     void        remove_out_edge(int slot);
     void        half_delete_out_edge(int slot);
     void        half_delete_in_edge(int slot);

@@ -412,7 +412,7 @@ void    dobc::vmp360_dump(pcodeop *p)
         if ((in1->type.height == a_rel_constant) && (in1->get_val() == -0x1bc)) {
             p->flags.vm_eip = 1;
             if (!p->flags.vm_vis && (in2->type.height == a_constant)) {
-                printf("addr = %llx, p%d, store VMEIP = %lld\n", p->get_dis_addr().getOffset(), p->start.getTime(), in2->get_val());
+                //printf("addr = %llx, p%d, store VMEIP = %lld\n", p->get_dis_addr().getOffset(), p->start.getTime(), in2->get_val());
                 p->flags.vm_vis = 1;
             }
         }
@@ -1268,9 +1268,6 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
         break;
 
     case CPUI_BOOL_NEGATE:
-        if (start.getTime() == 9725)
-            printf("a\n");
-
         if (in0->is_constant()) {
             out->set_val(in0->get_val() ? 0:1);
         }
@@ -1716,7 +1713,7 @@ void        flowblock::clear_marks(void)
         blist[i]->clear_mark();
 }
 
-void        flowblock::remove_edge(flowblock *begin, flowblock *end)
+int         flowblock::remove_edge(flowblock *begin, flowblock *end)
 {
     int i;
     for (i = 0; i < end->in.size(); i++) {
@@ -1724,12 +1721,17 @@ void        flowblock::remove_edge(flowblock *begin, flowblock *end)
             break;
     }
 
-    end->remove_in_edge(i);
+    return end->remove_in_edge(i);
 }
 
 void        flowblock::add_edge(flowblock *begin, flowblock *end)
 {
     end->add_in_edge(begin, 0);
+}
+
+void        flowblock::add_edge(flowblock *begin, flowblock *end, int label)
+{
+    end->add_in_edge(begin, label);
 }
 
 void        flowblock::add_in_edge(flowblock *b, int lab)
@@ -1740,13 +1742,16 @@ void        flowblock::add_in_edge(flowblock *b, int lab)
     b->out.push_back(blockedge(this, lab, brev));
 }
 
-void        flowblock::remove_in_edge(int slot)
+int         flowblock::remove_in_edge(int slot)
 {
     flowblock *b = in[slot].point;
+    int label = in[slot].label;
     int rev = in[slot].reverse_index;
 
     half_delete_in_edge(slot);
     b->half_delete_out_edge(rev);
+
+    return label;
 }
 
 void        flowblock::remove_out_edge(int slot)
@@ -1810,6 +1815,7 @@ blockedge* flowblock::get_true_edge(void)
             return &out[i];
     }
 
+    fd->dump_cfg(fd->name, "check000", 1);
     throw LowlevelError("not found true edge in flowblock");
 }
 
@@ -1968,11 +1974,8 @@ list<pcodeop *>::reverse_iterator flowblock::get_rev_iterator(pcodeop *op)
 
 flowblock*  flowblock::add_block_if(flowblock *b, flowblock *cond, flowblock *tc)
 {
-    add_edge(b, cond);
-    b->out[0].set_true();
-
+    add_edge(b, cond, a_true_edge);
     add_edge(b, tc);
-    b->out[1].set_false();
 
     return b;
 }
@@ -3577,10 +3580,18 @@ void        funcdata::destroy_varnode(varnode *vn)
     delete_varnode(vn);
 }
 
+static int g_times = 0;
+
 void        funcdata::delete_varnode(varnode *vn)
 {
     if (vn->def) {
         printf("warn:try to remove varnode have def[%d] forbidden. %s:%d\n", vn->def->start.getTime(), __FILE__,__LINE__);
+        g_times++;
+
+        if (g_times == 3) {
+            dump_cfg(name, "test", 1);
+            exit(1);
+        }
         return;
     }
 
@@ -3607,24 +3618,23 @@ varnode*    funcdata::set_input_varnode(varnode *vn)
 
 pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
 {
-    int i;
-    pcodeop *newop1 = newop(op->inrefs.size(), seq);
+    int i, sz;
+    sz = (op->opcode == CPUI_LOAD) ? 2:op->inrefs.size();
+
+    pcodeop *newop1 = newop(sz, seq);
     op_set_opcode(newop1, op->opcode);
 
     newop1->flags.startinst = op->flags.startinst;
     newop1->flags.startblock = op->flags.startblock;
-    if (op->output)
+    /* 我们有时候会给store分配一个虚拟的varnode节点，不要拷贝它 */
+    if (op->output && (op->opcode != CPUI_STORE))
         op_set_output(newop1, clone_varnode(op->output));
     
-    for (i = 0; i < op->inrefs.size(); i++)
+    for (i = 0; i < sz; i++)
         op_set_input(newop1, clone_varnode(op->get_in(i)), i);
 
     newop1->callfd = op->callfd;
     newop1->disaddr = new Address (op->get_dis_addr());
-
-    if (newop1->get_dis_addr().getOffset() == 0x536e84) {
-        printf("a\n");
-    }
 
     return newop1;
 }
@@ -3645,10 +3655,6 @@ void        funcdata::op_destroy_raw(pcodeop *op)
 void        funcdata::op_destroy(pcodeop *op)
 {
     int i;
-
-    if (op->start.getTime() == 9078) {
-        printf("a\n");
-    }
 
     if (op->output)
         destroy_varnode(op->output);
@@ -3926,11 +3932,6 @@ void        funcdata::cond_pass(void)
     }
 
     dead_code_elimination(bblocks.blist);
-
-    if (this->callop->parent->fd->callop == NULL) {
-        dump_cfg(name, "check", 1);
-        exit(1);
-    }
 }
 
 void        funcdata::set_caller(funcdata *caller1, pcodeop *callop1)
@@ -4124,12 +4125,6 @@ void        funcdata::heritage(void)
 
     alias_analysis();
     constant_propagation(1);
-
-    if (callop) {
-        char buf[128];
-        sprintf(buf, "cond_%d_orig", callop->start.getTime());
-        dump_cfg(name, buf, 1);
-    }
     printf("%sheritage scan node end. \n", print_indent());
 }
 
@@ -5411,8 +5406,8 @@ flowblock*  funcdata::dowhile2ifwhile(vector<flowblock *> &dowhile)
 
     b = clone_block(dowhile[0]);
 
-    bblocks.remove_edge(before, dw);
-    bblocks.add_edge(before, b);
+    int label = bblocks.remove_edge(before, dw);
+    bblocks.add_edge(before, b, label & a_true_edge);
     bblocks.add_block_if(b, dw, after);
 
     clear_block_phi(after);
