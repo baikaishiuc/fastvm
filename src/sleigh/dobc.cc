@@ -938,11 +938,19 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
                 out->set_val(*(intb *)buf);
 
 #if 0
-            while (num_input() > 0)
-                fd->op_remove_input(this, 0);
+            if (in1->get_val()) {
+                /* FIXME:理论上我们不能访问地址为0的地址，但是实际中可能会无法避免这个情况，在cond_line时，
+                我们发现了某个分支无法进入，但是优化依然会进行下去
+                */
+                while (num_input() > 0)
+                    fd->op_remove_input(this, 0);
 
-            fd->op_set_opcode(this, CPUI_COPY);
-            fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
+                fd->op_set_opcode(this, CPUI_COPY);
+                fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
+                flags.copy_from_load = 1;
+            }
+            else
+                flags.zero_load = 1;
 #endif
 
             //printf("addr=%llx, pcode=%d, load ram, pos = %llx, val = %llx\n", get_dis_addr().getOffset(), start.getTime(), in1->type.v, out->get_val());
@@ -2365,7 +2373,7 @@ void        funcdata::op_zero_multi(pcodeop *op)
     }
     else if (op->num_input() == 1) {
         op_set_opcode(op, CPUI_COPY);
-        op->flags.phi = 1;
+        op->flags.copy_from_phi = 1;
     }
 }
 
@@ -2393,7 +2401,7 @@ void        funcdata::clear_block_phi(flowblock *b)
     list<pcodeop *>::iterator it;
 
     while ((p = b->ops.front())) {
-        if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.phi) break;
+        if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.copy_from_phi) break;
 
         op_destroy_ssa(p);
     }
@@ -3580,18 +3588,10 @@ void        funcdata::destroy_varnode(varnode *vn)
     delete_varnode(vn);
 }
 
-static int g_times = 0;
-
 void        funcdata::delete_varnode(varnode *vn)
 {
     if (vn->def) {
         printf("warn:try to remove varnode have def[%d] forbidden. %s:%d\n", vn->def->start.getTime(), __FILE__,__LINE__);
-        g_times++;
-
-        if (g_times == 3) {
-            dump_cfg(name, "test", 1);
-            exit(1);
-        }
         return;
     }
 
@@ -3858,7 +3858,7 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
 
     fd.cond_pass();
 
-    sprintf(buf, "cond_%d_2", callop->start.getTime());
+    sprintf(buf, "cond_%d", callop->start.getTime());
     fd.dump_cfg(fd.name, buf, 1);
 
     assert(1 == fd.bblocks.get_size());
@@ -3880,6 +3880,9 @@ void        funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     }
 
     op_destroy(callop);
+
+    heritage_clear();
+    heritage();
 }
 
 
@@ -3915,21 +3918,18 @@ void        funcdata::cond_pass(void)
                 v.push_back(p->parent);
                 dowhile2ifwhile(v);
                 p = bblocks.first_callop_vmp(NULL);
-
                 heritage_clear();
                 heritage();
             }
 
             cond_inline(p->callfd, p);
-
             g_time++;
-
-            heritage_clear();
-            heritage();
-
             continue;
         }
     }
+
+    heritage_clear();
+    heritage();
 
     dead_code_elimination(bblocks.blist);
 }
@@ -4756,16 +4756,36 @@ void        funcdata::place_multiequal(void)
         calc_phi_placement(writevars);
         for (i = 0; i < merge.size(); ++i) {
             bl = merge[i];
-            multiop = newop(bl->in.size(), bl->get_start());
-            varnode *vnout = new_varnode_out(size, addr, multiop);
 
-            op_set_opcode(multiop, CPUI_MULTIEQUAL);
-            for (j = 0; j < bl->in.size(); j++) {
+            list<pcodeop *>::iterator it = bl->ops.begin();
+            varnode *vnout = NULL;
+
+            for (multiop = NULL; it != bl->ops.end(); it++) {
+                pcodeop *p = *it;
+
+                if (p->opcode != CPUI_MULTIEQUAL) break;
+                if (p->output->get_addr() == addr) {
+                    multiop = p;
+                    break;
+                }
+            }
+
+            if (!multiop) {
+                multiop = newop(bl->in.size(), bl->get_start());
+                vnout = new_varnode_out(size, addr, multiop);
+                op_set_opcode(multiop, CPUI_MULTIEQUAL);
+                op_insert_begin(multiop, bl);
+                j = 0;
+            }
+            else {
+                j = multiop->num_input();
+            }
+
+            for (; j < bl->in.size(); j++) {
                 vnin = new_varnode(size, addr);
                 op_set_input(multiop, vnin, j);
             }
 
-            op_insert_begin(multiop, bl);
         }
     }
 

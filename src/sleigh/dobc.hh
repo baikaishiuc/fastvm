@@ -206,10 +206,12 @@ struct pcodeop {
         unsigned inlined : 1;       // 这个opcode已经被inline过了
         unsigned changed : 1;       // 这个opcode曾经被修改过
         unsigned input : 1;         // input有2种，一种是varnode的input，代表这个寄存器来自于
-        unsigned phi : 1;           // 给opcode为cpy的节点使用，在删除只有2个入边的join node时，会导致这个节点的phi节点修改成
+        unsigned copy_from_phi : 1;           // 给opcode为cpy的节点使用，在删除只有2个入边的join node时，会导致这个节点的phi节点修改成
                                     // copy，这里要标识一下
         unsigned vm_vis : 1;        // 给vm做标记用的
         unsigned vm_eip : 1;
+        unsigned copy_from_load : 1;    // 这个copy命令来自于load
+        unsigned zero_load : 1;         // 0地址访问
     } flags;
 
     OpCode opcode;
