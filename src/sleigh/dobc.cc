@@ -367,7 +367,7 @@ void dobc::plugin_dvmp360()
     while (changed) {
         changed = 0;
 
-        fd_main->constant_propagation(0);
+        fd_main->constant_propagation2();
 
         // 发现CBRANCH列表不为空，说明有条件判断语句为常量
         if (!fd_main->cbrlist.empty()) {
@@ -771,6 +771,13 @@ void    pcodeop::set_opcode(OpCode op)
     opcode = op;
 }
 
+void            pcodeop::clear_input(int slot) 
+{
+    if (start.getTime() == 264)
+        printf("a\n");
+    inrefs[slot] = NULL; 
+}
+
 void    pcodeop::remove_input(int slot)
 {
     for (int i = slot + 1; i < inrefs.size(); i++)
@@ -858,6 +865,10 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     return i;
 }
 
+#define PEEPHOLE_COPY           1
+#define PEEPHOLE_CODE_LOAD      1
+#define PEEPHOLE_CONSTANT_LOAD        1
+
 int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *> *wlist)
 {
     varnode *in0, *in1, *in2, *out;
@@ -937,62 +948,11 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
             else if (out->size == 8)
                 out->set_val(*(intb *)buf);
 
-#if 0
-            if (in1->get_val()) {
-                /* FIXME:理论上我们不能访问地址为0的地址，但是实际中可能会无法避免这个情况，在cond_line时，
-                我们发现了某个分支无法进入，但是优化依然会进行下去
-                */
-                while (num_input() > 0)
-                    fd->op_remove_input(this, 0);
-
-                fd->op_set_opcode(this, CPUI_COPY);
-                fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
-                flags.copy_from_load = 1;
-            }
-            else
-                flags.zero_load = 1;
-#endif
 
             //printf("addr=%llx, pcode=%d, load ram, pos = %llx, val = %llx\n", get_dis_addr().getOffset(), start.getTime(), in1->type.v, out->get_val());
         }
         else if (in2) { // 别名分析过
-            varnode *def = in2->def->output;
-            output->type = def->type;
-
-            /* load - store 严格别名测试下Ok */
-            if (fd->test_strict_alias(this, in2->def)) {
-                /* 假如是类似于
-                1. mem[sp] = r0;
-                ... 
-                ...
-                n. r0 = mem[sp];
-                假如1 和 n之间没有更多的对r0的定义，我们认为可以删除
-
-                n处的r0的版本号只能比 1出的r0版本号大1
-                */
-                varnode *ref = in2->def->get_in(2);
-                if ((output->get_addr() == ref->get_addr()) 
-                    && (output->version == (ref->version + 1))) {
-#if 0
-                    while (num_input() > 0)
-                        fd->op_remove_input(this, 0);
-                    fd->op_set_opcode(this, CPUI_COPY);
-                    fd->op_set_input(this, ref, 0);
-
-                    if (def->uses.size() == 0) 
-                        fd->destroy_varnode(in2->def->output);
-#endif
-                }
-            }
-#if 0
-            if (in2->uses.size() == 1) {
-                fd->op_remove_input(this, 0);
-                fd->op_remove_input(this, 1);
-                fd->op_remove_input(this, 2);
-                fd->op_set_opcode(this, CPUI_COPY);
-                fd->op_set_input(this, in2->def->get_in(2), 0);
-            }
-#endif
+            output->type = in2->type;
         }
         else if ((inslot >= 0) && (store = fd->trace_store_query(in1))) { // trace流中
             out->type = store->get_in(2)->type;
@@ -1000,6 +960,37 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
         /* 假如这个值确认来自于外部，不要跟新他 */
         else if (!flags.input)
             out->type.height = a_top;
+
+        if (out->is_constant()) {
+            /* FIXME:理论上我们不能访问地址为0的地址，但是实际中可能会无法避免这个情况，在cond_line时，
+            我们发现了某个分支无法进入，但是优化依然会进行下去
+            */
+#if 0
+            if (in1->get_val() == 0) flags.zero_load = 1;
+            to_constant();
+            flags.copy_from_load = 1;
+#endif
+        }
+        else if (in2) {
+            varnode* _in2 = in2->def->get_in(2);
+
+            /*
+            mem[x] = a1;
+            a2 = mem[x];
+
+            转换成
+            a2 = a1
+            */
+#if 0
+            if ((output->get_addr() == _in2->get_addr()) && (output->version == (_in2->version + 1))) {
+                while (num_input() > 0)
+                    fd->op_remove_input(this, 0);
+
+                fd->op_set_opcode(this, CPUI_COPY);
+                fd->op_set_input(this, _in2, 0);
+            }
+#endif
+        }
 
         break;
 
@@ -1012,6 +1003,22 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
         if (output) {
             output->type = in2->type;
         }
+
+        if (in2->is_constant() && in2->def) {
+            varnode *vn = fd->create_constant_vn(in2->get_val(), in2->size);
+
+            fd->op_unset_input(this, 2);
+            fd->op_set_input(this, vn, 2);
+        }
+
+        /*
+        假如出现了这样的 
+
+        a = mem[x];
+        mem[x] = a;
+
+        那么直接删除掉对a的引用
+        */
 
         break;
 
@@ -1314,7 +1321,7 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
         if (inslot >= 0) {
             output->type = get_in(inslot)->type;
         }
-        else {
+        else if (!flags.force_constant){
             for (i = 1; i < inrefs.size(); i++) {
                 in1 = get_in(i);
                 if (in0->type != in1->type)
@@ -1345,6 +1352,17 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
     if ((this == parent->last_op()) && (parent->out.size() == 1))
         *branch = parent->get_out(0);
 
+#if 0
+    if (output && output->is_constant() && (opcode != CPUI_COPY) && (opcode != CPUI_STORE)) {
+        if (opcode == CPUI_LOAD) flags.copy_from_load = 1;
+        while (num_input() > 0)
+            fd->op_remove_input(this, 0);
+
+        fd->op_set_opcode(this, CPUI_COPY);
+        fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
+    }
+#endif
+
     /* 计算sp */
 
     return ret;
@@ -1371,6 +1389,29 @@ bool            pcodeop::is_prev_op(pcodeop *p)
     return false;
 }
 
+void            pcodeop::to_constant(void)
+{
+    funcdata *fd = parent->fd;
+
+    while (num_input() > 0)
+        fd->op_remove_input(this, 0);
+
+    fd->op_set_opcode(this, CPUI_COPY);
+    fd->op_set_input(this, fd->create_constant_vn(output->get_val(), output->size), 0);
+}
+
+void            pcodeop::to_nop(void)
+{
+    funcdata *fd = parent->fd;
+
+    while (num_input() > 0)
+        fd->op_remove_input(this, 0);
+
+    if (output)
+        fd->destroy_varnode(output);
+
+    fd->op_set_opcode(this, CPUI_COPY);
+}
 
 flowblock::flowblock(funcdata *f)
 {
@@ -3576,7 +3617,7 @@ void        funcdata::destroy_varnode(varnode *vn)
         */
         if (!op) continue;
 
-        op->inrefs[op->get_slot(vn)] = NULL;
+        op->clear_input(op->get_slot(vn));
     }
 
     if (vn->def) {
@@ -3828,10 +3869,6 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
         qlst.push_back(cs);
     }
 
-    /* 原始的Ghidra中，inline只能inline call，但是因为branch也可以模拟call，所以branch也能inline的 */
-    if (callop->opcode == CPUI_CALL) {
-    }
-
     generate_blocks();
 }
 
@@ -3891,7 +3928,7 @@ void        funcdata::cond_pass(void)
     int changed = 1;
     pcodeop *p;
 
-    constant_propagation(0);
+    constant_propagation2();
 
     int g_time = 0;
 
@@ -3924,6 +3961,11 @@ void        funcdata::cond_pass(void)
 
             cond_inline(p->callfd, p);
             g_time++;
+
+            if (g_time == 4) {
+                dump_cfg(name, "check4", 1);
+                exit(1);
+            }
             continue;
         }
     }
@@ -4055,7 +4097,9 @@ int funcdata::collect(Address addr, int size, vector<varnode *> &read, vector<va
     addr = addr + size;
 
     if (addr.getOffset() < start) {
-        assert(0);
+        //assert(0);
+        Address tmp(addr.getSpace(), addr.getSpace()->getHighest());
+        enditer = end_loc(tmp);
     }
     else
         enditer = begin_loc(addr);
@@ -4121,10 +4165,10 @@ void        funcdata::heritage(void)
     place_multiequal();
     rename();
 
-    constant_propagation(0);
+    constant_propagation2();
 
-    alias_analysis();
-    constant_propagation(1);
+    //alias_analysis();
+    //constant_propagation(1);
     printf("%sheritage scan node end. \n", print_indent());
 }
 
@@ -4142,6 +4186,91 @@ void    funcdata::heritage_clear()
 
     maxdepth = -1;
     pass = 0;
+}
+
+int     funcdata::constant_propagation2()
+{
+    list<pcodeop *>::const_iterator iter;
+    list<pcodeop *> w = deadlist;
+    list<pcodeop *>::const_iterator iter1;
+    int ret = 0;
+    flowblock *b;
+
+    while (!w.empty()) {
+        iter = w.begin();
+        pcodeop *op = *iter;
+        w.erase(iter);
+
+        if (op->flags.dead) continue;
+
+        ret |= op->compute(-1, &b, &w);
+
+        varnode *out = op->output;
+
+        if ((op->opcode == CPUI_STORE) && (op->get_in(1)->type.height != a_top)) {
+            for (iter1 = op->mayuses.begin(); iter1 != op->mayuses.end(); ++iter1) {
+                pcodeop *use = *iter1;
+                w.push_back(use);
+            }
+            op->mayuses.clear();
+        }
+
+        if (!out) continue;
+
+        if (out->is_constant() || out->is_rel_constant()) {
+            for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
+                pcodeop *use = *iter1;
+                w.push_back(use);
+            }
+
+        }
+        else if ((op->opcode == CPUI_LOAD) && !op->get_virtualnode() && !op->flags.input) {
+            pcodeop *maydef = NULL;
+            pcodeop *load = op;
+ 
+            pcodeop *maystore = NULL;
+
+            if (load->start.getTime() == 330) {
+                printf("a\n");
+            }
+
+            pcodeop *store = store_query(load, &maystore);
+
+            if (!store) {
+                if (maystore) {
+                    maystore->add_mayuse(load);
+                }
+                continue;
+            }
+
+            safe_aliaslist.push_back(load);
+            w.push_back(load);
+            if (store->parent->fd != this) {
+                load->output->type = store->get_in(2)->type;
+                load->flags.input = 1;
+                continue;
+            }
+
+            varnode *in = store->get_in(1);
+            safe_aliaslist.push_back(store);
+
+            /* 假如这个store已经被分析过，直接把store的版本设置过来 */
+            if (store->output) {
+                op_set_input(load, store->output, 2);
+            }
+            else {
+                Address oaddr(d->get_uniq_space(), virtualbase += in->size);
+                varnode *out;
+                out = new_varnode_out(in->size, oaddr, store);
+
+                op_resize(load, 3);
+                op_set_input(load, out, 2);
+                w.push_back(store);
+            }
+        }
+    }
+
+    return ret;
 }
 
 int     funcdata::constant_propagation(int listype)
@@ -4430,7 +4559,7 @@ pcodeop*    funcdata::trace_store_query(varnode *vn)
     return NULL;
 }
 
-pcodeop*    funcdata::store_query(pcodeop *load)
+pcodeop*    funcdata::store_query(pcodeop *load, pcodeop **maystore)
 {
     list<pcodeop *>::reverse_iterator it = load->parent->get_rev_iterator(load);
     flowblock *b = load->parent, *bb;
@@ -4441,11 +4570,16 @@ pcodeop*    funcdata::store_query(pcodeop *load)
         for (; it != b->ops.rend(); it++) {
             p = *it;
 
-            if (p->callfd && p->callfd->have_side_effect())
+            if (!p->flags.inlined && p->callfd && p->callfd->have_side_effect())
                 return NULL;
             if (p->opcode != CPUI_STORE) continue;
 
             varnode *a = p->get_in(1);
+
+            if (a->type.height == a_top) {
+                if (b->fd == this) *maystore = p;
+                return NULL;
+            }
 
             if (a->type == pos->type)
                 return p;
@@ -4786,6 +4920,11 @@ void        funcdata::place_multiequal(void)
                 op_set_input(multiop, vnin, j);
             }
 
+            /* FIXME: 硬编码，用来标注虚拟机开头 */
+            if ((bl->get_start().getOffset() == 0xcbc0) && (addr == d->r3_addr)) {
+                multiop->output->set_rel_constant(d->sp_addr, -0x188);
+                multiop->flags.force_constant = 1;
+            }
         }
     }
 
@@ -5332,81 +5471,33 @@ int         funcdata::get_input_sp_val()
         return 0;
 }
 
-void        funcdata::alias_collect(void)
-{
-    list<pcodeop *>::iterator it;
-    pcodeop *p;
-    varnode *in;
-
-    varnode_gvn_map   gvn;
-    varnode_gvn_map::iterator it_gvn;
-
-    for (it = storelist.begin(); it != storelist.end(); it++) {
-        p = *it;
-        if (p->is_dead()) continue;
-
-        in = p->get_in(1);
-
-        vector<pcodeop *> &v(gvn[in]);
-        v.push_back(p);
-
-        if (p->output)
-            destroy_varnode(p->output);
-    }
-
-    for (it = loadlist.begin(); it != loadlist.end(); it++) {
-        p = *it;
-        if (p->is_dead()) continue;
-
-        vector<pcodeop *> &v(gvn[in]);
-        v.push_back(p);
-
-        if (p->inrefs.size() == 3)
-            op_remove_input(p, 2);
-    }
-
-    it_gvn = gvn.begin();
-    for (it_gvn = gvn.begin(); it_gvn != gvn.end(); it_gvn++) {
-        vector<pcodeop *> &v(it_gvn->second);
-        vector<pcodeop *>::iterator itp;
-        varnode *vn;
-
-        int size = p->get_in(1)->size;
-        Address addr(d->get_uniq_space(), virtualbase += size);
-
-        for (itp = v.begin(); itp != v.end(); itp++) {
-            pcodeop *p = *itp;
-
-            if (p->opcode == CPUI_LOAD) {
-                vn = new_varnode(p->get_in(1)->size, addr);
-
-                vn->flags.virtualnode = 1;
-
-                op_resize(p, 3);
-                op_set_input(p, vn, 2);
-            }
-            else {
-                vn = new_varnode_out(p->get_in(1)->size, addr, p);
-            }
-        }
-    }
-}
-
-void        funcdata::alias_propagation(void)
-{
-}
-
 void        funcdata::alias_clear(void)
 {
-    list<pcodeop *>::iterator it = safe_aliaslist.begin();
+    list<pcodeop *> w = storelist;
+    list<pcodeop *>::iterator it;
+
+    w.insert(w.end(), loadlist.begin(), loadlist.end());
     varnode *vn;
     /* 清除别名信息 */
-    for (; it != safe_aliaslist.end(); it++) {
+    for (it = w.begin(); it != w.end(); it++) {
         pcodeop *op = *it;
 
+#if 1
+        if ((op->opcode != CPUI_STORE) && (op->opcode != CPUI_LOAD)) continue;
+
+        vn = (op->opcode == CPUI_STORE) ? op->output : op->get_virtualnode();
+
+        if (vn)
+            destroy_varnode(vn);
+
+        if ((op->opcode == CPUI_LOAD) && (op->num_input() == 3) && !op->get_in(2))
+            op->remove_input(2);
+#else
         if (op->opcode != CPUI_LOAD) continue;
         if (vn = op->get_virtualnode())
             destroy_varnode(vn);
+#endif
+
     }
 
     safe_aliaslist.clear();
@@ -5478,6 +5569,62 @@ bool        funcdata::test_strict_alias(pcodeop *load, pcodeop *store)
     return true;
 }
 
+void        funcdata::alias_analysis2(void)
+{
+    list<pcodeop *> worklist = loadlist;
+    list<pcodeop *>::iterator it;
+    pcodeop *load, *maydef;
+    flowblock *b = NULL;
+
+    while (!worklist.empty()) {
+        it = worklist.begin();
+        load = *it;
+        worklist.erase(it);
+
+        maydef = NULL;
+        pcodeop *store = store_query(load, &maydef);
+
+        if (!store) {
+            if (maydef) worklist.push_back(maydef);
+            continue;
+        }
+
+        /* 来自于caller，假如来自caller就无法建立use-def链了，直接把值复制过来 */
+        if (store->parent->fd != this) {
+            load->output->type = store->get_in(2)->type;
+            load->flags.input = 1;
+            safe_aliaslist.push_back(load);
+            continue;
+        }
+
+        //printf("pcode load[%d] = store[%d]\n", load->start.getTime(), store->start.getTime());
+        varnode *in = store->get_in(1);
+        safe_aliaslist.push_back(store);
+        safe_aliaslist.push_back(load);
+
+        /* 假如这个store已经被分析过，直接把store的版本设置过来 */
+        if (store->output) {
+            op_set_input(load, store->output, 2);
+        }
+        else {
+            Address oaddr(d->get_uniq_space(), virtualbase += in->size);
+            varnode *out;
+            out = new_varnode_out(in->size, oaddr, store);
+
+            op_resize(load, 3);
+            op_set_input(load, out, 2);
+        }
+
+        load->compute(-1, &b, NULL);
+
+        if (load->output->is_constant() || load->output->is_rel_constant()) {
+            list<pcodeop *>::iterator use;
+            for (use = load->output->uses.begin(); use != load->output->uses.end(); use++) {
+                worklist.push_back(*use);
+            }
+        }
+    }
+}
 
 void        funcdata::alias_analysis(void)
 {
@@ -5487,7 +5634,7 @@ void        funcdata::alias_analysis(void)
         pcodeop *load = *it;
         if (load->is_dead()) continue;
 
-        pcodeop *store = store_query(load);
+        pcodeop *store = store_query(load, NULL);
 
         if (!store) continue;
 
@@ -5502,6 +5649,7 @@ void        funcdata::alias_analysis(void)
         //printf("pcode load[%d] = store[%d]\n", load->start.getTime(), store->start.getTime());
         varnode *in = store->get_in(1);
         safe_aliaslist.push_back(store);
+        safe_aliaslist.push_back(load);
 
         /* 假如这个store已经被分析过，直接把store的版本设置过来 */
         if (store->output) {

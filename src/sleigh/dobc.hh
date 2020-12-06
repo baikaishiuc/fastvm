@@ -212,7 +212,8 @@ struct pcodeop {
         unsigned vm_eip : 1;
         unsigned copy_from_load : 1;    // 这个copy命令来自于load
         unsigned zero_load : 1;         // 0地址访问
-    } flags;
+        unsigned force_constant : 1;    // 强制常量，用来在某些地方硬编码时，不方便计算，人工计算后，强行填入
+    } flags = { 0 };
 
     OpCode opcode;
     /* 一个指令对应于多个pcode，这个是用来表示inst的 */
@@ -231,6 +232,7 @@ struct pcodeop {
     list<pcodeop *>::iterator basiciter;
     list<pcodeop *>::iterator insertiter;
     list<pcodeop *>::iterator codeiter;
+    list<pcodeop *> mayuses;
 
     pcodeop(int s, const SeqNum &sq);
     ~pcodeop();
@@ -243,7 +245,7 @@ struct pcodeop {
     const Address&  get_dis_addr(void) { return disaddr ? disaddr[0] : get_addr(); }
 
     int             num_input() { return inrefs.size();  }
-    void            clear_input(int slot) { inrefs[slot] = NULL; }
+    void            clear_input(int slot);
     void            remove_input(int slot);
     void            insert_input(int slot);
 
@@ -289,6 +291,11 @@ struct pcodeop {
     void            set_input() { flags.input = 1;  }
     intb            get_call_offset() { return get_in(0)->get_addr().getOffset(); }
     bool            is_prev_op(pcodeop *p);
+    /* 当自己的结果值为output时，把自己整个转换成copy形式的constant */
+    void            to_constant(void);
+    /* 转换成nop指令 */
+    void            to_nop(void);
+    void            add_mayuse(pcodeop *p) { mayuses.push_back(p);  }
 };
 
 typedef struct blockedge            blockedge;
@@ -884,6 +891,7 @@ struct funcdata {
     0: ok
     1: 发现可以被别名分析的load store */
     int         constant_propagation(int listype);
+    int         constant_propagation2();
     int         cond_constant_propagation();
     int         in_cbrlist(pcodeop *op) {
         for (int i = 0; i < cbrlist.size(); i++) {
@@ -926,7 +934,7 @@ struct funcdata {
     void        trace_clear();
     pcodeop*    trace_load_query(varnode *vn);
     pcodeop*    trace_store_query(varnode *vn);
-    pcodeop*    store_query(pcodeop *load);
+    pcodeop*    store_query(pcodeop *load, pcodeop **maystore);
     bool        loop_unrolling(flowblock *h, int times);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
@@ -954,9 +962,8 @@ struct funcdata {
     char*       get_dir(char *buf);
     int         get_input_sp_val();
 
-    void        alias_collect(void);
-    void        alias_propagation(void);
     void        alias_analysis(void);
+    void        alias_analysis2(void);
 
     bool        have_side_effect(void) { return funcp.flags.side_effect;  }
     void        alias_clear(void);
