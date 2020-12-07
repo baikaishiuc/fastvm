@@ -869,7 +869,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
 #define PEEPHOLE_CODE_LOAD      1
 #define PEEPHOLE_CONSTANT_LOAD        1
 
-int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *> *wlist)
+int             pcodeop::compute(int inslot, flowblock **branch)
 {
     varnode *in0, *in1, *in2, *out;
     funcdata *fd = parent->fd;
@@ -1352,9 +1352,10 @@ int             pcodeop::compute(int inslot, flowblock **branch, list<pcodeop *>
     if ((this == parent->last_op()) && (parent->out.size() == 1))
         *branch = parent->get_out(0);
 
-#if 0
+#if 1
     if (output && output->is_constant() && (opcode != CPUI_COPY) && (opcode != CPUI_STORE)) {
         if (opcode == CPUI_LOAD) flags.copy_from_load = 1;
+        if (opcode == CPUI_MULTIEQUAL) flags.copy_from_phi = 1;
         while (num_input() > 0)
             fd->op_remove_input(this, 0);
 
@@ -3392,7 +3393,7 @@ void        funcdata::dump_pcode(const char *postfix)
         if (p->flags.dead) continue;
 
         if (p->get_dis_addr() != prev_addr) {
-            if (p->opcode == CPUI_MULTIEQUAL) {
+            if ((p->opcode == CPUI_MULTIEQUAL) || p->flags.copy_from_phi) {
                 fprintf(fp, "<tr>"
                     "<td><font color=\"" COLOR_ASM_STACK_DEPTH "\">000</font></td>"
                     "<td><font color=\"" COLOR_ASM_ADDR "\">0000</font></td>"
@@ -3962,10 +3963,6 @@ void        funcdata::cond_pass(void)
             cond_inline(p->callfd, p);
             g_time++;
 
-            if (g_time == 4) {
-                dump_cfg(name, "check4", 1);
-                exit(1);
-            }
             continue;
         }
     }
@@ -4203,7 +4200,7 @@ int     funcdata::constant_propagation2()
 
         if (op->flags.dead) continue;
 
-        ret |= op->compute(-1, &b, &w);
+        ret |= op->compute(-1, &b);
 
         varnode *out = op->output;
 
@@ -4288,7 +4285,7 @@ int     funcdata::constant_propagation(int listype)
 
         if (op->flags.dead) continue;
 
-        ret |= op->compute(-1, &b, &w);
+        ret |= op->compute(-1, &b);
 
         varnode *out = op->output;
         if (!out) continue;
@@ -4687,7 +4684,7 @@ bool       funcdata::loop_unrolling(flowblock *h, int times)
                 p = *it;
 
                 br = NULL;
-                ret = p->compute(inslot, &br, NULL);
+                ret = p->compute(inslot, &br);
 
 #if 0
                 char buf[256];
@@ -4838,6 +4835,11 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
             if (in->get_addr().isConstant()) continue;
             /* 输入节点是没有def的 */
             if (in->is_input()) continue;
+            if (!in->def) {
+                dump_cfg(name, "check", 1);
+                printf("a\n");
+                exit(1);
+            }
             worklist.push_back(in->def);
         }
 
@@ -5615,7 +5617,7 @@ void        funcdata::alias_analysis2(void)
             op_set_input(load, out, 2);
         }
 
-        load->compute(-1, &b, NULL);
+        load->compute(-1, &b);
 
         if (load->output->is_constant() || load->output->is_rel_constant()) {
             list<pcodeop *>::iterator use;
