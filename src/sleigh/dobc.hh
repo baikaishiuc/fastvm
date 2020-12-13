@@ -82,7 +82,8 @@ struct valuetype {
     intb v = 0;
     Address rel;
 
-    int cmp(const valuetype &b);
+    int cmp(const valuetype &b) const;
+    bool operator<(const valuetype &b) const { return cmp(b) < 0; }
     bool operator==(const valuetype &b) { return cmp(b) == 0;  }
     bool operator!=(const valuetype &b) { return !operator==(b); }
 };
@@ -126,7 +127,7 @@ struct varnode {
         unsigned    readonly : 1;
 
         unsigned    covertdirty : 1;    // cover没跟新
-        unsigned    virtualnode: 1;     // 虚拟节点，用来做load store分析用
+        unsigned    virtualnode : 1;     // 虚拟节点，用来做load store分析用
     } flags = { 0 };
 
     int size = 0;
@@ -148,21 +149,21 @@ struct varnode {
 
     const Address &get_addr(void) const { return (const Address &)loc; }
     bool            is_heritage_known(void) const { return (flags.insert | flags.annotation) || is_constant(); }
-    bool            has_no_use(void) { return uses.empty();  }
+    bool            has_no_use(void) { return uses.empty(); }
 
     void            set_def(pcodeop *op);
-    pcodeop*        get_def() { return def;  }
-    bool            is_constant(void) const { return type.height == a_constant;  }
+    pcodeop*        get_def() { return def; }
+    bool            is_constant(void) const { return type.height == a_constant; }
     void            set_val(intb v) { type.height = a_constant;  type.v = v; }
-    bool            is_rel_constant(void) { return type.height == a_rel_constant;  }
+    bool            is_rel_constant(void) { return type.height == a_rel_constant; }
     bool            is_input(void) { return flags.input; }
-    void            set_rel_constant(Address &r, int v) { type.height = a_rel_constant; type.v = v;  type.rel = r;  }
+    void            set_rel_constant(Address &r, int v) { type.height = a_rel_constant; type.v = v;  type.rel = r; }
     intb            get_val(void);
     Address         &get_rel(void) { return type.rel; }
 
     void            add_use(pcodeop *op);
     void            del_use(pcodeop *op);
-    bool            is_free() { return !flags.written && !flags.input;  }
+    bool            is_free() { return !flags.written && !flags.input; }
     /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
     bool            in_liverange(pcodeop *p);
 };
@@ -213,6 +214,7 @@ struct pcodeop {
         unsigned copy_from_load : 1;    // 这个copy命令来自于load
         unsigned zero_load : 1;         // 0地址访问
         unsigned force_constant : 1;    // 强制常量，用来在某些地方硬编码时，不方便计算，人工计算后，强行填入
+        unsigned trace : 1;
     } flags = { 0 };
 
     OpCode opcode;
@@ -274,6 +276,7 @@ struct pcodeop {
 #define         ERR_MEET_CALC_BRANCH            1
 #define         ERR_UNPROCESSED_ADDR            2
 #define         ERR_CONST_CBRANCH               4
+#define         ERR_FREE_SELF                   8
     /* 
 
     branch:         计算的时候发现可以跳转的地址
@@ -293,9 +296,14 @@ struct pcodeop {
     bool            is_prev_op(pcodeop *p);
     /* 当自己的结果值为output时，把自己整个转换成copy形式的constant */
     void            to_constant(void);
+    void            to_copy(varnode *in);
     /* 转换成nop指令 */
     void            to_nop(void);
     void            add_mayuse(pcodeop *p) { mayuses.push_back(p);  }
+    bool            is_trace() { return flags.trace;  }
+    void            set_trace() { flags.trace = 1; }
+    void            clear_trace() { flags.trace = 0;  }
+    void            peephole(void);
 };
 
 typedef struct blockedge            blockedge;
@@ -730,6 +738,7 @@ struct funcdata {
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
     pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
+    pcodeop*    cloneopv(pcodeop *op);
     void        op_destroy_raw(pcodeop *op);
     void        op_destroy(pcodeop *op);
     void        op_destroy_ssa(pcodeop *op);
@@ -997,6 +1006,7 @@ struct funcdata {
     char*       print_indent();
     /* 跟严格的别名测试 */
     bool        test_strict_alias(pcodeop *load, pcodeop *store);
+    void        remove_dead_store(flowblock *b);
 };
 
 struct func_call_specs {
