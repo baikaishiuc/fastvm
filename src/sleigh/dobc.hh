@@ -379,6 +379,8 @@ struct flowblock {
 
         /* 这个block快内有call函数 */
         unsigned f_call : 1;
+        /* 不允许合并 */
+        unsigned f_unsplice : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -491,6 +493,8 @@ struct flowblock {
     /* 搜索到哪个节点为止 */
     pcodeop*    first_callop_vmp(flowblock *end);
     bool        in_loop(flowblock *h);
+    void        mark_unsplice() { flags.f_unsplice = 1;  }
+    bool        is_unsplice() { return flags.f_unsplice; }
 };
 
 typedef struct priority_queue   priority_queue;
@@ -858,7 +862,7 @@ struct funcdata {
     然后这些opcode，理论上是可以放到一个大的switch里面处理掉的，有些写壳的作者会硬是把
     这个大的switch表拆成多个函数
     */
-    void        cond_inline(funcdata *inlinefd, pcodeop *fd);
+    flowblock*  cond_inline(funcdata *inlinefd, pcodeop *fd);
     void        cond_pass(void);
     void        set_caller(funcdata *caller, pcodeop *callop);
 
@@ -944,7 +948,10 @@ struct funcdata {
     pcodeop*    trace_load_query(varnode *vn);
     pcodeop*    trace_store_query(varnode *vn);
     pcodeop*    store_query(pcodeop *load, pcodeop **maystore);
-    bool        loop_unrolling(flowblock *h, int times);
+#define _DUMP_PCODE             0x01
+#define _DUMP_ORIG_CASE         0x02
+    bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
+    bool        loop_unrolling(flowblock *h, int times, uint32_t flags);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
     */
@@ -1007,6 +1014,7 @@ struct funcdata {
     /* 跟严格的别名测试 */
     bool        test_strict_alias(pcodeop *load, pcodeop *store);
     void        remove_dead_store(flowblock *b);
+    bool        has_no_use_ex(varnode *vn);
 };
 
 struct func_call_specs {
