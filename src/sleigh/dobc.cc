@@ -384,18 +384,19 @@ void dobc::plugin_dvmp360()
         }
     }
 #endif
-    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1, 0);
+
+    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
 
     fd_main->dump_pcode("1");
     fd_main->dump_cfg(fd_main->name, "1", 1);
     fd_main->dump_djgraph("1", 1);
     fd_main->dump_store_info("1");
 
-    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1, 0);
+    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, "2", 1);
 
-    fd_main->loop_unrolling(fd_main->get_vm_loop_header(), 1, _DUMP_PCODE | _DUMP_ORIG_CASE);
+    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, "3", 1);
 }
@@ -735,7 +736,11 @@ inline bool varnode_cmp_def_loc::operator()(const varnode *a, const varnode *b) 
 
 inline bool pcodeop_cmp_def::operator()(const pcodeop *a, const pcodeop *b) const
 {
-    return a->output->get_addr() < b->output->get_addr();
+    int c1 = a->output ? a->output->create_index : 0;
+    int c2 = b->output ? b->output->create_index : 0;
+
+    return c1 < c2;
+    //return a->output->get_addr() < b->output->get_addr();
 }
 
 inline bool varnode_cmp_gvn::operator()(const varnode *a, const varnode *b) const
@@ -996,6 +1001,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             r0(1) = mem[x]
             修改第2条指令会 cpy r0(1), r0(0)
             */
+#if 1
             if (!is_trace() && (_in2->get_addr() == out->get_addr()) && (_in2->version + 1) == (out->version)) {
                 while (num_input())
                     fd->op_remove_input(this, 0);
@@ -1003,9 +1009,14 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 fd->op_set_opcode(this, CPUI_COPY);
                 fd->op_set_input(this, _in2, 0);
             }
+#endif
         }
-        else if ((inslot >= 0) && (store = fd->trace_store_query(in1))) { // trace流中
-            out->type = store->get_in(2)->type;
+        else if ((inslot >= 0)) { // trace流中
+            if (store = fd->trace_store_query(in1)) {
+                out->type = store->get_in(2)->type;
+            }
+            else
+                out->type.height = a_top;
         }
         /* 假如这个值确认来自于外部，不要跟新他 */
         else if (!flags.input)
@@ -2306,7 +2317,7 @@ funcdata::funcdata(const char *nm, const Address &a, int size, dobc *d1)
 
     vbank.uniqbase = 0x100000;
     vbank.uniqid = vbank.uniqbase;
-    vbank.create_index = 0;
+    vbank.create_index = 1;
 }
 
 funcdata::~funcdata(void)
@@ -3802,6 +3813,10 @@ void        funcdata::op_destroy(pcodeop *op)
 {
     int i;
 
+    if (op->start.getTime() == 5271) {
+        printf("a\n");
+    }
+
     if (op->output)
         destroy_varnode(op->output);
 
@@ -3997,6 +4012,9 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     fd.generate_ops_start();
     fd.generate_blocks();
     fd.heritage();
+
+    sprintf(buf, "cond_%d_before", callop->start.getTime());
+    fd.dump_cfg(fd.name, buf, 1);
 
     fd.cond_pass();
 
@@ -4605,52 +4623,22 @@ bool        funcdata::trace_push(pcodeop *op)
 void        funcdata::trace_push_op(pcodeop *op)
 {
     trace.push_back(op);
-
-    switch (op->opcode) {
-    case CPUI_STORE:
-        aliaslist.push_back(op);
-        break;
-
-    case CPUI_LOAD:
-        aliaslist.push_back(op);
-        break;
-
-    default:break;
-    }
 }
 
 void        funcdata::trace_clear()
 {
     trace.clear();
-    aliaslist.clear();
-}
-
-pcodeop*    funcdata::trace_load_query(varnode *vn)
-{
-    list<pcodeop *>::reverse_iterator it;
-    pcodeop *p;
-    varnode *in;
-
-    for (it = aliaslist.rbegin(); it != aliaslist.rend(); it++) {
-        p = *it;
-        if (p->opcode == CPUI_LOAD) {
-            in = p->get_in(1);
-            if (in->type == vn->type)
-                return p;
-        }
-    }
-
-    return NULL;
 }
 
 pcodeop*    funcdata::trace_store_query(varnode *vn)
 {
-    list<pcodeop *>::reverse_iterator it;
+    vector<pcodeop *>::reverse_iterator it;
     pcodeop *p;
     varnode *in;
 
-    for (it = aliaslist.rbegin(); it != aliaslist.rend(); it++) {
+    for (it = trace.rbegin(); it != trace.rend(); it++) {
         p = *it;
+        if (p->opcode == CPUI_CALL) return NULL;
         if (p->opcode == CPUI_STORE) {
             in = p->get_in(1);
             if (in->type == vn->type)
@@ -4710,7 +4698,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, pcodeop **maystore)
                 stack.push_back(b->get_in(i));
             }
 
-            while (stack.empty()) {
+            while (!stack.empty()) {
                 b = stack.back();
                 stack.pop_back();
 
@@ -4759,11 +4747,10 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 {
     int unroll_times = 0;
     int i, inslot, ret;
-    flowblock *start,  *cur, *prev, *br, *web;
+    flowblock *start,  *cur, *prev, *br, *tmpb;
     list<pcodeop *>::const_iterator it;
     const SeqNum sq;
     pcodeop *p, *op;
-    int unrolling;
 
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
@@ -4777,7 +4764,6 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
         trace_push(start->last_op());
         cur = h;
 
-        unrolling = 0;
         do {
             printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
 
@@ -4798,32 +4784,17 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
                     printf("%s\n", buf);
                 }
 
-                if (p->opcode == CPUI_CALL) {
-                    unrolling = 1;
-                    break;
-                }
-
                 trace_push(p);
             }
 
-            if (unrolling)
-                break;
-
             if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
-                throw LowlevelError("loop_unrolling meet unsupport branch");
+                printf("found undefined-bcond in block[%x]\n", cur->sub_id());
+                break;
             }
 
             prev = cur;
             cur = br;
         } while (cur != h);
-    }
-
-    cur = trace.back()->parent;
-    while ((p = trace.back())->parent == cur) {
-        p->clear_trace();
-        flowblock *tmpb = NULL;
-        p->compute(-1, &tmpb);
-        trace.pop_back();
     }
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
@@ -4832,16 +4803,19 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
     user_offset += user_step;
     Address addr(d->get_code_space(), user_offset);
     /* 进入节点抛弃 */
-    for (i = 0; trace[i]->parent == start; i++);
+    for (i = 0; trace[i]->parent == start; i++) {
+        p->clear_trace();
+        p->compute(-1, &tmpb);
+    }
     /* 从主循环开始 */
     for (; i < trace.size(); i++) {
         p = trace[i];
-        flowblock *tmpb = NULL;
+        tmpb = NULL;
         p->clear_trace();
         p->compute(-1, &tmpb);
         /* 最后一个节点的jmp指令不删除 */
-        if ((i != trace.size() - 1) 
-            && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND))
+        if ((i != (trace.size() - 1)) 
+            && ((p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND)))
             continue;
 
         Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
@@ -4853,10 +4827,13 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
     trace_clear();
 
     vector<flowblock *> cloneblks;
-    web = clone_web(br->get_out(0), h, cloneblks);
+    if (ret != ERR_MEET_CALC_BRANCH) {
+        clone_ifweb(cur, br, h, cloneblks);
+    }
+    else {
+        bblocks.add_edge(cur, h);
+    }
     cloneblks.push_back(cur);
-
-    bblocks.add_edge(cur, web);
 
     /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
     bblocks.remove_edge(start, h);
@@ -5345,17 +5322,25 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
     for (slot = 0; slot < domchild[i].size(); ++slot)
         rename_recurse(domchild[i][slot], varstack);
 
+    /*
+    假如这个节点是出口节点，切变量为系统寄存器，则加入出口活跃变量集合
+    */
+    if (bl->is_end()) {
+        variable_stack::iterator it;
+        for (it = varstack.begin(); it != varstack.end(); it++) {
+            vector<varnode *> &stack = it->second;
+            pair<pcodeop_def_set::iterator, bool> check;
+            varnode *v;
+            if (!stack.empty() && (v = stack.back())->is_reg() && v->def)
+                topname.insert(v->def);
+        }
+    }
+
     for (i = 0; i < writelist.size(); ++i) {
         vnout = writelist[i];
 
         vector<varnode *> &stack(varstack[vnout->get_addr()]);
         varnode *v = stack.back();
-
-        if (v->get_addr().getSpace()->getType() == IPTR_PROCESSOR) {
-            pair<pcodeop_def_set::iterator, bool> check;
-            topname.insert(v->def);
-        }
-
         stack.pop_back();
     }
 }
@@ -5950,6 +5935,67 @@ void        funcdata::alias_analysis(void)
             op_set_input(load, out, 2);
         }
     }
+}
+
+flowblock*  funcdata::clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks)
+{
+    int i, j;
+    blockbasic *b, *out;
+    vector<flowblock *> stack;
+    vector<flowblock *> webs;
+
+    if (start->out.size() != 2)
+        throw LowlevelError("only clone ifweb");
+
+    stack.push_back(start->get_out(0));
+    stack.push_back(start->get_out(1));
+    stack[0]->set_mark();
+    stack[1]->set_mark();
+
+    while (!stack.empty()) {
+        b = stack.back();
+        stack.pop_back();
+        webs.push_back(b);
+
+        for (i = 0; i < b->out.size(); i++) {
+            out = b->get_out(i);
+            if (out == end) continue;
+
+            if (!out->is_mark()) {
+                stack.push_back(out);
+                out->set_mark();
+            }
+        }
+    }
+
+    for (i = 0; i < webs.size(); i++) {
+        b = clone_block(webs[i]);
+        webs[i]->copymap = b;
+
+        cloneblks.push_back(b);
+    }
+
+    out = start->get_out(0);
+    bblocks.add_edge(newstart, out->copymap, start->out[0].label);
+    out = start->get_out(1);
+    bblocks.add_edge(newstart, out->copymap, start->out[1].label);
+
+    for (i = 0; i < webs.size(); i++) {
+        for (j = 0; j < webs[i]->out.size(); j++) {
+            out = webs[i]->get_out(j);
+
+            bblocks.add_edge(webs[i]->copymap, out->copymap, webs[i]->out[j].label);
+        }
+    }
+
+    b = webs[0]->copymap;
+
+    for (i = 0; i < webs.size(); i++) {
+        webs[i]->copymap = NULL;
+        webs[i]->clear_mark();
+    }
+
+    return b;
 }
 
 flowblock*  funcdata::clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks)

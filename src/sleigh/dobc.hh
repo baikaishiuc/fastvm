@@ -166,6 +166,7 @@ struct varnode {
     bool            is_free() { return !flags.written && !flags.input; }
     /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
     bool            in_liverange(pcodeop *p);
+    bool            is_reg() { return get_addr().getSpace()->getType() == IPTR_PROCESSOR; }
 };
 
 #define PCODE_DUMP_VAL              0x01
@@ -495,6 +496,7 @@ struct flowblock {
     bool        in_loop(flowblock *h);
     void        mark_unsplice() { flags.f_unsplice = 1;  }
     bool        is_unsplice() { return flags.f_unsplice; }
+    bool        is_end() { return out.size() == 0;  }
 };
 
 typedef struct priority_queue   priority_queue;
@@ -686,7 +688,6 @@ struct funcdata {
 
     /* heritage end  ============================================= */
     vector<pcodeop *>   trace;
-    list<pcodeop *> aliaslist;
     int             virtualbase = 0x10000;
     /*---*/
 
@@ -973,6 +974,7 @@ struct funcdata {
     /* 循环展开时用，从start节点开始，搜索start可以到的所有节点到 end为止，全部复制出来
     最后的web包含start，不包含end */
     flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
+    flowblock*  clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_block(flowblock *f);
 
     char*       get_dir(char *buf);
