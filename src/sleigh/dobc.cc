@@ -396,6 +396,7 @@ void dobc::plugin_dvmp360()
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, "2", 1);
 
+    //fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, _DUMP_ORIG_CASE);
     fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, "3", 1);
@@ -4745,6 +4746,64 @@ pcodeop*    funcdata::store_query(pcodeop *load, pcodeop **maystore)
 
 bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 {
+    flowblock *cur = loop_unrolling(h, flags);
+    pcodeop *p;
+
+    if (flags & _DUMP_ORIG_CASE)
+        return 0;
+
+    vector<flowblock *> stack;
+    vector<flowblock *> v;
+
+    stack.push_back(cur);
+
+    cur->mark_unsplice();
+
+    while (stack.back() != h) {
+        flowblock *b = stack.back();
+        list<pcodeop *>::iterator it;
+
+        /* 是循环节点，进行循环展开 */
+        if (b->get_back_edge_count()) {
+            loop_unrolling(b, _DUMP_PCODE | _DONT_CLONE);
+            stack.pop_back();
+            dump_cfg(name, "check1", 1);
+            continue;
+        }
+        else {
+            /* 不是的话，检测块内 */
+            for (it = b->ops.begin(); it != b->ops.end(); it++) {
+                p = *it;
+                if (p->is_call() && d->test_cond_inline(d, p->get_call_offset()))
+                    break;
+            }
+
+            if (it == b->ops.end()) {
+                stack.push_back(b->get_out(0));
+                continue;
+            }
+
+            cond_inline(p->callfd, p);
+
+            b->mark_unsplice();
+            if (!cbrlist.empty())
+                cond_constant_propagation();
+
+            v.clear();
+            v.push_back(b);
+            dead_code_elimination(v);
+
+            dump_cfg(name, "check0", 1);
+        }
+
+        stack.push_back(b->get_out(0));
+    }
+
+    return true;
+}
+
+flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
+{
     int unroll_times = 0;
     int i, inslot, ret;
     flowblock *start,  *cur, *prev, *br, *tmpb;
@@ -4754,48 +4813,45 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
-    /* loop execute */
-    while (times--) {
-        /* 取loop的进入节点*/
-        prev = start = loop_pre_get(h, 0)->parent;
-        /* FIXME:压入trace堆栈 
-        这种压入方式有问题，无法识别 undefined bcond
-        */
-        trace_push(start->last_op());
-        cur = h;
+    /* 取loop的进入节点*/
+    prev = start = loop_pre_get(h, 0)->parent;
+    /* FIXME:压入trace堆栈 
+    这种压入方式有问题，无法识别 undefined bcond
+    */
+    trace_push(start->last_op());
+    cur = h;
 
-        do {
-            printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
+    do {
+        printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
 
-            it = cur->ops.begin();
-            inslot = cur->get_inslot(prev);
-            assert(inslot >= 0);
+        it = cur->ops.begin();
+        inslot = cur->get_inslot(prev);
+        assert(inslot >= 0);
 
-            for (; it != cur->ops.end(); it++) {
-                p = *it;
+        for (; it != cur->ops.end(); it++) {
+            p = *it;
 
-                br = NULL;
-                p->set_trace();
-                ret = p->compute(inslot, &br);
+            br = NULL;
+            p->set_trace();
+            ret = p->compute(inslot, &br);
 
-                if (flags & _DUMP_PCODE) {
-                    char buf[256];
-                    p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
-                    printf("%s\n", buf);
-                }
-
-                trace_push(p);
+            if (flags & _DUMP_PCODE) {
+                char buf[256];
+                p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
+                printf("%s\n", buf);
             }
 
-            if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
-                printf("found undefined-bcond in block[%x]\n", cur->sub_id());
-                break;
-            }
+            trace_push(p);
+        }
 
-            prev = cur;
-            cur = br;
-        } while (cur != h);
-    }
+        if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
+            printf("found undefined-bcond in block[%x]\n", cur->sub_id());
+            break;
+        }
+
+        prev = cur;
+        cur = br;
+    } while (cur != h);
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
     br = trace.back()->parent;
@@ -4828,7 +4884,17 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 
     vector<flowblock *> cloneblks;
     if (ret != ERR_MEET_CALC_BRANCH) {
-        clone_ifweb(cur, br, h, cloneblks);
+        if (flags & _DONT_CLONE) {
+            flowblock *out = br->get_out(0);
+            bblocks.add_edge(cur, out, br->out[0].label);
+            clear_block_phi(out);
+
+            out = br->get_out(1);
+            bblocks.add_edge(cur, out, br->out[1].label);
+            clear_block_phi(out);
+        }
+        else 
+            clone_ifweb(cur, br, h, cloneblks);
     }
     else {
         bblocks.add_edge(cur, h);
@@ -4848,185 +4914,9 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 
     dead_code_elimination(cloneblks);
 
-    if (flags & _DUMP_ORIG_CASE)
-        return 0;
-
-    p = bblocks.first_callop_vmp(h);
-
-    if (p) {
-        /* FIXME:我们暂时只处理简单的dowhile情形，实际上要做condinline的block，当前不能允许在任何dowhile块内，
-        你需要判断自己是不是在循环内，假如是的话，就要一直展开*/
-        vector<flowblock *> v;
-        if (bblocks.is_dowhile(p->parent)) {
-            v.push_back(p->parent);
-            p = dowhile2ifwhile(v)->first_callop();
-            heritage_clear();
-            heritage();
-        }
-
-        v.clear();
-        v.push_back(p->parent);
-        p->parent->mark_unsplice();
-        cond_inline(p->callfd, p);
-
-        dump_cfg(name, "check", 1);
-
-        if (!cbrlist.empty())
-            cond_constant_propagation();
-
-        dead_code_elimination(v);
-    }
-
-    return true;
+    return cur;
 }
 
-bool       funcdata::loop_unrolling(flowblock *h, int times, uint32_t flags)
-{
-    int unroll_times = 0;
-    int i, inslot, ret;
-    flowblock *start,  *cur, *prev, *br, *web;
-    list<pcodeop *>::const_iterator it;
-    const SeqNum sq;
-    pcodeop *p, *op;
-    int unrolling;
-
-    printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
-
-    /* loop execute */
-    while (times--) {
-        /* 取loop的进入节点*/
-        prev = start = loop_pre_get(h, 0)->parent;
-        /* FIXME:压入trace堆栈 
-        这种压入方式有问题，无法识别 undefined bcond
-        */
-        trace_push(start->last_op());
-        cur = h;
-
-        unrolling = 0;
-        do {
-            printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
-
-            it = cur->ops.begin();
-            inslot = cur->get_inslot(prev);
-            assert(inslot >= 0);
-
-            for (; it != cur->ops.end(); it++) {
-                p = *it;
-
-                br = NULL;
-                p->set_trace();
-                ret = p->compute(inslot, &br);
-
-                if (flags & _DUMP_PCODE) {
-                    char buf[256];
-                    p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
-                    printf("%s\n", buf);
-                }
-
-                if (p->opcode == CPUI_CALL) {
-                    unrolling = 1;
-                    break;
-                }
-
-                trace_push(p);
-            }
-
-            if (unrolling)
-                break;
-
-            if ((cur->out.size() > 1) && (ret != ERR_MEET_CALC_BRANCH)) {
-                throw LowlevelError("loop_unrolling meet unsupport branch");
-            }
-
-            prev = cur;
-            cur = br;
-        } while (cur != h);
-    }
-
-    cur = trace.back()->parent;
-    while ((p = trace.back())->parent == cur) {
-        p->clear_trace();
-        flowblock *tmpb = NULL;
-        p->compute(-1, &tmpb);
-        trace.pop_back();
-    }
-
-    /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
-    br = trace.back()->parent;
-    cur = bblocks.new_block_basic(this);
-    user_offset += user_step;
-    Address addr(d->get_code_space(), user_offset);
-    /* 进入节点抛弃 */
-    for (i = 0; trace[i]->parent == start; i++);
-    /* 从主循环开始 */
-    for (; i < trace.size(); i++) {
-        p = trace[i];
-        flowblock *tmpb = NULL;
-        p->clear_trace();
-        p->compute(-1, &tmpb);
-        /* 最后一个节点的jmp指令不删除 */
-        if ((i != trace.size() - 1) 
-            && (p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND))
-            continue;
-
-        Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
-        const SeqNum sq(addr2, op_uniqid++);
-        op = cloneop(p, sq);
-        op_insert(op, cur, cur->ops.end());
-    }
-    cur->set_initial_range(addr, addr);
-    trace_clear();
-
-    vector<flowblock *> cloneblks;
-    web = clone_web(br->get_out(0), h, cloneblks);
-    cloneblks.push_back(cur);
-
-    bblocks.add_edge(cur, web);
-
-    /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
-    bblocks.remove_edge(start, h);
-    bblocks.add_edge(start, cur);
-
-    structure_reset();
-
-    clear_block_phi(h);
-
-    heritage_clear();
-    heritage();
-
-    dead_code_elimination(cloneblks);
-
-    if (flags & _DUMP_ORIG_CASE)
-        return 0;
-
-    p = bblocks.first_callop_vmp(h);
-
-    if (p) {
-        /* FIXME:我们暂时只处理简单的dowhile情形，实际上要做condinline的block，当前不能允许在任何dowhile块内，
-        你需要判断自己是不是在循环内，假如是的话，就要一直展开*/
-        vector<flowblock *> v;
-        if (bblocks.is_dowhile(p->parent)) {
-            v.push_back(p->parent);
-            p = dowhile2ifwhile(v)->first_callop();
-            heritage_clear();
-            heritage();
-        }
-
-        v.clear();
-        v.push_back(p->parent);
-        p->parent->mark_unsplice();
-        cond_inline(p->callfd, p);
-
-        dump_cfg(name, "check", 1);
-
-        if (!cbrlist.empty())
-            cond_constant_propagation();
-
-        dead_code_elimination(v);
-    }
-
-    return true;
-}
 
 void        funcdata::dead_code_elimination(vector<flowblock *> blks)
 {

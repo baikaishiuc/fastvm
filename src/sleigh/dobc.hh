@@ -951,8 +951,10 @@ struct funcdata {
     pcodeop*    store_query(pcodeop *load, pcodeop **maystore);
 #define _DUMP_PCODE             0x01
 #define _DUMP_ORIG_CASE         0x02
+#define _DONT_CLONE             0x08
     bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
-    bool        loop_unrolling(flowblock *h, int times, uint32_t flags);
+
+    flowblock*  loop_unrolling(flowblock *h, uint32_t flags);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
     */
