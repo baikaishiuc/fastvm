@@ -1,4 +1,4 @@
-
+﻿
 
 #include "sleigh_arch.hh"
 #include "sleigh.hh"
@@ -8,7 +8,7 @@
 #include <iostream>
 #include <assert.h>
 
-#define strdup _strdup
+#define strdup _strdup 
 
 #define GEN_SH          "#!/bin/bash\n"  \
     "for filename in `find . -type f -name \"*.dot\" | xargs`\n"  \

@@ -1,4 +1,4 @@
-
+﻿
 #include "mcore/mcore.h"
 #include "elfloadimage.hh"
 
@@ -362,7 +362,7 @@ struct flowblock {
         unsigned f_entry_point : 1;
         /* 
         1. 在cbranch中被分析为不可达，确认为死 */
-        unsigned f_dead : 1;
+        unsigned f_dead : 1; 
 
         unsigned f_switch_case : 1;
         unsigned f_switch_default : 1;

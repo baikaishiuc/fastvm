@@ -1,4 +1,4 @@
-
+﻿
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -9,7 +9,7 @@ extern "C" {
 #include "config.h"
 #include "mcore/mcore.h"
 #include <fcntl.h>
-
+ 
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
