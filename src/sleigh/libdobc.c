@@ -1,6 +1,7 @@
-﻿
+
 
 #include "vm.h"
+#include <stdarg.h>
 
 #define ERROR_WARN      0
 #define ERROR_NOABORT   1

@@ -1,4 +1,4 @@
-﻿
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +63,8 @@ int             mdir_make(const char *dir)
 
 #else
 #include <dirent.h>
+#include <sys/stat.h>
+
 struct mdir {
     DIR *d;
 };

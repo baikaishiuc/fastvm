@@ -1,4 +1,4 @@
-﻿
+
 
 #include "sleigh_arch.hh"
 #include "sleigh.hh"
@@ -332,7 +332,8 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
     for (i = 0; i < count_of_array(pltlist); i++) {
         pltentry *e = pltlist + i;
         if ((e->addr == addr) && strstr(e->name, "vmp360")) {
-            Address addr(d->get_code_space(), addr);
+            uintb uaddr = (uintb)addr;
+            Address addr(d->get_code_space(), uaddr);
             return d->find_func(addr);
         }
     }
@@ -477,7 +478,7 @@ void dobc::init()
 
 void dobc::gen_sh(void)
 {
-    char buf[MAX_PATH];
+    char buf[260];
 
     sprintf(buf, "%s/gen.sh", filename.c_str());
     file_save(buf, GEN_SH, strlen(GEN_SH));
@@ -779,7 +780,7 @@ inline bool varnode_cmp_gvn::operator()(const varnode *a, const varnode *b) cons
 pcodeop::pcodeop(int s, const SeqNum &sq)
     :start(sq), inrefs(s)
 {
-    flags = { 0 };
+    memset(&flags, 0, sizeof(flags));
     flags.dead = 1;
     parent = 0;
 
@@ -2149,7 +2150,7 @@ pcodeop*    flowblock::first_callop_vmp(flowblock *end)
 void        funcdata::remove_dead_store(flowblock *b)
 {
     list<pcodeop *>::iterator it, it2;
-    map<valuetype, vector<pcodeop *>> m;
+    map<valuetype, vector<pcodeop *> > m;
     pcodeop *back;
 
     for (it = b->ops.begin(); it != b->ops.end(); it++) {
@@ -2182,7 +2183,7 @@ void        funcdata::remove_dead_store(flowblock *b)
 
 bool        in_loop(flowblock *h);
 
-void        flowblock::build_dom_tree(vector<vector<flowblock *>> &child)
+void        flowblock::build_dom_tree(vector<vector<flowblock *> > &child)
 {
     int i;
     flowblock *bl;

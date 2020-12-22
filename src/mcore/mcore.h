@@ -1,4 +1,4 @@
-﻿
+
 #ifndef __mcore_h__
 #define __mcore_h__
 
@@ -16,6 +16,7 @@ extern "C" {
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include "mcore/process.h"
 #endif
 
 #include "mcore/basic_types.h"
@@ -30,11 +31,10 @@ extern "C" {
 #include "mcore/pgm.h"
 #include "mcore/rbtree.h"
 #include "mcore/dynarray.h"
-#include "mcore/bitset.h"
+//#include "mcore/bitset.h"
 #include "mcore/queue.h"
 #include "mcore/graph.h"
 #include "mcore/image.h"
-#include "mcore/process.h"
 #include "mcore/minput.h"
 #include "mcore/file.h"
 #include "mcore/mheap.h"

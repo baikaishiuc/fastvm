@@ -1,4 +1,4 @@
-﻿
+
 #include "mcore/mcore.h"
 #include "elfloadimage.hh"
 
@@ -11,7 +11,7 @@ typedef struct jmptable     jmptable;
 typedef struct cpuctx       cpuctx;
 typedef struct funcproto    funcproto;
 typedef struct func_call_specs  func_call_specs;
-typedef map<Address, vector<varnode *>> variable_stack;
+typedef map<Address, vector<varnode *> > variable_stack;
 typedef struct valuetype    valuetype;
 
 class pcodeemit2 : public PcodeEmit {
@@ -433,7 +433,7 @@ struct flowblock {
     void        find_spanning_tree(vector<flowblock *> &preorder, vector<flowblock *> &rootlist);
     void        dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist);
     void        calc_forward_dominator(const vector<flowblock *> &rootlist);
-    void        build_dom_tree(vector<vector<flowblock *>> &child);
+    void        build_dom_tree(vector<vector<flowblock *> > &child);
     int         build_dom_depth(vector<int> &depth);
     bool        find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount);
     void        calc_loop();
@@ -502,7 +502,7 @@ struct flowblock {
 typedef struct priority_queue   priority_queue;
 
 struct priority_queue {
-    vector<vector<flowblock *>> queue;
+    vector<vector<flowblock *> > queue;
     int curdepth;
 
     priority_queue(void) { curdepth = -2;  }
@@ -667,8 +667,8 @@ struct funcdata {
     list<func_call_specs *>     qlst;
 
     /* heritage start ................. */
-    vector<vector<flowblock *>> domchild;
-    vector<vector<flowblock *>> augment;
+    vector<vector<flowblock *> > domchild;
+    vector<vector<flowblock *> > augment;
 #define boundary_node       1
 #define mark_node           2
 #define merged_node          4
@@ -822,7 +822,7 @@ struct funcdata {
     void        dump_cfg(const string &name, const char *postfix, int flag);
     void        dump_pcode(const char *postfix);
     /* dump dom-joint graph */
-    void        funcdata::dump_djgraph(const char *postfix, int flag);
+    void        dump_djgraph(const char *postfix, int flag);
 
     void        op_insert_before(pcodeop *op, pcodeop *follow);
     void        op_insert_after(pcodeop *op, pcodeop *prev);

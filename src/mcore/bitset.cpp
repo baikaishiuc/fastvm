@@ -1,6 +1,7 @@
-﻿
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "bitset.h"
 #include "mtime_ex.h"
 #include "print_util.h"

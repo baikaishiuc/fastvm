@@ -1,4 +1,4 @@
-﻿
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,7 +66,7 @@ int file_size(const char *filename)
 {
 	int ret;
 	struct stat st;
-	ret = _stat(filename, &st);
+	ret = stat(filename, &st);
 	return 0;
 }
 #endif

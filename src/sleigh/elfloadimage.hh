@@ -1,4 +1,3 @@
-﻿
 
 #include "loadimage.hh"
 
@@ -11,7 +10,7 @@ class ElfLoadImage : public LoadImageB {
     FILE *fp;
     int cur_sym;
     AddrSpace *codespace;
-    struct bitset *isdata;
+    //struct bitset *isdata;
 
 public:
     ElfLoadImage(const char *filename);

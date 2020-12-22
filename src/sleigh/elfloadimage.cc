@@ -1,4 +1,3 @@
-﻿
 #include "vm.h"
 #include "elfloadimage.hh"
 
@@ -19,7 +18,7 @@ ElfLoadImage::ElfLoadImage(const char *filename):LoadImageB(filename)
     filedata[0xfe8c + 3] = 0x00;
 #endif
 
-    isdata = bitset_new(filelen);
+    //isdata = bitset_new(filelen);
     cur_sym = -1;
 }
 
@@ -83,14 +82,15 @@ int ElfLoadImage::markData(int offset)
     if (offset & 3)
         vm_error("Address[0x%x] not align 4 byte", offset);
 
-    bitset_set(isdata, offset / 4, 1);
+    //bitset_set(isdata, offset / 4, 1);
 
     return 0;
 }
 
 bool ElfLoadImage::isData(const Address &a)
 {
-    return bitset_get(isdata, (int)a.getOffset() / 4);
+    //return bitset_get(isdata, (int)a.getOffset() / 4);
+    return false;
 }
 
 int ElfLoadImage::getSymbol(const char *symname, LoadImageFunc &record)

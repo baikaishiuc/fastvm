@@ -2181,7 +2181,7 @@ DecisionNode::~DecisionNode(void)
   vector<DecisionNode *>::iterator iter;
   for (iter = children.begin(); iter != children.end(); ++iter)
     delete *iter;
-  vector<pair<DisjointPattern *, Constructor *>>::iterator piter;
+  vector<pair<DisjointPattern *, Constructor *> >::iterator piter;
   for (piter = list.begin(); piter != list.end(); ++piter)
     delete (*piter).first; // Delete the patterns
 }
@@ -2422,8 +2422,8 @@ void DecisionNode::orderPatterns(DecisionProperties &props)
   //      the subconstructors.
   // This routine can determine if an intersection results from case 1) or case 2)
   int4 i, j, k;
-  vector<pair<DisjointPattern *, Constructor *>> newlist;
-  vector<pair<DisjointPattern *, Constructor *>> conflictlist;
+  vector<pair<DisjointPattern *, Constructor *> > newlist;
+  vector<pair<DisjointPattern *, Constructor *> > conflictlist;
 
   // Check for identical patterns
   for (i = 0; i < list.size(); ++i)
@@ -2500,7 +2500,7 @@ Constructor *DecisionNode::resolve(ParserWalker &walker) const
 {
   if (bitsize == 0)
   { // The node is terminal
-    vector<pair<DisjointPattern *, Constructor *>>::const_iterator iter;
+    vector<pair<DisjointPattern *, Constructor *> >::const_iterator iter;
     for (iter = list.begin(); iter != list.end(); ++iter)
       if ((*iter).first->isMatch(walker))
         return (*iter).second;

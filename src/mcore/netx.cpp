@@ -1,4 +1,4 @@
-﻿
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -468,6 +468,8 @@ int netx_set_keepalive(int fd, int idle_ms, int interval_ms, int times)
                   (long)netx_errno);
         return -1;
     }
+#elif __APPLE__
+    return -1;
 #else
     int keeplive_flag = 1;
     int keeplive_idle = (idle_ms?idle_ms:7200000) / 1000;

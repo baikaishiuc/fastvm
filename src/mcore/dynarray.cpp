@@ -1,4 +1,4 @@
-﻿
+
 
 #include <stdlib.h>
 #include "dynarray.h"
@@ -110,7 +110,7 @@ int dynarray_exist(struct dynarray *d, int k)
     int i;
 
     for (i = 0; i < d->len; i++) {
-        if ((int)d->ptab[i] == k)
+        if (d->ptab[i] == (void*)k)
             return 1;
     }
 

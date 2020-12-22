@@ -1,4 +1,4 @@
-﻿/* ###
+/* ###
  * IP: GHIDRA
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1754,7 +1754,7 @@ void SleighCompile::buildDecisionTrees(void)
   for (int4 i = 0; i < tables.size(); ++i)
     tables[i]->buildDecisionTree(props);
 
-  const vector<pair<Constructor *, Constructor *>> &ierrors(props.getIdentErrors());
+  const vector<pair<Constructor *, Constructor *> > &ierrors(props.getIdentErrors());
   if (ierrors.size() != 0)
   {
     string identMsg = "Constructor has identical pattern to constructor at ";
@@ -1768,7 +1768,7 @@ void SleighCompile::buildDecisionTrees(void)
     }
   }
 
-  const vector<pair<Constructor *, Constructor *>> &cerrors(props.getConflictErrors());
+  const vector<pair<Constructor *, Constructor *> > &cerrors(props.getConflictErrors());
   if (!lenientconflicterrors && cerrors.size() != 0)
   {
     string conflictMsg = "Constructor pattern cannot be distinguished from constructor at ";
