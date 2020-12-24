@@ -386,21 +386,25 @@ void dobc::plugin_dvmp360()
     }
 #endif
 
-    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
+
+    char buf[16];
+    int i;
+
+    for (i = 0; i < 7; i++) {
+        printf("loop unrolling %d times*************************************\n", i+1);
+        fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
+        fd_main->dead_code_elimination(fd_main->bblocks.blist);
+        fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
+    }
+
+        fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, _DUMP_PCODE);
+        fd_main->dead_code_elimination(fd_main->bblocks.blist);
+        fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
 
     fd_main->dump_pcode("1");
-    fd_main->dump_cfg(fd_main->name, "1", 1);
     fd_main->dump_djgraph("1", 1);
+    //fd_main->dump_phi_placement(17, 5300);
     fd_main->dump_store_info("1");
-
-    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
-    fd_main->dead_code_elimination(fd_main->bblocks.blist);
-    fd_main->dump_cfg(fd_main->name, "2", 1);
-
-    //fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, _DUMP_ORIG_CASE);
-    fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
-    fd_main->dead_code_elimination(fd_main->bblocks.blist);
-    fd_main->dump_cfg(fd_main->name, "3", 1);
 }
 
 void    dobc::vmp360_dump(pcodeop *p)
@@ -643,6 +647,25 @@ bool            funcdata::has_no_use_ex(varnode *vn)
     }
 
     return false;
+}
+
+void        funcdata::dump_phi_placement(int bid, int pid)
+{
+    flowblock *b = bblocks.get_block_by_index(bid);
+    pcodeop *p = b->get_pcode(pid);
+
+    if (!p) return;
+
+    vector<varnode *> writevars;
+
+    writevars.push_back(p->output);
+
+    calc_phi_placement(writevars);
+    printf("p%d merge point:", p->start.getTime());
+    for (int i = 0; i < merge.size(); i++) {
+        printf("%d ", merge[i]->index);
+    }
+    printf("\n");
 }
 
 void            varnode::add_use(pcodeop *op)
@@ -3529,12 +3552,12 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
     assem.set_buf(obuf);
 
     // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
-    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%llx(%d,%d)</font></td></tr>",
+    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%llx(%d,%d, h:%d)</font></td></tr>",
         b->sub_id(),
         block_color(b),
         b->get_start().getOffset(),
         b->dfnum,
-        b->index);
+        b->index, domdepth[b->index]);
 
     iter = b->ops.begin();
 
@@ -3560,6 +3583,7 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
 void        funcdata::dump_djgraph(const char *postfix, int flag)
 {
     char obuf[512];
+    flowblock *child;
 
     sprintf(obuf, "%s/djgraph_%s.dot", get_dir(obuf), postfix);
 
@@ -3579,23 +3603,22 @@ void        funcdata::dump_djgraph(const char *postfix, int flag)
         dump_block(fp, b, flag);
     }
 
-    for (i = 0; i < bblocks.blist.size(); ++i) {
-        blockbasic *b = bblocks.blist[i];
-        blockbasic *idom = b->immed_dom;
+    for (i = 0; i < (domchild.size() - 1); i++) {
+        flowblock *dom = bblocks.get_block(i);
 
-        if (idom)
-            fprintf(fp, "loc_%x ->loc_%x [color=\"red\" penwidth=3]\n", idom->sub_id(), b->sub_id());
+        for (j = 0; j < domchild[i].size(); j++) {
+            child = domchild[i][j];
+            fprintf(fp, "loc_%x ->loc_%x [color=\"red\" penwidth=3]\n", dom->sub_id(), child->sub_id());
+        }
 
-        if (!idom || idom->flags.f_mark) continue;
-        idom->flags.f_mark = 1;
-        for (j = 0; j < idom->out.size(); ++j) {
-            blockedge *e = &idom->out[j];
-
-            if (e->point->immed_dom != idom)
+        for (j = 0; j < dom->out.size(); j++) {
+            child = dom->get_out(j);
+            if (child->immed_dom != dom)
                 fprintf(fp, "loc_%x ->loc_%x [label = \"J\" color=\"blue\" penwidth=2]\n",
-                    idom->sub_id(), e->point->sub_id());
+                    dom->sub_id(), child->sub_id());
         }
     }
+
     clear_blocks_mark();
 
     fprintf(fp, "}");
@@ -3814,10 +3837,6 @@ void        funcdata::op_destroy_raw(pcodeop *op)
 void        funcdata::op_destroy(pcodeop *op)
 {
     int i;
-
-    if (op->start.getTime() == 5271) {
-        printf("a\n");
-    }
 
     if (op->output)
         destroy_varnode(op->output);
@@ -5034,7 +5053,7 @@ void        funcdata::place_multiequal(void)
         if (readvars.empty() && writevars.empty())
             continue;
 
-        calc_phi_placement(writevars);
+        calc_phi_placement2(writevars);
         for (i = 0; i < merge.size(); ++i) {
             bl = merge[i];
 
@@ -5068,10 +5087,6 @@ void        funcdata::place_multiequal(void)
                 }
 
                 j = multiop->num_input();
-            }
-
-            if (multiop->start.getTime() == 4691) {
-                printf("a\n");
             }
 
             for (; j < bl->in.size(); j++) {
@@ -5273,60 +5288,44 @@ void        funcdata::calc_phi_placement(const vector<varnode *> &write)
 
 void        funcdata::calc_phi_placement2(const vector<varnode *> &write)
 {
-    int i, j;
+    int i;
     flowblock *bl;
-    mergedj.clear();
+    pq.reset(maxdepth);
+    merge.clear();
 
     for (i = 0; i < write.size(); ++i) {
         bl = write[i]->def->parent;
-        j = bl->index;
-
-        pq.insert(bl, domdepth[j]);
-        bl->flags.f_mark = 0;
+        pq.insert(bl, domdepth[bl->index]);
     }
 
     while (!pq.empty()) {
         bl = pq.extract();
-        bl->set_mark();
-        visit_dj(write, bl);
+        phiflags[bl->index] |= visit_node;
+        visit_dj(bl, bl);
     }
 
-    for (i = 0; i < bblocks.get_size(); i++) {
-        bblocks.blist[i]->flags.f_mark = 0;
-    }
+    for (i = 0; i < phiflags.size(); ++i)
+        phiflags[i] = 0;
 }
 
-bool        funcdata::in_mergedj(flowblock *v) 
+void        funcdata::visit_dj(flowblock *cur, flowblock *v)
 {
     int i;
-    for (i = 0; i < mergedj.size(); i++) {
-        if (mergedj[i] == v)
-            return true;
-    }
-
-    return false;
-}
-
-void        funcdata::visit_dj(const vector<varnode *> &s, flowblock *v)
-{
-    int i, j;
 
     for (i = 0; i < v->out.size(); i++) {
         flowblock *out = v->get_out(i);
 
         if (out->immed_dom == v) continue;
 
-        if (domdepth[out->index] >= domdepth[v->index]) {
-            if (!in_mergedj(out)) {
-                mergedj.push_back(out);
+        if (domdepth[out->index] <= domdepth[cur->index]) {
+            if ((phiflags[out->index] & merged_node) == 0) {
+                merge.push_back(out);
+                phiflags[out->index] |= merged_node;
+            }
 
-                for (j = 0; j < s.size(); j++) {
-                    if (s[j]->def->parent == out)
-                        break;
-                }
-
-                if (j == s.size())
-                    pq.insert(out, domdepth[j]);
+            if ((phiflags[out->index] & mark_node) == 0) {
+                phiflags[out->index] |= mark_node;
+                pq.insert(out, domdepth[out->index]);
             }
         }
     }
@@ -5334,11 +5333,12 @@ void        funcdata::visit_dj(const vector<varnode *> &s, flowblock *v)
     for (i = 0; i < v->out.size(); i++) {
         flowblock *out = v->get_out(i);
 
-        if (out->immed_dom == v) continue;
+        /* J-edge skip */
+        if (out->immed_dom != v) continue;
 
-        if (!out->flags.f_mark) {
-            out->set_mark();
-            visit_dj(s, out);
+        if ((phiflags[out->index] & visit_node) == 0) {
+            phiflags[out->index] |= visit_node;
+            visit_dj(cur, out);
         }
     }
 }

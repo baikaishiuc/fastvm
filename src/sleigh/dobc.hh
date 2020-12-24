@@ -419,6 +419,12 @@ struct flowblock {
     flowblock*  get_out(int i) { return out[i].point;  }
     flowblock*  get_in(int i) { return in[i].point;  }
     flowblock*  get_block(int i) { return blist[i]; }
+    flowblock*  get_block_by_index(int index) {
+        for (int i = 0; i < blist.size(); i++)
+            if (blist[i]->index == index) return blist[i];
+
+        return NULL;
+    }
     pcodeop*    first_op(void) { return *ops.begin();  }
     pcodeop*    last_op(void) { return *--ops.end();  }
     int         get_out_rev_index(int i) { return out[i].reverse_index;  }
@@ -497,6 +503,15 @@ struct flowblock {
     void        mark_unsplice() { flags.f_unsplice = 1;  }
     bool        is_unsplice() { return flags.f_unsplice; }
     bool        is_end() { return out.size() == 0;  }
+    pcodeop*    get_pcode(int pid) {
+        list<pcodeop *>::iterator it;
+        for (it = ops.begin(); it != ops.end(); it++) {
+            if ((*it)->start.getTime() == pid)
+                return *it;
+        }
+
+        return NULL;
+    }
 };
 
 typedef struct priority_queue   priority_queue;
@@ -671,12 +686,12 @@ struct funcdata {
     vector<vector<flowblock *> > augment;
 #define boundary_node       1
 #define mark_node           2
-#define merged_node          4
+#define merged_node         4
+#define visit_node          8
     vector<uint4>   phiflags;   
     vector<int>     domdepth;
     /* dominate frontier */
     vector<flowblock *>     merge;      // 哪些block包含phi节点
-    vector<flowblock *>     mergedj;
     priority_queue pq;
 
     int maxdepth = -1;
@@ -888,8 +903,7 @@ struct funcdata {
     void        build_adt(void);
     void        calc_phi_placement(const vector<varnode *> &write);
     void        calc_phi_placement2(const vector<varnode *> &write);
-    void        visit_dj(const vector<varnode *> &write,  flowblock *v);
-    bool        in_mergedj(flowblock *v);
+    void        visit_dj(flowblock *cur,  flowblock *v);
     void        visit_incr(flowblock *qnode, flowblock *vnode);
     void        place_multiequal(void);
     void        rename();
@@ -1019,6 +1033,8 @@ struct funcdata {
     bool        test_strict_alias(pcodeop *load, pcodeop *store);
     void        remove_dead_store(flowblock *b);
     bool        has_no_use_ex(varnode *vn);
+    /* 打印某个节点的插入为止*/
+    void        dump_phi_placement(int bid, int pid);
 };
 
 struct func_call_specs {
