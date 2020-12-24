@@ -390,16 +390,12 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 0; i < 7; i++) {
+    for (i = 0; i < 8; i++) {
         printf("loop unrolling %d times*************************************\n", i+1);
         fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
         fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
     }
-
-        fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, _DUMP_PCODE);
-        fd_main->dead_code_elimination(fd_main->bblocks.blist);
-        fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
 
     fd_main->dump_pcode("1");
     fd_main->dump_djgraph("1", 1);
@@ -5205,7 +5201,8 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 break;
 
             vnin = multiop->get_in(slot);
-            if (vnin->is_heritage_known()) continue;
+            //if (vnin->is_heritage_known()) continue;
+            if (vnin->flags.annotation) continue;
 
             vector<varnode *> &stack(varstack[vnin->get_addr()]);
             if (stack.empty()) {
