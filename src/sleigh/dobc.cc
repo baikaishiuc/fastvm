@@ -387,16 +387,19 @@ void dobc::plugin_dvmp360()
 #endif
 
 
+#if 1
     char buf[16];
     int i;
 
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < 23; i++) {
         printf("loop unrolling %d times*************************************\n", i+1);
-        fd_main->loop_unrolling2(fd_main->get_vm_loop_header(), 1, 0);
+        fd_main->loop_unrolling2(fd_main->get_vmhead(), 1, 0);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
         fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
     }
+#endif
 
+    fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
     fd_main->dump_djgraph("1", 1);
     //fd_main->dump_phi_placement(17, 5300);
@@ -3802,21 +3805,6 @@ pcodeop*    funcdata::cloneop(pcodeop *op, const SeqNum &seq)
     return newop1;
 }
 
-pcodeop*    funcdata::cloneopv(pcodeop *op)
-{
-    Address addr2(d->get_code_space(), user_offset += op->get_addr().getOffset());
-    const SeqNum sq(addr2, op_uniqid++);
-    pcodeop *cop = cloneop(op, sq);
-
-    if (op->output)
-        cop->output->type = op->output->type;
-
-    for (int i = 0; i < op->num_input(); i++)
-        cop->get_in(i)->type = op->get_in(i)->type;
-
-    return cop;
-}
-
 void        funcdata::op_destroy_raw(pcodeop *op)
 {
     int i;
@@ -4712,6 +4700,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, pcodeop **maystore)
             visited.resize(b->fd->bblocks.get_size());
 
             for (int i = 0; i < b->in.size(); i++) {
+                if (b->get_in(i) == dom) continue;
                 stack.push_back(b->get_in(i));
             }
 
@@ -4890,7 +4879,7 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
             && ((p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND)))
             continue;
 
-        Address addr2(d->get_code_space(), user_offset += p->get_addr().getOffset());
+        Address addr2(d->get_code_space(), user_offset + p->get_addr().getOffset());
         const SeqNum sq(addr2, op_uniqid++);
         op = cloneop(p, sq);
         op_insert(op, cur, cur->ops.end());
@@ -5340,10 +5329,12 @@ void        funcdata::visit_dj(flowblock *cur, flowblock *v)
     }
 }
 
-flowblock*  funcdata::get_vm_loop_header(void)
+flowblock*  funcdata::get_vmhead(void)
 {
     int i, max_count = -1, t;
     flowblock *max = NULL;
+
+    if (vmhead) return vmhead;
 
     for (i = 0; i < bblocks.blist.size(); i++) {
         t = bblocks.blist[i]->get_back_edge_count();
@@ -5353,7 +5344,7 @@ flowblock*  funcdata::get_vm_loop_header(void)
         }
     }
 
-    return max;
+    return vmhead = max;
 }
 
 bool        funcdata::use_outside(varnode *vn)

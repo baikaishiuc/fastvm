@@ -658,6 +658,7 @@ struct funcdata {
 
     map<Address,VisitStat> visited;
     dobc *d = NULL;
+    flowblock * vmhead = NULL;
 
     /* vbank------------------------- */
     struct {
@@ -758,7 +759,6 @@ struct funcdata {
     pcodeop*    newop(int inputs, const SeqNum &sq);
     pcodeop*    newop(int inputs, const Address &pc);
     pcodeop*    cloneop(pcodeop *op, const SeqNum &seq);
-    pcodeop*    cloneopv(pcodeop *op);
     void        op_destroy_raw(pcodeop *op);
     void        op_destroy(pcodeop *op);
     void        op_destroy_ssa(pcodeop *op);
@@ -973,7 +973,7 @@ struct funcdata {
     这个是为了方便调试以及还原
     */
     void        dead_code_elimination(vector<flowblock *> blks);
-    flowblock*  get_vm_loop_header(void);
+    flowblock*  get_vmhead(void);
 
     bool        use_outside(varnode *vn);
     void        use2undef(varnode *vn);
