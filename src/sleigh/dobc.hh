@@ -974,6 +974,7 @@ struct funcdata {
     */
     void        dead_code_elimination(vector<flowblock *> blks);
     flowblock*  get_vmhead(void);
+    flowblock*  get_vmhead_unroll(void);
 
     bool        use_outside(varnode *vn);
     void        use2undef(varnode *vn);

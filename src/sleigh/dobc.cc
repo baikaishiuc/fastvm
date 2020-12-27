@@ -391,7 +391,7 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 0; i < 23; i++) {
+    for (i = 0; i < 15; i++) {
         printf("loop unrolling %d times*************************************\n", i+1);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), 1, 0);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -1793,6 +1793,7 @@ void        flowblock::insert(list<pcodeop *>::iterator iter, pcodeop *inst)
 
 int         flowblock::sub_id() 
 { 
+    return index;
     if (ops.size() == 0) return 0;
 
     list<pcodeop *>::const_iterator iter = ops.begin();
@@ -1876,6 +1877,10 @@ void        flowblock::add_edge(flowblock *begin, flowblock *end, int label)
 
 void        flowblock::add_in_edge(flowblock *b, int lab)
 {
+    if (fd->vmhead && (flags.f_entry_point || b->flags.f_entry_point)) {
+        printf("aaaaaaaa\n");
+    }
+
     int outrev = b->out.size();
     int brev = in.size();
     in.push_back(blockedge(b, lab, outrev));
@@ -2175,35 +2180,38 @@ void        funcdata::remove_dead_store(flowblock *b)
     map<valuetype, vector<pcodeop *> > m;
     pcodeop *back;
 
-    for (it = b->ops.begin(); it != b->ops.end(); it++) {
-        pcodeop *p = *it;
+    while (b) {
+        for (it = b->ops.begin(); it != b->ops.end(); it++) {
+            pcodeop *p = *it;
 
-        if ((p->opcode != CPUI_STORE) && (p->opcode != CPUI_LOAD)) continue;
+            if ((p->opcode != CPUI_STORE) && (p->opcode != CPUI_LOAD)) continue;
 
-        varnode *pos = p->get_in(1);
+            varnode *pos = p->get_in(1);
 
-        if (pos->type.height == a_top) {
-            if (p->opcode == CPUI_LOAD)  m.clear();
+            if (pos->type.height == a_top) {
+                if (p->opcode == CPUI_LOAD)  m.clear();
 
-            continue;
-        }
-
-        vector<pcodeop *> &stack(m[pos->type]);
-        if (!stack.empty() && ((back = stack.back())->opcode == CPUI_STORE) && p->opcode == CPUI_STORE) {
-            stack.pop_back();
-
-            /* 假如发现要被删除的store，还有被使用的use，直接报错 */
-            if (back->output && !back->output->has_no_use()) {
-                assert(0);
+                continue;
             }
-            op_destroy(back);
+
+            vector<pcodeop *> &stack(m[pos->type]);
+            if (!stack.empty() && ((back = stack.back())->opcode == CPUI_STORE) && p->opcode == CPUI_STORE) {
+                stack.pop_back();
+
+                /* 假如发现要被删除的store，还有被使用的use，直接报错 */
+                if (back->output && !back->output->has_no_use()) {
+                    assert(0);
+                }
+                op_destroy(back);
+            }
+
+            stack.push_back(p);
         }
 
-        stack.push_back(p);
+
+        b = ((b->out.size() == 1) && (b->get_out(0)->in.size() == 1)) ? b->get_out(0) : NULL;
     }
 }
-
-bool        in_loop(flowblock *h);
 
 void        flowblock::build_dom_tree(vector<vector<flowblock *> > &child)
 {
@@ -4995,8 +5003,11 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
         }
     }
 
-    remove_dead_store(bblocks.get_block(0));
-    
+    flowblock *h;
+    if ((bblocks.get_size() > 100) && (h = get_vmhead_unroll())) 
+        remove_dead_store(h);
+    else
+        remove_dead_store(bblocks.get_block(0));
 }
 
 bool        funcdata::is_code(varnode *v) 
@@ -5345,6 +5356,17 @@ flowblock*  funcdata::get_vmhead(void)
     }
 
     return vmhead = max;
+}
+
+flowblock*  funcdata::get_vmhead_unroll(void)
+{
+    flowblock *h = get_vmhead();
+    flowblock *start = loop_pre_get(h, 0)->parent, *in;
+
+    while ((start->in.size() == 1) && (start->get_in(0)->out.size() == 1))
+        start = start->get_in(0);
+
+    return start;
 }
 
 bool        funcdata::use_outside(varnode *vn)
