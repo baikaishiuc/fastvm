@@ -31,6 +31,8 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
+//#define DCFG_COND_INLINE                
+
 class AssemblyRaw : public AssemblyEmit {
 
 public:
@@ -291,6 +293,7 @@ struct pltentry {
     { "__stack_chk_fail",   0x1a34, 0, 0, 1, 0 },
     { "time",               0x1adc, 1, 1, 0, 0 },
     { "srand48",            0x1ad0, 0, 1, 0, 0 },
+    { "memcpy",             0x1ab8, 3, 1, 0, 1 },
     { "vmp360_op1",         0x67ac, 3, 0, 0, 1 },
     { "vmp360_mathop",      0x6248, 3, 0, 0, 1 },
     { "vmp360_op3",         0x66ac, 3, 0, 0, 1 },
@@ -391,7 +394,7 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 0; i < 15; i++) {
+    for (i = 0; i < 13; i++) {
         printf("loop unrolling %d times*************************************\n", i+1);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), 1, 0);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -1272,6 +1275,9 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             }
 
             out->set_rel_constant(in0->get_rel(), in0->type.v + in1->type.v);
+        }
+        else if (in0->is_constant() && fd->is_sp_rel_constant(in1)) {
+            out->set_rel_constant(in1->get_rel(), in0->type.v + in1->type.v);
         }
         else
             out->type.height = a_top;
@@ -2949,15 +2955,20 @@ branch指令打上call_branch标记
             startbasic = true;
             break;
 
-        case CPUI_CALL:
-            const Address &destaddr(op->get_in(0)->get_addr());
-            /* 假如发现某些call的函数有exit标记，则开始新的block，并删除当前inst的接下去的所有pcode，因为走不到了 */
-            if ((fd = d->find_func(destaddr))) {
-                if (exit = fd->flags.exit) startbasic = true;
+        case CPUI_CALL: 
+        {
+                const Address &destaddr(op->get_in(0)->get_addr());
+                /* 假如发现某些call的函数有exit标记，则开始新的block，并删除当前inst的接下去的所有pcode，因为走不到了 */
+                if ((fd = d->find_func(destaddr))) {
+                    if (exit = fd->flags.exit) startbasic = true;
 
-                add_callspec(op, fd);
-            }
-            op->flags.exit = exit;
+                    add_callspec(op, fd);
+                }
+                op->flags.exit = exit;
+        }
+        break;
+
+        case CPUI_CALLIND:
             break;
         }
 
@@ -3501,7 +3512,7 @@ void        funcdata::dump_inst()
 void        funcdata::dump_pcode(const char *postfix)
 {
     FILE *fp;
-    char buf[2048];
+    char buf[8192];
     Address prev_addr;
     AssemblyRaw assememit;
     pcodeop *p;
@@ -4026,13 +4037,17 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     fd.generate_blocks();
     fd.heritage();
 
+#if defined(DCFG_COND_INLINE)
     sprintf(buf, "cond_%d_before", callop->start.getTime());
     fd.dump_cfg(fd.name, buf, 1);
+#endif
 
     fd.cond_pass();
 
+#if defined(DCFG_COND_INLINE)
     sprintf(buf, "cond_%d", callop->start.getTime());
     fd.dump_cfg(fd.name, buf, 1);
+#endif
 
     assert(1 == fd.bblocks.get_size());
 
@@ -4300,8 +4315,6 @@ void        funcdata::heritage(void)
 
     constant_propagation2();
 
-    //alias_analysis();
-    //constant_propagation(1);
     printf("%sheritage scan node end. \n", print_indent());
 }
 
@@ -4365,7 +4378,7 @@ int     funcdata::constant_propagation2()
  
             pcodeop *maystore = NULL;
 
-            pcodeop *store = store_query(load, &maystore);
+            pcodeop *store = store_query(load, NULL, load->get_in(1), &maystore);
 
             if (!store) {
                 if (maystore) {
@@ -4646,7 +4659,7 @@ void        funcdata::trace_clear()
 pcodeop*    funcdata::trace_store_query(varnode *vn)
 {
     vector<pcodeop *>::reverse_iterator it;
-    pcodeop *p;
+    pcodeop *p, *maystore = NULL;
     varnode *in;
 
     for (it = trace.rbegin(); it != trace.rend(); it++) {
@@ -4659,15 +4672,22 @@ pcodeop*    funcdata::trace_store_query(varnode *vn)
         }
     }
 
-    return NULL;
+    return store_query(NULL, p->parent, vn, &maystore);
 }
 
-pcodeop*    funcdata::store_query(pcodeop *load, pcodeop **maystore)
+pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore)
 {
-    list<pcodeop *>::reverse_iterator it = load->parent->get_rev_iterator(load);
-    flowblock *b = load->parent, *bb;
-    varnode *pos = load->get_in(1);
+    list<pcodeop *>::reverse_iterator it;
+    flowblock *bb;
     pcodeop *p;
+
+    if (load) {
+        it = load->parent->get_rev_iterator(load);
+        b = load->parent;
+    }
+    else {
+        it = b->ops.rbegin();
+    }
 
     while (1) {
         for (; it != b->ops.rend(); it++) {
@@ -4780,7 +4800,7 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
         if (b->get_back_edge_count()) {
             loop_unrolling(b, _DUMP_PCODE | _DONT_CLONE);
             stack.pop_back();
-            dump_cfg(name, "check1", 1);
+            //dump_cfg(name, "check1", 1);
             continue;
         }
         else {
@@ -4806,7 +4826,7 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
             v.push_back(b);
             dead_code_elimination(v);
 
-            dump_cfg(name, "check0", 1);
+            //dump_cfg(name, "check0", 1);
         }
 
         stack.push_back(b->get_out(0));
@@ -4848,7 +4868,8 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
             p->set_trace();
             ret = p->compute(inslot, &br);
 
-            if (flags & _DUMP_PCODE) {
+            //if (flags & _DUMP_PCODE) {
+            if (1) {
                 char buf[256];
                 p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
                 printf("%s\n", buf);
@@ -4872,16 +4893,17 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
     user_offset += user_step;
     Address addr(d->get_code_space(), user_offset);
     /* 进入节点抛弃 */
-    for (i = 0; trace[i]->parent == start; i++) {
-        p->clear_trace();
-        p->compute(-1, &tmpb);
-    }
+    for (i = 0; trace[i]->parent == start; i++);
     /* 从主循环开始 */
     for (; i < trace.size(); i++) {
+        funcdata *callfd = NULL;
         p = trace[i];
-        tmpb = NULL;
-        p->clear_trace();
-        p->compute(-1, &tmpb);
+
+        if ((p->opcode == CPUI_CALLIND) && p->get_in(0)->is_constant()) {
+            Address addr(d->get_code_space(), p->get_in(0)->get_val());
+            callfd = d->find_func(addr);
+        }
+
         /* 最后一个节点的jmp指令不删除 */
         if ((i != (trace.size() - 1)) 
             && ((p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND)))
@@ -4891,7 +4913,19 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
         const SeqNum sq(addr2, op_uniqid++);
         op = cloneop(p, sq);
         op_insert(op, cur, cur->ops.end());
+
+        /* 假如trace以后，发现某个函数可以被计算，把他加入trace列表 */
+        if (callfd && !op->callfd) {
+            add_callspec(op, callfd);
+        }
     }
+
+    for (i = 0; i < trace.size(); i++) {
+        pcodeop *p = trace[i];
+        p->clear_trace();
+        p->compute(-1, &tmpb);
+    }
+
     cur->set_initial_range(addr, addr);
     trace_clear();
 
@@ -5739,103 +5773,6 @@ bool        funcdata::test_strict_alias(pcodeop *load, pcodeop *store)
     }
 
     return true;
-}
-
-void        funcdata::alias_analysis2(void)
-{
-    list<pcodeop *> worklist = loadlist;
-    list<pcodeop *>::iterator it;
-    pcodeop *load, *maydef;
-    flowblock *b = NULL;
-
-    while (!worklist.empty()) {
-        it = worklist.begin();
-        load = *it;
-        worklist.erase(it);
-
-        maydef = NULL;
-        pcodeop *store = store_query(load, &maydef);
-
-        if (!store) {
-            if (maydef) worklist.push_back(maydef);
-            continue;
-        }
-
-        /* 来自于caller，假如来自caller就无法建立use-def链了，直接把值复制过来 */
-        if (store->parent->fd != this) {
-            load->output->type = store->get_in(2)->type;
-            load->flags.input = 1;
-            safe_aliaslist.push_back(load);
-            continue;
-        }
-
-        //printf("pcode load[%d] = store[%d]\n", load->start.getTime(), store->start.getTime());
-        varnode *in = store->get_in(1);
-        safe_aliaslist.push_back(store);
-        safe_aliaslist.push_back(load);
-
-        /* 假如这个store已经被分析过，直接把store的版本设置过来 */
-        if (store->output) {
-            op_set_input(load, store->output, 2);
-        }
-        else {
-            Address oaddr(d->get_uniq_space(), virtualbase += in->size);
-            varnode *out;
-            out = new_varnode_out(in->size, oaddr, store);
-
-            op_resize(load, 3);
-            op_set_input(load, out, 2);
-        }
-
-        load->compute(-1, &b);
-
-        if (load->output->is_constant() || load->output->is_rel_constant()) {
-            list<pcodeop *>::iterator use;
-            for (use = load->output->uses.begin(); use != load->output->uses.end(); use++) {
-                worklist.push_back(*use);
-            }
-        }
-    }
-}
-
-void        funcdata::alias_analysis(void)
-{
-    list<pcodeop *>::iterator it = loadlist.begin();
-
-    for (; it != loadlist.end(); it++) {
-        pcodeop *load = *it;
-        if (load->is_dead()) continue;
-
-        pcodeop *store = store_query(load, NULL);
-
-        if (!store) continue;
-
-        /* 来自于caller，假如来自caller就无法建立use-def链了，直接把值复制过来 */
-        if (store->parent->fd != this) {
-            load->output->type = store->get_in(2)->type;
-            load->flags.input = 1;
-            safe_aliaslist.push_back(load);
-            continue;
-        }
-
-        //printf("pcode load[%d] = store[%d]\n", load->start.getTime(), store->start.getTime());
-        varnode *in = store->get_in(1);
-        safe_aliaslist.push_back(store);
-        safe_aliaslist.push_back(load);
-
-        /* 假如这个store已经被分析过，直接把store的版本设置过来 */
-        if (store->output) {
-            op_set_input(load, store->output, 2);
-        }
-        else {
-            Address oaddr(d->get_uniq_space(), virtualbase += in->size);
-            varnode *out;
-            out = new_varnode_out(in->size, oaddr, store);
-
-            op_resize(load, 3);
-            op_set_input(load, out, 2);
-        }
-    }
 }
 
 flowblock*  funcdata::clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks)

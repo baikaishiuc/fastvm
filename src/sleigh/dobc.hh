@@ -960,9 +960,18 @@ struct funcdata {
     bool        trace_push(pcodeop *op);
     void        trace_push_op(pcodeop *op);
     void        trace_clear();
-    pcodeop*    trace_load_query(varnode *vn);
     pcodeop*    trace_store_query(varnode *vn);
-    pcodeop*    store_query(pcodeop *load, pcodeop **maystore);
+    /* 查询某个load是来自于哪个store，有2种查询方式，
+    
+    一种是直接指明load，后面的b可以填空，从这个load开始往上搜索
+    一种是不指明load，但是指明b，从这个block开始搜索
+
+    @load       要从这条load开始搜索，pos也来自于这个load
+    @b          要从这个block开始搜搜，pos来自于外部提供
+    @pos        内存位置
+    @maystore   当发现无法判断的store，返回这个store
+    */
+    pcodeop*    store_query(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore);
 #define _DUMP_PCODE             0x01
 #define _DUMP_ORIG_CASE         0x02
 #define _DONT_CLONE             0x08
@@ -996,9 +1005,6 @@ struct funcdata {
 
     char*       get_dir(char *buf);
     int         get_input_sp_val();
-
-    void        alias_analysis(void);
-    void        alias_analysis2(void);
 
     bool        have_side_effect(void) { return funcp.flags.side_effect;  }
     void        alias_clear(void);
