@@ -1007,6 +1007,7 @@ struct funcdata {
     int         get_input_sp_val();
 
     bool        have_side_effect(void) { return funcp.flags.side_effect;  }
+    bool        have_side_effect(pcodeop *op, varnode *pos);
     void        alias_clear(void);
     /* 循环展开时用
     

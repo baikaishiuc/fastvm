@@ -394,7 +394,7 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 0; i < 13; i++) {
+    for (i = 0; i < 40; i++) {
         printf("loop unrolling %d times*************************************\n", i+1);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), 1, 0);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -4680,7 +4680,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     list<pcodeop *>::reverse_iterator it;
     flowblock *bb;
     pcodeop *p;
-
+    
     if (load) {
         it = load->parent->get_rev_iterator(load);
         b = load->parent;
@@ -4693,7 +4693,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
         for (; it != b->ops.rend(); it++) {
             p = *it;
 
-            if (!p->flags.inlined && p->callfd && p->callfd->have_side_effect())
+            if (!p->flags.inlined && have_side_effect(p, pos))
                 return NULL;
             if (p->opcode != CPUI_STORE) continue;
 
@@ -4744,7 +4744,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
                 for (it = b->ops.rbegin(); it != b->ops.rend(); it++) {
                     p = *it;
 
-                    if (p->callfd && p->callfd->have_side_effect())
+                    if (have_side_effect(p, pos))
                         return NULL;
 
                     if (p->opcode == CPUI_STORE) {
@@ -4868,8 +4868,8 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
             p->set_trace();
             ret = p->compute(inslot, &br);
 
-            //if (flags & _DUMP_PCODE) {
-            if (1) {
+            if (flags & _DUMP_PCODE) {
+            //if (1) {
                 char buf[256];
                 p->dump(buf, PCODE_DUMP_SIMPLE & ~PCODE_HTML_COLOR);
                 printf("%s\n", buf);
@@ -5698,10 +5698,38 @@ void        funcdata::alias_clear(void)
         if (vn = op->get_virtualnode())
             destroy_varnode(vn);
 #endif
-
     }
 
     safe_aliaslist.clear();
+}
+
+bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
+{
+    funcdata *fd = op->callfd;
+
+    if (!fd) return false;
+
+    if (fd->name == "memcpy") {
+        varnode *in0 = op->callctx->r0;
+        varnode *in2 = op->callctx->r2;
+
+        //printf("op.id = %d, is_rel_const=%d, val.0=%lld, val.2=%lld, pos.val = %lld\n", op->start.getTime(), in0->is_rel_constant(), in0->get_val(), in2->get_val(), pos->get_val());
+        if (in0->is_rel_constant() && in2->is_constant()) {
+            /*
+            假如:
+
+            1. pos的位置，刚好在memcpy计算的区域外
+            2. pos的位置+长度，刚好小于memcpy的dst起点之前
+
+            则认为没有副作用
+            */
+            if ((pos->get_val() >= (in0->get_val() + in2->get_val())) || ((pos->get_val() + pos->size) < in0->get_val())) {
+                return false;
+            }
+        }
+    }
+
+    return fd->have_side_effect();
 }
 
 flowblock*  funcdata::dowhile2ifwhile(vector<flowblock *> &dowhile)
