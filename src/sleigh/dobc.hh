@@ -401,6 +401,9 @@ struct flowblock {
     int dfnum = 0;
     int numdesc = 1;        // 在 spaning tree中的后代数量，自己也是自己的后代，所以假如正式计算后代数量，自己起始为1
 
+    int vm_byteindex = -1;      
+    int vm_caseindex = -1;
+
     vector<blockedge>   in;
     vector<blockedge>   out;
     vector<flowblock *> blist;
@@ -762,6 +765,7 @@ struct funcdata {
     void        op_destroy_raw(pcodeop *op);
     void        op_destroy(pcodeop *op);
     void        op_destroy_ssa(pcodeop *op);
+    void        reset_out_use(pcodeop *p);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
     varnode*    new_varnode(int s, AddrSpace *base, uintb off);
@@ -974,7 +978,9 @@ struct funcdata {
     pcodeop*    store_query(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore);
 #define _DUMP_PCODE             0x01
 #define _DUMP_ORIG_CASE         0x02
+    /* 循环展开的假如是 while switch case 里的分支则需要clone，假如不是的话则不需要复制后面的流 */
 #define _DONT_CLONE             0x08
+#define _NOTE_VMBYTEINDEX       0x10 
     bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
 
     flowblock*  loop_unrolling(flowblock *h, uint32_t flags);
@@ -1043,6 +1049,8 @@ struct funcdata {
     bool        has_no_use_ex(varnode *vn);
     /* 打印某个节点的插入为止*/
     void        dump_phi_placement(int bid, int pid);
+    /* 搜索归纳变量 */
+    varnode*    detect_induct_variable(flowblock *h);
 };
 
 struct func_call_specs {

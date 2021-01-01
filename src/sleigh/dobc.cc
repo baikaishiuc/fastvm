@@ -292,8 +292,11 @@ struct pltentry {
 } pltlist[] = {
     { "__stack_chk_fail",   0x1a34, 0, 0, 1, 0 },
     { "time",               0x1adc, 1, 1, 0, 0 },
-    { "srand48",            0x1ad0, 0, 1, 0, 0 },
+    { "lrand48",            0x1ad0, 0, 1, 0, 0 },
+    { "srand48",            0x1ac4, 0, 0, 0, 0 },
     { "memcpy",             0x1ab8, 3, 1, 0, 1 },
+    { "dec_str",            0x7dfc, 2, 1, 0, 1 },
+    { "anti1",              0x1d68, 2, 1, 0, 1 },
     { "vmp360_op1",         0x67ac, 3, 0, 0, 1 },
     { "vmp360_mathop",      0x6248, 3, 0, 0, 1 },
     { "vmp360_op3",         0x66ac, 3, 0, 0, 1 },
@@ -394,11 +397,11 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 0; i < 40; i++) {
-        printf("loop unrolling %d times*************************************\n", i+1);
-        fd_main->loop_unrolling2(fd_main->get_vmhead(), 1, 0);
+    for (i = 1; i <= 15; i++) {
+        printf("loop unrolling %d times*************************************\n", i);
+        fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
-        fd_main->dump_cfg(fd_main->name, _itoa(i + 1, buf, 10), 1);
+        fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
     }
 #endif
 
@@ -670,6 +673,29 @@ void        funcdata::dump_phi_placement(int bid, int pid)
     printf("\n");
 }
 
+varnode*    funcdata::detect_induct_variable(flowblock *h)
+{
+    list<pcodeop *>::const_reverse_iterator it;
+
+    if (h->last_op()->opcode != CPUI_CBRANCH) {
+        throw LowlevelError("detect induct variable flowblock need cbranch");
+    }
+
+    for (it = h->ops.rbegin(); it != h->ops.rend(); it++) {
+        pcodeop *p = *it;
+
+        if (p->opcode == CPUI_INT_SUB) {
+            varnode *in0 = p->get_in(0);
+            varnode *in1 = p->get_in(1);
+
+            // FIXME:针对vm engine的这种情况，我不清楚该如何正确的识别出归纳变量，直接返回第2个了，后面想想更好的办法
+            return  in1;
+        }
+    }
+
+    throw LowlevelError("loop header need CPUI_INT_SUB");
+}
+
 void            varnode::add_use(pcodeop *op)
 {
     uses.push_back(op);
@@ -864,6 +890,9 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     // Possibly check for a code reference or a space reference
 
     if (flags & PCODE_OMIT_MORE_IN) in_limit = 4;
+
+    if (callfd) 
+        i += sprintf(buf + i, ".%s ", callfd->name.c_str());
 
     for (j = 0; j < inrefs.size(); ++j) {
         if (j == in_limit) break;
@@ -1345,6 +1374,24 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         in1 = get_in(1);
         if (in0->is_constant() && in1->is_constant()) {
             out->set_val(in0->get_val() & in1->get_val());
+        }
+        /*
+        识别以下pattern:
+
+        t1 = r6 * r6
+        r2 = t1 + r6 (r2一定为偶数)
+
+        r2 = r2 & 1 一定为0
+        */
+        else if (in1->is_constant() 
+            && (in1->get_val() == 1) 
+            && in0->def 
+            && (in0->def->opcode == CPUI_INT_ADD)
+            && (op = in0->def->get_in(0)->def)
+            && (op->opcode == CPUI_INT_MULT)
+            && (op->get_in(0)->get_addr() == op->get_in(1)->get_addr())
+            && (op->get_in(0)->get_addr() == in0->def->get_in(1)->get_addr())) {
+            out->set_val(0);
         }
         else
             out->type.height = a_top;
@@ -2880,6 +2927,12 @@ void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
             op_set_input(p, vn, 4);
         }
     }
+
+    if ((fd->funcp.output) && !p->output) {
+        varnode *vn = new_varnode(4, d->r0_addr);
+
+        op_set_output(p, vn);
+    }
 }
 
 pcodeop*    funcdata::xref_control_flow(list<pcodeop *>::const_iterator oiter, bool &startbasic, bool &isfallthru)
@@ -3565,17 +3618,28 @@ void        funcdata::dump_block(FILE *fp, blockbasic *b, int flag)
     AssemblyRaw assem;
     char obuf[2048];
 
-    if (b->ops.size() == 0) return;
-
     assem.set_buf(obuf);
 
     // 把指令都以html.table的方式打印，dot直接segment fault了，懒的调dot了
-    fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%llx(%d,%d, h:%d)</font></td></tr>",
-        b->sub_id(),
-        block_color(b),
-        b->get_start().getOffset(),
-        b->dfnum,
-        b->index, domdepth[b->index]);
+    if (b->vm_byteindex >= 0) {
+        fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\">"
+            "<tr><td><font color=\"green\">sub_%llx(%d,%d, h:%d, vbi:%d, vci:%d)</font></td></tr>",
+            b->sub_id(),
+            block_color(b),
+            b->get_start().getOffset(),
+            b->dfnum,
+            b->index, domdepth[b->index],
+            b->vm_byteindex,
+            b->vm_caseindex);
+    }
+    else {
+        fprintf(fp, "loc_%x [style=\"filled\" fillcolor=%s label=<<table bgcolor=\"white\" align=\"left\" border=\"0\"><tr><td><font color=\"red\">sub_%llx(%d,%d, h:%d)</font></td></tr>",
+            b->sub_id(),
+            block_color(b),
+            b->get_start().getOffset(),
+            b->dfnum,
+            b->index, domdepth[b->index]);
+    }
 
     iter = b->ops.begin();
 
@@ -3856,9 +3920,12 @@ void        funcdata::op_destroy(pcodeop *op)
     }
 }
 
-void        funcdata::op_destroy_ssa(pcodeop *p)
+void        funcdata::reset_out_use(pcodeop *p)
 {
     varnode *out = p->output;
+    if (!out)
+        return;
+
     list<pcodeop *>::iterator it;
     list<pcodeop *> copy = out->uses;
     pcodeop *use;
@@ -3873,7 +3940,11 @@ void        funcdata::op_destroy_ssa(pcodeop *p)
         assert(slot >= 0);
         op_set_input(use, new_varnode(out->size, out->get_addr()), slot);
     }
+}
 
+void        funcdata::op_destroy_ssa(pcodeop *p)
+{
+    reset_out_use(p);
     op_destroy(p);
 }
 
@@ -3981,6 +4052,7 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
                 firstop->flags.startblock = 0;
         }
         /* FIXME:对单block的节点，要不要也加上对inline节点的跳转，在后期的merge阶段合并掉？ */
+        op_destroy_raw(callop);
     }
     else {
         Address retaddr;
@@ -3999,9 +4071,16 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
         while (callop->num_input() > 1)
             op_remove_input(callop, callop->num_input() - 1);
 
+        if (callop->output) {
+            reset_out_use(callop);
+            destroy_varnode(callop->output);
+        }
+
         op_set_opcode(callop, CPUI_BRANCH);
         varnode *inlineaddr = new_coderef(fd.get_addr());
         op_set_input(callop, inlineaddr, 0);
+
+        callop->callfd = NULL;
     }
 
     /* qlst用来存放所有函数call的链表，当inline一个函数时，需要把它的call列表inline进来 */
@@ -4777,10 +4856,12 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     return NULL;
 }
 
-bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
+bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t flags)
 {
     flowblock *cur = loop_unrolling(h, flags);
     pcodeop *p;
+
+    cur->vm_caseindex = vm_caseindex;
 
     if (flags & _DUMP_ORIG_CASE)
         return 0;
@@ -4837,12 +4918,12 @@ bool       funcdata::loop_unrolling2(flowblock *h, int times, uint32_t flags)
 
 flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
 {
-    int unroll_times = 0;
     int i, inslot, ret;
     flowblock *start,  *cur, *prev, *br, *tmpb;
     list<pcodeop *>::const_iterator it;
     const SeqNum sq;
     pcodeop *p, *op;
+    varnode *iv = NULL;
 
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
@@ -4853,6 +4934,10 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
     */
     trace_push(start->last_op());
     cur = h;
+
+    if (flags & _NOTE_VMBYTEINDEX) {
+        iv = detect_induct_variable(h);
+    }
 
     do {
         printf("\tprocess flowblock sub_%llx\n", cur->get_start().getOffset());
@@ -4890,6 +4975,14 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, uint32_t flags)
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
     br = trace.back()->parent;
     cur = bblocks.new_block_basic(this);
+
+    if (flags & _NOTE_VMBYTEINDEX) {
+        if (!iv->is_constant())
+            throw LowlevelError("vm  byteindex must be constant");
+        cur->vm_byteindex = iv->get_val();
+        printf("def op = %d, val = %d, opcode = %s\n", iv->def->start.getTime(), cur->vm_byteindex, get_opname(iv->def->opcode));
+    }
+
     user_offset += user_step;
     Address addr(d->get_code_space(), user_offset);
     /* 进入节点抛弃 */
@@ -5011,7 +5104,10 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
 
         对同一地址的写入会导致上一个写入失效，这中间不能有上一个地址的访问
         */
+
         if (op->opcode == CPUI_STORE) continue;
+        /* 有些函数是有副作用的，它的def即使没有use也是不能删除的 */
+        if (op->is_call()) continue;
 
         pcodeop_def_set::iterator it1 = topname.find(op);
         if ((it1 != topname.end()) && (*it1 == op))
