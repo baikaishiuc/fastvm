@@ -382,6 +382,8 @@ struct flowblock {
         unsigned f_call : 1;
         /* 不允许合并 */
         unsigned f_unsplice : 1;
+        /* 内联的时候碰到的cbranch指令 */
+        unsigned f_cond_cbranch : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -983,7 +985,7 @@ struct funcdata {
 #define _NOTE_VMBYTEINDEX       0x10 
     bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
 
-    flowblock*  loop_unrolling(flowblock *h, uint32_t flags);
+    flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
     */
@@ -1007,7 +1009,18 @@ struct funcdata {
     最后的web包含start，不包含end */
     flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
-    flowblock*  clone_block(flowblock *f);
+    flowblock*  clone_block(flowblock *f, u4 flags);
+    /* 把某个block从某个位置开始切割成2块，
+
+    比如
+
+    1. mov r0, 1
+    2. call xxx
+    3. mov r1, r0
+    我们内联inline了xxx以后，xxx可能是 if .. else 的结构
+    那么我们需要把整个快拆开
+    */
+    flowblock*  split_block(flowblock *f, list<pcodeop *>::iterator it);
 
     char*       get_dir(char *buf);
     int         get_input_sp_val();
