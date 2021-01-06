@@ -31,7 +31,7 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-//#define DCFG_COND_INLINE                
+#define DCFG_COND_INLINE                
 
 class AssemblyRaw : public AssemblyEmit {
 
@@ -303,6 +303,7 @@ struct pltentry {
     { "vmp360_op3",         0x66ac, 3, 0, 0, 1 },
     { "vmp360_op4",         0x61c0, 3, 0, 0, 1 },
     { "vmp360_op5",         0x6204, 3, 0, 0, 1 },
+    { "vmp360_cbranch",        0x68cc, 3, 0, 0, 1 },
 };
 
 void dobc::init_plt()
@@ -398,7 +399,10 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    for (i = 1; i <= 51; i++) {
+    for (i = 1; i <= 53; i++) {
+        if (i == 53) {
+            printf("a\n");
+        }
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -4125,14 +4129,14 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
 
 #if defined(DCFG_COND_INLINE)
     char buf[32];
-    sprintf(buf, "cond_%d_before", callop->start.getTime());
+    sprintf(buf, "cond_before");
     fd.dump_cfg(fd.name, buf, 1);
 #endif
 
     fd.cond_pass();
 
 #if defined(DCFG_COND_INLINE)
-    sprintf(buf, "cond_%d", callop->start.getTime());
+    sprintf(buf, "cond_after");
     fd.dump_cfg(fd.name, buf, 1);
 #endif
 
@@ -4915,14 +4919,14 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
         if (b->get_back_edge_count()) {
             loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
             stack.pop_back();
-            dump_cfg(name, "check2", 1);
+            //dump_cfg(name, "check2", 1);
             continue;
         }
         else if (b->flags.f_cond_cbranch) {
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
             b->flags.f_cond_cbranch = 0;
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
             stack.pop_back();
-            dump_cfg(name, "check1", 1);
+            //dump_cfg(name, "check1", 1);
             continue;
         }
         else {
@@ -4948,7 +4952,7 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
             v.push_back(b);
             dead_code_elimination(v);
 
-            dump_cfg(name, "check0", 1);
+            //dump_cfg(name, "check0", 1);
         }
 
         stack.push_back(b->get_out(0));
@@ -5088,8 +5092,8 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
     cloneblks.push_back(cur);
 
     /* 删除start节点和loop 头节点的边，连接 start->cur->loop_header */
-    bblocks.remove_edge(start, h);
-    bblocks.add_edge(start, cur);
+    int lab = bblocks.remove_edge(start, h);
+    bblocks.add_edge(start, cur, lab & a_true_edge);
 
     clear_block_phi(h);
     clear_block_phi(end);
@@ -5283,13 +5287,14 @@ void        funcdata::place_multiequal(void)
 void        funcdata::rename()
 {
     variable_stack varstack;
+    version_map vermap;
 
-    rename_recurse(bblocks.get_block(0), varstack);
+    rename_recurse(bblocks.get_block(0), varstack, vermap);
 
     disjoint.clear();
 }
 
-void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
+void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, version_map &vermap)
 {
     /* 当前block内，被def过得varnode集合 */
     vector<varnode *> writelist;
@@ -5322,7 +5327,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
                 if (stack.empty()) {
                     vnnew = new_varnode(vnin->size, vnin->get_addr());
                     vnnew = set_input_varnode(vnnew);
-                    vnnew->version = stack.size();
+                    vnnew->version = vermap[vnin->get_addr()];
                     stack.push_back(vnnew);
                 }
                 else 
@@ -5366,7 +5371,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
 
         vnout = op->output;
         if (vnout == NULL) continue;
-        vnout->version = varstack[vnout->get_addr()].size();
+        vnout->version = ++vermap[vnout->get_addr()];
         varstack[vnout->get_addr()].push_back(vnout);
         writelist.push_back(vnout);
     }
@@ -5387,7 +5392,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
             if (stack.empty()) {
                 vnnew = new_varnode(vnin->size, vnin->get_addr());
                 vnnew = set_input_varnode(vnnew);
-                vnnew->version = stack.size();
+                vnnew->version = vermap[vnin->get_addr()];
                 stack.push_back(vnnew);
             }
             else
@@ -5402,7 +5407,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack)
 
     i = bl->index;
     for (slot = 0; slot < domchild[i].size(); ++slot)
-        rename_recurse(domchild[i][slot], varstack);
+        rename_recurse(domchild[i][slot], varstack, vermap);
 
     /*
     假如这个节点是出口节点，切变量为系统寄存器，则加入出口活跃变量集合

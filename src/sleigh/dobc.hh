@@ -12,6 +12,7 @@ typedef struct cpuctx       cpuctx;
 typedef struct funcproto    funcproto;
 typedef struct func_call_specs  func_call_specs;
 typedef map<Address, vector<varnode *> > variable_stack;
+typedef map<Address, int> version_map;
 typedef struct valuetype    valuetype;
 
 class pcodeemit2 : public PcodeEmit {
@@ -913,7 +914,7 @@ struct funcdata {
     void        visit_incr(flowblock *qnode, flowblock *vnode);
     void        place_multiequal(void);
     void        rename();
-    void        rename_recurse(blockbasic *bl, variable_stack &varstack);
+    void        rename_recurse(blockbasic *bl, variable_stack &varstack, version_map &vermap);
     int         collect(Address addr, int size, vector<varnode *> &read,
         vector<varnode *> &write, vector<varnode *> &input);
     void        heritage(void);
