@@ -399,14 +399,19 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    // 53
-    for (i = 1; i <= 53; i++) {
+    // 56
+    for (i = 1; i <= 56; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
         fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
     }
 #endif
+
+    printf("loop unrolling %d times*************************************\n", i);
+    fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
+    fd_main->dead_code_elimination(fd_main->bblocks.blist);
+    fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
 
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
@@ -2986,6 +2991,7 @@ void        funcdata::del_remaining_ops(list<pcodeop *>::const_iterator oiter)
 
 void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
 {
+    varnode *vn;
     int sug_input;
     p->callfd = fd;
     qlst.push_back(new func_call_specs(p, fd));
@@ -2997,22 +3003,25 @@ void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
 
     while (p->num_input() < sug_input) {
         if (p->num_input() < 2) {
-            varnode *vn = new_varnode(4, d->r0_addr);
+            vn = new_varnode(4, d->r0_addr);
             op_set_input(p, vn, 1);
         }
         else if (p->num_input() < 3) {
-            varnode *vn = new_varnode(4, d->r1_addr);
+            vn = new_varnode(4, d->r1_addr);
             op_set_input(p, vn, 2);
         }
         else if (p->num_input() < 4) {
-            varnode *vn = new_varnode(4, d->r2_addr);
+            vn = new_varnode(4, d->r2_addr);
             op_set_input(p, vn, 3);
         }
         else if (p->num_input() < 5) {
-            varnode *vn = new_varnode(4, d->r3_addr);
+            vn = new_varnode(4, d->r3_addr);
             op_set_input(p, vn, 4);
         }
     }
+
+    vn = new_varnode(4, d->lr_addr);
+    op_set_input(p, vn, p->inrefs.size());
 
     if ((fd->funcp.output) && !p->output) {
         varnode *vn = new_varnode(4, d->r0_addr);
@@ -5030,14 +5039,14 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
         if (b->get_back_edge_count()) {
             loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
             stack.pop_back();
-            //dump_cfg(name, "check2", 1);
+            dump_cfg(name, "check2", 1);
             continue;
         }
         else if (b->flags.f_cond_cbranch) {
             b->flags.f_cond_cbranch = 0;
             loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
             stack.pop_back();
-            //dump_cfg(name, "check1", 1);
+            dump_cfg(name, "check1", 1);
             continue;
         }
         else {
@@ -5068,13 +5077,13 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
             v.push_back(b);
             dead_code_elimination(v);
 
-            //dump_cfg(name, "check0", 1);
+            dump_cfg(name, "check0", 1);
         }
 
         stack.push_back(b->get_out(0));
     }
 
-    bblocks.clear_mark();
+    bblocks.clear_marks();
 
     return true;
 }
