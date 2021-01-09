@@ -510,10 +510,10 @@ struct flowblock {
     pcodeop*    first_callop();
     /* 搜索到哪个节点为止 */
     pcodeop*    first_callop_vmp(flowblock *end);
-    bool        in_loop(flowblock *h);
     void        mark_unsplice() { flags.f_unsplice = 1;  }
     bool        is_unsplice() { return flags.f_unsplice; }
     bool        is_end() { return out.size() == 0;  }
+    Address     get_return_addr();
     pcodeop*    get_pcode(int pid) {
         list<pcodeop *>::iterator it;
         for (it = ops.begin(); it != ops.end(); it++) {
@@ -1017,6 +1017,7 @@ struct funcdata {
     最后的web包含start，不包含end */
     flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
+#define F_OMIT_RETURN       1
     flowblock*  clone_block(flowblock *f, u4 flags);
     /* 把某个block从某个位置开始切割成2块，
 
@@ -1114,6 +1115,7 @@ struct dobc {
     Address     r3_addr;
     Address     lr_addr;
     Address     cy_addr;
+    Address     pc_addr;
 
     dobc(const char *slafilename, const char *filename);
     ~dobc();

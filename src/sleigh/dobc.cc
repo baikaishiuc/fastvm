@@ -399,10 +399,8 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
+    // 53
     for (i = 1; i <= 53; i++) {
-        if (i == 53) {
-            printf("a\n");
-        }
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -525,6 +523,7 @@ dobc::dobc(const char *sla, const char *bin)
     r2_addr = trans->getRegister("r2").getAddr();
     r3_addr = trans->getRegister("r3").getAddr();
     cy_addr = trans->getRegister("CY").getAddr();
+    pc_addr = trans->getRegister("pc").getAddr();
 
     init();
 }
@@ -2300,6 +2299,20 @@ pcodeop*    flowblock::first_callop_vmp(flowblock *end)
     return NULL;
 }
 
+Address    flowblock::get_return_addr()
+{
+    pcodeop *p = last_op();
+    dobc *d = parent->fd->d;
+
+    if ((p->opcode == CPUI_RETURN))
+        return Address(d->get_code_space(), p->get_in(0)->get_val());
+
+    if (p->output->get_addr() != d->pc_addr)
+        throw LowlevelError("inline block last op output must be pc address");
+
+    return Address(d->get_code_space(), p->output->get_val());
+}
+
 void        funcdata::remove_dead_store(flowblock *b)
 {
     list<pcodeop *>::iterator it, it2;
@@ -3805,8 +3818,8 @@ char*       funcdata::block_color(flowblock *b)
     list<pcodeop *>::iterator iter = b->ops.end();
     if (b->flags.f_entry_point)     return "red";
 
-    iter--;
-    if ((*iter)->opcode == CPUI_RETURN)     return "blue";
+    /* 出口节点 */
+    if (b->out.empty())     return "blue";
 
     return "white";
 }
@@ -4224,11 +4237,13 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     }
 
     if (fd.bblocks.get_size() == 3) {
-        flowblock *true_b = clone_block(b->get_true_edge()->point, 1);
-        flowblock *false_b = clone_block(b->get_false_edge()->point, 1);
+        flowblock *orig_true_b = b->get_true_edge()->point;
+        flowblock *orig_false_b = b->get_false_edge()->point;
+        flowblock *true_b = clone_block(b->get_true_edge()->point, F_OMIT_RETURN);
+        flowblock *false_b = clone_block(b->get_false_edge()->point, F_OMIT_RETURN);
 
         flowblock *tailb = split_block(pblk, callop->basiciter);
-        flowblock *out = pblk->get_out(0);
+        flowblock *out = pblk->get_out(0), *b;
 
         while (pblk->out.size() > 0) {
             out = pblk->get_out(0);
@@ -4236,9 +4251,28 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
             bblocks.add_edge(tailb, out, lab);
         }
 
+        /* 3个节点的cbranch有2种结构 
+        1. a->b a->c
+        2. a->b a->c b->c
+        */
         bblocks.add_block_if(pblk, true_b, false_b);
-        bblocks.add_edge(true_b, tailb);
-        bblocks.add_edge(false_b, tailb);
+        if (orig_true_b->out.empty() && orig_false_b->out.empty()) {
+            if (orig_true_b->get_return_addr() == (callop->get_dis_addr() + 4))
+                bblocks.add_edge(true_b, tailb);
+
+            if (orig_false_b->get_return_addr() == (callop->get_dis_addr() + 4))
+                bblocks.add_edge(false_b, tailb);
+        }
+        else {
+            b = orig_false_b->out.size() ? orig_true_b:orig_false_b;
+            if (orig_false_b->out.size())
+                bblocks.add_edge(false_b, true_b);
+            else
+                bblocks.add_edge(true_b, false_b);
+
+            if (b->get_return_addr() == (callop->get_dis_addr() + 4))
+                bblocks.add_edge((b == orig_true_b) ? true_b:false_b, tailb);
+        }
 
         true_b->flags.f_cond_cbranch = 1;
         false_b->flags.f_cond_cbranch = 1;
@@ -4967,6 +5001,7 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
 {
     flowblock *cur = loop_unrolling(h, h, flags);
     pcodeop *p;
+    int i;
 
     cur->vm_caseindex = vm_caseindex;
 
@@ -4980,9 +5015,16 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
 
     cur->mark_unsplice();
 
-    while (stack.back() != h) {
+    while ((stack.back() != h) && !stack.empty()) {
         flowblock *b = stack.back();
         list<pcodeop *>::iterator it;
+
+        if (b->out.empty()) {
+            b->flags.f_cond_cbranch = 0;
+            stack.pop_back();
+            b->set_mark();
+            continue;
+        }
 
         /* 是循环节点，进行循环展开 */
         if (b->get_back_edge_count()) {
@@ -5007,7 +5049,12 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
             }
 
             if (it == b->ops.end()) {
-                stack.push_back(b->get_out(0));
+                if (b->get_out(0)->is_mark()) {
+                    b->set_mark();
+                    stack.pop_back();
+                }
+                else 
+                    stack.push_back(b->get_out(0));
                 continue;
             }
 
@@ -5026,6 +5073,8 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
 
         stack.push_back(b->get_out(0));
     }
+
+    bblocks.clear_mark();
 
     return true;
 }
@@ -5918,7 +5967,7 @@ flowblock*  funcdata::clone_block(flowblock *f, u4 flags)
         op = *it;
 
         if (op->opcode == CPUI_MULTIEQUAL) continue;
-        if (flags && (op->opcode == CPUI_RETURN)) break;
+        if ((flags & F_OMIT_RETURN) && (op->opcode == CPUI_RETURN)) break;
 
         Address addr2(d->get_code_space(), user_offset + op->get_addr().getOffset());
         SeqNum seq(addr2, op_uniqid++);
