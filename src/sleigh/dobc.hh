@@ -167,6 +167,11 @@ struct varnode {
     bool            is_free() { return !flags.written && !flags.input; }
     /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
     bool            in_liverange(pcodeop *p);
+    /* 判断在某个start-end之间，这个varnode是否live, start, end必须得在同一个block内
+
+    这2个判断liverange的代码都要重新写
+    */
+    bool            in_liverange(pcodeop *start, pcodeop *end);
     bool            is_reg() { return get_addr().getSpace()->getType() == IPTR_PROCESSOR; }
 };
 
@@ -734,7 +739,8 @@ struct funcdata {
 
     vector<Address>     addrlist;
     /* 常量cbranch列表 */
-    vector<pcodeop *>    cbrlist;
+    vector<pcodeop *>       cbrlist;
+    vector<flowblock *>     emptylist;
     pcodeemit2 emitter;
 
     /* 做条件inline时用到 */
@@ -1001,6 +1007,7 @@ struct funcdata {
     void        block_remove_internal(blockbasic *bb, bool unreachable);
     bool        remove_unreachable_blocks(bool issuewarnning, bool checkexistence);
     void        splice_block_basic(blockbasic *bl);
+    void        remove_empty_block(blockbasic *bl);
 
     void        redundbranch_appy();
     void        dump_store_info(const char *postfix);
