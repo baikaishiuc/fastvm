@@ -33,6 +33,9 @@ static dobc *g_dobc = NULL;
 
 #define DCFG_COND_INLINE                
 
+#define MSB4(a)                 (a & 0x80000000)
+#define MSB2(a)                 (a & 0x8000)
+
 class AssemblyRaw : public AssemblyEmit {
 
 public:
@@ -1370,6 +1373,36 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         }
         else
             out->type.height = a_top;
+        break;
+
+    case CPUI_INT_SBORROW:
+        in1 = get_in(1);
+        /* 
+        wiki: The overflow flag is thus set when the most significant bit (here considered the sign bit) is changed 
+        by adding two numbers with the same sign (or subtracting two numbers with opposite signs).
+
+        SBORROW一般是用来设置ov标记的，根据wiki上的说法，当加了2个一样的数，MSB发生了变化时，设置overflow flag
+        */
+        if (in0->is_constant() && in1->is_constant()) {
+            int e = 1;
+
+            if (in0->size == 4) {
+                int l = (int)in0->get_val();
+                int r = (int)in1->get_val();
+                int o;
+
+                o = l - r;
+                if (MSB4(o) != MSB4(l)) {
+                    e = 0;
+                    out->set_val(1);
+                }
+            }
+            else {
+                throw LowlevelError("not support");
+            }
+
+            if (e) out->set_val(0);
+        }
         break;
 
     case CPUI_INT_LEFT:
