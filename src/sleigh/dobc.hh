@@ -321,6 +321,7 @@ typedef struct blockedge            blockedge;
 #define a_back_edge             0x8
 #define a_loop_edge             0x10
 #define a_true_edge             0x20
+#define a_mark                  0x40
 
 struct blockedge {
     int label;
@@ -452,6 +453,14 @@ struct flowblock {
     void        calc_forward_dominator(const vector<flowblock *> &rootlist);
     void        build_dom_tree(vector<vector<flowblock *> > &child);
     int         build_dom_depth(vector<int> &depth);
+    /*
+    寻找一种trace流的反向支配节点，
+
+    一般的反向支配节点算法，就是普通支配节点算法的逆
+
+    而这个算法是去掉，部分节点的回边而生成反向支配节点，用来在trace流中使用
+    */
+    flowblock*  find_post_tdom(flowblock *h);
     bool        find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount);
     void        calc_loop();
 
@@ -510,6 +519,8 @@ struct flowblock {
     pcodeop*    first_callop();
     /* 搜索到哪个节点为止 */
     pcodeop*    first_callop_vmp(flowblock *end);
+    /* 这个函数有点问题 */
+    flowblock*  find_loop_exit(flowblock *start, flowblock *end);
     void        mark_unsplice() { flags.f_unsplice = 1;  }
     bool        is_unsplice() { return flags.f_unsplice; }
     bool        is_end() { return out.size() == 0;  }
@@ -991,7 +1002,15 @@ struct funcdata {
 #define _DONT_CLONE             0x08
 #define _NOTE_VMBYTEINDEX       0x10 
     bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
+    bool        loop_unrolling3(flowblock *h, int times, uint32_t flags);
 
+    /* 搜索从某个节点开始到某个节点的，所有in节点的集合 */
+    int         collect_blocks_to_node(vector<flowblock *> &blks, flowblock *start, flowblock *end);
+    /*
+    @h          起始节点
+    @enter      循环展开的头位置
+    @end        循环展开的结束位置，不包含end
+    */
     flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
@@ -999,6 +1018,7 @@ struct funcdata {
     void        dead_code_elimination(vector<flowblock *> blks);
     flowblock*  get_vmhead(void);
     flowblock*  get_vmhead_unroll(void);
+    pcodeop*    get_vmcall(flowblock *b);
 
     bool        use_outside(varnode *vn);
     void        use2undef(varnode *vn);
@@ -1073,6 +1093,18 @@ struct funcdata {
     void        dump_phi_placement(int bid, int pid);
     /* 搜索归纳变量 */
     varnode*    detect_induct_variable(flowblock *h);
+    bool        can_analysis(flowblock *b);
+
+    /* 
+    
+    把一个 
+    a->h
+    b->h的结构转换成
+    a->c->h
+    b->c->h
+    @return     c
+    */
+    flowblock*  combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header);
 };
 
 struct func_call_specs {

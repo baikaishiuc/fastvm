@@ -412,7 +412,7 @@ void dobc::plugin_dvmp360()
 #endif
 
     printf("loop unrolling %d times*************************************\n", i);
-    fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
+    fd_main->loop_unrolling3(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
 
@@ -706,6 +706,11 @@ varnode*    funcdata::detect_induct_variable(flowblock *h)
     }
 
     throw LowlevelError("loop header need CPUI_INT_SUB");
+}
+
+bool        funcdata::can_analysis(flowblock *b)
+{
+    return true;
 }
 
 void            varnode::add_use(pcodeop *op)
@@ -2337,6 +2342,70 @@ pcodeop*    flowblock::first_callop_vmp(flowblock *end)
     return NULL;
 }
 
+flowblock*  flowblock::find_loop_exit(flowblock *start, flowblock *end)
+{
+    vector<flowblock *> stack;
+    vector<int> visit;
+    flowblock *b, *bb;
+    int i;
+
+    visit.resize(get_size());
+
+    stack.push_back(start);
+    visit[start->index] = 1;
+
+    while (!stack.empty()) {
+        b = stack.back();
+
+        if (b == end) {
+            do {
+                stack.pop_back();
+                b = stack.back();
+            } while (b->out.size() == 1);
+
+            return b;
+        }
+
+        for (i = 0; i < b->out.size(); i++) {
+            bb = b->get_out(i);
+            if (visit[bb->index]) continue;
+
+            visit[bb->index] = 1;
+            stack.push_back(bb);
+            break;
+        }
+
+        if (i == b->out.size()) stack.pop_back();
+    }
+
+    return NULL;
+}
+
+flowblock*        funcdata::combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header)
+{
+    int i;
+    flowblock *b = bblocks.new_block_basic(this);
+
+    user_offset += user_step;
+    Address addr(d->trans->getDefaultCodeSpace(), user_offset);
+    b->set_initial_range(addr, addr);
+
+    for (i = 0; i < ins.size(); i++) {
+        int lab = bblocks.remove_edge(ins[i], header);
+        bblocks.add_edge(ins[i], b, lab & a_true_edge);
+    }
+
+
+
+    bblocks.add_edge(b, header);
+
+    clear_block_phi(header);
+
+    structure_reset();
+
+    return b;
+}
+
 Address    flowblock::get_return_addr()
 {
     pcodeop *p = last_op();
@@ -2426,6 +2495,11 @@ int         flowblock::build_dom_depth(vector<int> &depth)
 
     depth[blist.size()] = 0;
     return max;
+}
+
+flowblock*  flowblock::find_post_tdom(flowblock *h)
+{
+    return NULL;
 }
 
 Address     flowblock::get_start(void)
@@ -5043,7 +5117,6 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
 {
     flowblock *cur = loop_unrolling(h, h, flags);
     pcodeop *p;
-    int i;
 
     cur->vm_caseindex = vm_caseindex;
 
@@ -5082,6 +5155,10 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
             dump_cfg(name, "check1", 1);
             continue;
         }
+        else if (0) {
+            flowblock *d = NULL;
+            vector<flowblock *> cloneblks;
+        }
         else {
             /* 不是的话，检测块内 */
             for (it = b->ops.begin(); it != b->ops.end(); it++) {
@@ -5111,6 +5188,106 @@ bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t fl
             dead_code_elimination(v);
 
             dump_cfg(name, "check0", 1);
+        }
+
+        stack.push_back(b->get_out(0));
+    }
+
+    bblocks.clear_marks();
+
+    return true;
+}
+
+bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t flags)
+{
+    flowblock *cur = loop_unrolling(h, h, flags);
+    vector<flowblock *> blks;
+    pcodeop *p;
+
+    cur->vm_caseindex = vm_caseindex;
+
+    if (flags & _DUMP_ORIG_CASE)
+        return 0;
+
+    vector<flowblock *> stack;
+    vector<flowblock *> v;
+    flowblock *b, *bb, *c;
+    list<pcodeop *>::iterator it;
+
+    cur->mark_unsplice();
+    stack.push_back(cur);
+
+    while (!stack.empty()) {
+        b = stack.back();
+        it;
+
+        /* 是循环节点，进行循环展开 */
+        if (b->get_back_edge_count()) {
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
+            stack.pop_back();
+            dump_cfg(name, "check2", 1);
+            continue;
+        }
+        else if (b->flags.f_cond_cbranch) {
+            b->flags.f_cond_cbranch = 0;
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
+            stack.pop_back();
+            dump_cfg(name, "check1", 1);
+            continue;
+        }
+        else if (p = get_vmcall(b)) {
+            cond_inline(p->callfd, p);
+
+            b->mark_unsplice();
+            if (!cbrlist.empty())
+                cond_constant_propagation();
+
+            v.clear();
+            v.push_back(b);
+            dead_code_elimination(v);
+
+            dump_cfg(name, "check0", 1);
+            continue;
+        }
+        else if ((b->out.size() != 1)) {
+#if 0
+            for (i = 0; i < b->out.size(); i++) {
+                e = &b->out[i];
+
+                if (e->label & a_mark) continue;
+
+                if (e->point == h) e->label |= a_mark;
+
+                break;
+            }
+
+            if (i == b->out.size()) {
+                stack.pop_back();
+                if (!stack.empty()) {
+                    i = (bb = stack.back())->get_out_index(b);
+                    e = &bb->out[i];
+                    e->label |= a_mark;
+                }
+                continue;
+            }
+#endif
+
+
+            bb = bblocks.find_loop_exit(b, get_vmhead());
+
+            clone_ifweb(NULL, b, bb, blks);
+            blks.clear();
+
+            collect_blocks_to_node(blks, b, bb);
+            c = combine_multi_in_before_loop(blks, bb);
+            heritage_clear();
+            heritage();
+
+            dump_cfg(name, "check3", 1);
+
+            stack.push_back(c);
+
+            continue;
         }
 
         stack.push_back(b->get_out(0));
@@ -5270,6 +5447,46 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
     return cur;
 }
 
+int         funcdata::collect_blocks_to_node(vector<flowblock *> &blks, flowblock *start, flowblock *end)
+{
+    vector<flowblock *> stack;
+    vector<int>         visit;
+    flowblock *b, *out;
+    int i;
+
+    visit.resize(bblocks.get_size());
+    stack.push_back(start);
+    visit[start->index] = 1;
+
+    while (!stack.empty()) {
+        b = stack.back();
+
+        for (i = 0; i < b->out.size(); i++) {
+            out = b->get_out(i);
+            if (out == end) {
+                if (!b->is_mark()) {
+                    b->set_mark();
+                    blks.push_back(b);
+                }
+                continue;
+            }
+
+            if (!visit[out->index]) {
+                visit[out->index] = 1;
+                stack.push_back(out);
+                break;
+            }
+        }
+
+        if (i == b->out.size()) stack.pop_back();
+    }
+
+    for (i = 0; i < blks.size(); i++) {
+        blks[i]->clear_mark();
+    }
+
+    return 0;
+}
 
 void        funcdata::dead_code_elimination(vector<flowblock *> blks)
 {
@@ -5713,6 +5930,20 @@ flowblock*  funcdata::get_vmhead_unroll(void)
     return start;
 }
 
+pcodeop*    funcdata::get_vmcall(flowblock *b)
+{
+    pcodeop *p;
+    list<pcodeop *>::iterator it;
+
+    for (it = b->ops.begin(); it != b->ops.end(); it++) {
+        p = *it;
+        if (p->is_call() && d->test_cond_inline(d, p->get_call_offset()))
+            return p;
+    }
+
+    return NULL;
+}
+
 bool        funcdata::use_outside(varnode *vn)
 {
     return false;
@@ -5783,7 +6014,6 @@ void        funcdata::block_remove_internal(blockbasic *bb, bool unreachable)
 {
     list<pcodeop *>::iterator iter;
     pcodeop *op;
-    varnode *deadvn;
 
     op = bb->last_op();
     if (op) {
@@ -5795,6 +6025,8 @@ void        funcdata::block_remove_internal(blockbasic *bb, bool unreachable)
     iter = bb->ops.begin();
     while (iter != bb->ops.end()) {
         op = *iter;
+        iter++;
+#if 0
         if (op->output) {
             deadvn = op->output;
             if (unreachable) {
@@ -5805,8 +6037,10 @@ void        funcdata::block_remove_internal(blockbasic *bb, bool unreachable)
                 throw LowlevelError("deleting op with use");
         }
 
-        iter++;
         op_destroy(op);
+#else
+        op_destroy_ssa(op);
+#endif
     }
     bblocks.remove_block(bb);
 }
