@@ -416,6 +416,13 @@ void dobc::plugin_dvmp360()
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
 
+    for (i++; i <= 61; i++) {
+        printf("loop unrolling %d times*************************************\n", i);
+        fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
+        fd_main->dead_code_elimination(fd_main->bblocks.blist);
+        fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
+    }
+
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
     fd_main->dump_djgraph("1", 1);
@@ -2395,8 +2402,6 @@ flowblock*        funcdata::combine_multi_in_before_loop(vector<flowblock *> ins
         bblocks.add_edge(ins[i], b, lab & a_true_edge);
     }
 
-
-
     bblocks.add_edge(b, header);
 
     clear_block_phi(header);
@@ -2829,6 +2834,21 @@ void        funcdata::clear_block_phi(flowblock *b)
         if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.copy_from_phi) break;
 
         op_destroy_ssa(p);
+    }
+}
+
+void        funcdata::clear_block_df_phi(flowblock *b)
+{
+    vector<flowblock *>     blks;
+    int i;
+
+    blks.push_back(b);
+    calc_phi_placement3(blks);
+
+    for (i = 0; i < merge.size(); i++) {
+        flowblock *m = merge[i];
+
+        clear_block_phi(m);
     }
 }
 
@@ -3790,17 +3810,15 @@ void        funcdata::dump_pcode(const char *postfix)
         p = *iter;
         if (p->flags.dead) continue;
 
-        if (p->get_dis_addr() != prev_addr) {
-            if ((p->opcode == CPUI_MULTIEQUAL) || p->flags.copy_from_phi) {
-                fprintf(fp, "<tr>"
-                    "<td><font color=\"" COLOR_ASM_STACK_DEPTH "\">000</font></td>"
-                    "<td><font color=\"" COLOR_ASM_ADDR "\">0000</font></td>"
-                    "<td align=\"left\"><font color=\"" COLOR_ASM_INST_MNEM "\">phi--------------</font></td>"
-                    "<td align=\"left\"><font color=\"" COLOR_ASM_INST_BODY "\"></font></td></tr>");
-            }
-            else {
-                d->trans->printAssembly(assememit, p->get_dis_addr());
-            }
+        if ((p->opcode == CPUI_MULTIEQUAL) || p->flags.copy_from_phi) {
+            fprintf(fp, "<tr>"
+                "<td><font color=\"" COLOR_ASM_STACK_DEPTH "\">000</font></td>"
+                "<td><font color=\"" COLOR_ASM_ADDR "\">0000</font></td>"
+                "<td align=\"left\"><font color=\"" COLOR_ASM_INST_MNEM "\">phi--------------</font></td>"
+                "<td align=\"left\"><font color=\"" COLOR_ASM_INST_BODY "\"></font></td></tr>");
+        }
+        else if (p->flags.startinst) {
+            d->trans->printAssembly(assememit, p->get_dis_addr());
         }
 
         p->dump(buf, PCODE_DUMP_ALL & ~PCODE_HTML_COLOR);
@@ -5217,7 +5235,7 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
     cur->mark_unsplice();
     stack.push_back(cur);
 
-    while (!stack.empty()) {
+    while (stack.back() != h) {
         b = stack.back();
         it;
 
@@ -5271,12 +5289,13 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
                 continue;
             }
 #endif
-
-
             bb = bblocks.find_loop_exit(b, get_vmhead());
 
-            clone_ifweb(NULL, b, bb, blks);
+            clone_ifweb(b, b, bb, blks);
             blks.clear();
+            structure_reset();
+
+            dump_cfg(name, "check3", 1);
 
             collect_blocks_to_node(blks, b, bb);
             c = combine_multi_in_before_loop(blks, bb);
@@ -5846,13 +5865,27 @@ void        funcdata::calc_phi_placement(const vector<varnode *> &write)
 
 void        funcdata::calc_phi_placement2(const vector<varnode *> &write)
 {
+    vector<flowblock *>     blks;
+    flowblock *bl;
+    int i;
+
+    for (i = 0; i < write.size(); i++) {
+        bl = write[i]->def->parent;
+        blks.push_back(bl);
+    }
+
+    calc_phi_placement3(blks);
+}
+
+void        funcdata::calc_phi_placement3(const vector<flowblock *> &write)
+{
     int i;
     flowblock *bl;
     pq.reset(maxdepth);
     merge.clear();
 
     for (i = 0; i < write.size(); ++i) {
-        bl = write[i]->def->parent;
+        bl = write[i];
         pq.insert(bl, domdepth[bl->index]);
     }
 
@@ -6468,10 +6501,23 @@ flowblock*  funcdata::clone_ifweb(flowblock *newstart, flowblock *start, flowblo
         cloneblks.push_back(b);
     }
 
-    out = start->get_out(0);
-    bblocks.add_edge(newstart, out->copymap, start->out[0].label);
-    out = start->get_out(1);
-    bblocks.add_edge(newstart, out->copymap, start->out[1].label);
+    if (start == newstart) {
+        clear_block_df_phi(start);
+
+        out = start->get_out(0);
+        int lab = bblocks.remove_edge(start, out);
+        bblocks.add_edge(newstart, out->copymap, lab);
+
+        out = start->get_out(0);
+        lab = bblocks.remove_edge(start, out);
+        bblocks.add_edge(newstart, out->copymap, lab);
+    }
+    else {
+        out = start->get_out(0);
+        bblocks.add_edge(newstart, out->copymap, start->out[0].label);
+        out = start->get_out(1);
+        bblocks.add_edge(newstart, out->copymap, start->out[1].label);
+    }
 
     for (i = 0; i < webs.size(); i++) {
         for (j = 0; j < webs[i]->out.size(); j++) {

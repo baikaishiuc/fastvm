@@ -822,6 +822,7 @@ struct funcdata {
     void        op_unlink(pcodeop *op);
     void        op_uninsert(pcodeop *op);
     void        clear_block_phi(flowblock *b);
+    void        clear_block_df_phi(flowblock *b);
 
     pcodeop*    find_op(const Address &addr);
     pcodeop*    find_op(const SeqNum &num) const;
@@ -927,6 +928,7 @@ struct funcdata {
     void        build_adt(void);
     void        calc_phi_placement(const vector<varnode *> &write);
     void        calc_phi_placement2(const vector<varnode *> &write);
+    void        calc_phi_placement3(const vector<flowblock *> &write);
     void        visit_dj(flowblock *cur,  flowblock *v);
     void        visit_incr(flowblock *qnode, flowblock *vnode);
     void        place_multiequal(void);
