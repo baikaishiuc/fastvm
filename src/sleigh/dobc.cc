@@ -416,7 +416,7 @@ void dobc::plugin_dvmp360()
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
 
-    for (i++; i <= 61; i++) {
+    for (i++; i <= 63; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
