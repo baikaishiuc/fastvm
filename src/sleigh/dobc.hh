@@ -391,6 +391,10 @@ struct flowblock {
         unsigned f_unsplice : 1;
         /* 内联的时候碰到的cbranch指令 */
         unsigned f_cond_cbranch : 1;
+        /* 我们假设节点 e 为结束节点，节点 a -> e，当且仅当e为a的唯一出节点，那么a在e的结束路径上，
+        e也在自己的路径上
+        */
+        unsigned f_exitpath : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -416,6 +420,8 @@ struct flowblock {
     vector<blockedge>   in;
     vector<blockedge>   out;
     vector<flowblock *> blist;
+    /* 一个函数的所有结束节点 */
+    vector<flowblock *> exitlist;
     /* 有些block是不可到达的，都放到这个列表内 */
     vector<flowblock *> deadlist;
 
@@ -477,6 +483,7 @@ struct flowblock {
     flowblock*  get_entry_point(void);
     int         get_in_index(const flowblock *bl);
     int         get_out_index(const flowblock *bl);
+    void        calc_exitpath();
 
     void        clear(void);
     int         remove_edge(flowblock *begin, flowblock *end);
@@ -488,6 +495,7 @@ struct flowblock {
     void        half_delete_out_edge(int slot);
     void        half_delete_in_edge(int slot);
     int         get_back_edge_count(void);
+    flowblock*  get_back_edge_node(void);
     /* 当这个block的末尾节点为cbranch节点时，返回条件为真或假的跳转地址 */
     blockedge*  get_true_edge(void);
     blockedge*  get_false_edge(void);
@@ -521,6 +529,13 @@ struct flowblock {
     pcodeop*    first_callop_vmp(flowblock *end);
     /* 这个函数有点问题 */
     flowblock*  find_loop_exit(flowblock *start, flowblock *end);
+
+    /*
+    1. 检测header是否为 while...do 形式的循环的头节点
+    2. 假如不是，返回NULL
+    3. 假如是，计算whiledo的结束节点是哪个
+    */
+    flowblock*  detect_whiledo_exit(flowblock *header);
     void        mark_unsplice() { flags.f_unsplice = 1;  }
     bool        is_unsplice() { return flags.f_unsplice; }
     bool        is_end() { return out.size() == 0;  }
@@ -1009,9 +1024,11 @@ struct funcdata {
     /* 搜索从某个节点开始到某个节点的，所有in节点的集合 */
     int         collect_blocks_to_node(vector<flowblock *> &blks, flowblock *start, flowblock *end);
     /*
+
     @h          起始节点
     @enter      循环展开的头位置
-    @end        循环展开的结束位置，不包含end
+    @end        循环展开的结束位置，不包含end，
+                当循环粘展开到最后一个节点，跳出循环时，终止节点就变成了exit节点
     */
     flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
@@ -1094,7 +1111,7 @@ struct funcdata {
     /* 打印某个节点的插入为止*/
     void        dump_phi_placement(int bid, int pid);
     /* 搜索归纳变量 */
-    varnode*    detect_induct_variable(flowblock *h);
+    varnode*    detect_induct_variable(flowblock *h, flowblock *&exit);
     bool        can_analysis(flowblock *b);
 
     /* 

@@ -692,23 +692,27 @@ void        funcdata::dump_phi_placement(int bid, int pid)
     printf("\n");
 }
 
-varnode*    funcdata::detect_induct_variable(flowblock *h)
+varnode*    funcdata::detect_induct_variable(flowblock *h, flowblock * &exit)
 {
     list<pcodeop *>::const_reverse_iterator it;
+    flowblock *true1;
 
-    if (h->last_op()->opcode != CPUI_CBRANCH) {
-        throw LowlevelError("detect induct variable flowblock need cbranch");
-    }
+    if (NULL == (exit = bblocks.detect_whiledo_exit(h))) 
+        throw LowlevelError("h:%d whiledo loop not found exit node");
+
+    true1 = h->get_true_edge()->point;
 
     for (it = h->ops.rbegin(); it != h->ops.rend(); it++) {
         pcodeop *p = *it;
 
+        /* 这个地方有点硬编码了，直接扫描sub指令，这个是因为当前的测试用例中的核心VM，用了cmp指令以后
+        生成了sub，这个地方可能更好的方式是匹配更复杂的pattern */
         if (p->opcode == CPUI_INT_SUB) {
             varnode *in0 = p->get_in(0);
             varnode *in1 = p->get_in(1);
 
-            // FIXME:针对vm engine的这种情况，我不清楚该如何正确的识别出归纳变量，直接返回第2个了，后面想想更好的办法
-            return  in1;
+            /* 假如前面是cmp指令，而且节点节点等于真值出口，那么我们认为in1是归纳变量 */
+            return  (exit == true1) ? in1:in0;
         }
     }
 
@@ -1752,6 +1756,7 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
     rpostorder.resize(blist.size());
     visitcount = (int *)calloc(1, sizeof(int) * blist.size());
 
+    exitlist.clear();
     for (i = 0; i < blist.size(); i++) {
         tmpbl = blist[i];
         tmpbl->index = -1;
@@ -1759,6 +1764,9 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
         tmpbl->copymap = tmpbl;
         if ((tmpbl->in.size() == 0))
             rootlist.push_back(tmpbl);
+
+        if (!tmpbl->out.size())
+            exitlist.push_back(tmpbl);
     }
     assert(rootlist.size() == 1);
 
@@ -2011,6 +2019,34 @@ int         flowblock::get_out_index(const flowblock *bl)
     return -1;
 }
 
+void        flowblock::calc_exitpath()
+{
+    flowblock *e, *in;
+    int i, j;
+    vector<flowblock *> q;
+
+    for (i = 0; i < exitlist.size(); i++) {
+        e = exitlist[i];
+
+        e->flags.f_exitpath = 1;
+
+        q.clear();
+        q.push_back(e);
+
+        while ((in = q.front())) {
+            q.erase(q.begin());
+            if (in->get_back_edge_count() > 0)
+                continue;
+
+            in->flags.f_exitpath = 1;
+
+            for (j = 0; j < in->in.size(); j++) {
+                q.push_back(in->get_in(j));
+            }
+        }
+    }
+}
+
 void        flowblock::clear(void)
 {
     vector<flowblock *>::iterator iter;
@@ -2119,6 +2155,17 @@ int         flowblock::get_back_edge_count(void)
     }
 
     return count;
+}
+
+flowblock*  flowblock::get_back_edge_node(void)
+{
+    int i, count = 0;
+
+    for (i = 0; i < in.size(); i++) {
+        if (in[i].label & a_back_edge) return in[i].point;
+    }
+
+    return NULL;
 }
 
 blockedge* flowblock::get_true_edge(void)
@@ -2386,6 +2433,31 @@ flowblock*  flowblock::find_loop_exit(flowblock *start, flowblock *end)
     }
 
     return NULL;
+}
+
+flowblock*          flowblock::detect_whiledo_exit(flowblock *header)
+{
+    flowblock *true0, *false0, *back;
+
+    if (header->out.size() != 2)
+        return NULL;
+
+    if (header->get_back_edge_count() == 0)
+        return NULL;
+
+    back = header->get_back_edge_node();
+
+    true0 = header->get_true_edge()->point;
+    false0 = header->get_false_edge()->point;
+
+    while (back) {
+        if (back == true0) return false0;
+        if (back == false0) return true0;
+
+        back = back->immed_dom;
+    }
+
+    throw LowlevelError("loop is unreducible ?");
 }
 
 flowblock*        funcdata::combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header)
@@ -4509,11 +4581,7 @@ void funcdata::structure_reset()
 
     bblocks.structure_loops(rootlist);
     bblocks.calc_forward_dominator(rootlist);
-}
-
-/* build dominator tree*/
-void funcdata::build_dom_tree()
-{
+    //bblocks.calc_exitpath();
 }
 
 void        funcdata::clear_blocks()
@@ -5319,8 +5387,8 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
 
 flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t flags)
 {
-    int i, inslot, ret;
-    flowblock *start,  *cur, *prev, *br, *tmpb;
+    int i, inslot, ret, meet_exit = 0;
+    flowblock *start,  *cur, *prev, *br, *tmpb, *exit = NULL;
     list<pcodeop *>::const_iterator it;
     const SeqNum sq;
     pcodeop *p, *op;
@@ -5337,7 +5405,7 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
     cur = h;
 
     if (flags & _NOTE_VMBYTEINDEX) {
-        iv = detect_induct_variable(h);
+        iv = detect_induct_variable(h, exit);
     }
 
     do {
@@ -5370,6 +5438,12 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
 
         prev = cur;
         cur = br;
+
+        /* 循环展开到最后一个终止节点 */
+        if (exit && (exit == cur)) {
+            meet_exit = 1;
+            break;
+        }
     } while (cur != end);
 
     /* 把刚才走过的路径复制出来，剔除jmp节点，最后一个节点的jmp保留 */
@@ -5398,9 +5472,14 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
         }
 
         /* 最后一个节点的jmp指令不删除 */
-        if ((i != (trace.size() - 1)) 
-            && ((p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND) || p->flags.copy_from_phi))
+        if (((i != (trace.size() - 1)) 
+            && ((p->opcode == CPUI_BRANCH) || (p->opcode == CPUI_CBRANCH) || (p->opcode == CPUI_INDIRECT) || (p->opcode == CPUI_MULTIEQUAL) || (p->opcode == CPUI_BRANCHIND) || p->flags.copy_from_phi)))
             continue;
+
+        /* 假如循环展开结束，则最后一个节点不处理 */
+        if ((i == (trace.size() - 1)) && meet_exit && (p->opcode == CPUI_CBRANCH)) {
+            continue;
+        }
 
         Address addr2(d->get_code_space(), user_offset + p->get_addr().getOffset());
         const SeqNum sq(addr2, op_uniqid++);
@@ -5443,7 +5522,7 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
             clone_ifweb(cur, br, end, cloneblks);
     }
     else {
-        bblocks.add_edge(cur, end);
+        bblocks.add_edge(cur, meet_exit?exit:end);
     }
     cloneblks.push_back(cur);
 
