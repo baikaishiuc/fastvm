@@ -416,7 +416,7 @@ void dobc::plugin_dvmp360()
     fd_main->dead_code_elimination(fd_main->bblocks.blist);
     fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
 
-    for (i++; i <= 63; i++) {
+    for (i++; i <= 75; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
@@ -6018,7 +6018,8 @@ flowblock*  funcdata::get_vmhead(void)
     int i, max_count = -1, t;
     flowblock *max = NULL;
 
-    if (vmhead) return vmhead;
+    if (vmhead) 
+        return vmhead->flags.f_dead ? NULL : vmhead;
 
     for (i = 0; i < bblocks.blist.size(); i++) {
         t = bblocks.blist[i]->get_back_edge_count();
@@ -6034,6 +6035,9 @@ flowblock*  funcdata::get_vmhead(void)
 flowblock*  funcdata::get_vmhead_unroll(void)
 {
     flowblock *h = get_vmhead();
+
+    if (!h) return NULL;
+
     flowblock *start = loop_pre_get(h, 0)->parent;
 
     while ((start->in.size() == 1) && (start->get_in(0)->out.size() == 1))
