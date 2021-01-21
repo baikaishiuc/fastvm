@@ -1018,8 +1018,7 @@ struct funcdata {
     /* 循环展开的假如是 while switch case 里的分支则需要clone，假如不是的话则不需要复制后面的流 */
 #define _DONT_CLONE             0x08
 #define _NOTE_VMBYTEINDEX       0x10 
-    bool        loop_unrolling2(flowblock *h, int times, uint32_t flags);
-    bool        loop_unrolling3(flowblock *h, int times, uint32_t flags);
+    bool        loop_unrolling4(flowblock *h, int times, uint32_t flags);
 
     /* 搜索从某个节点开始到某个节点的，所有in节点的集合 */
     int         collect_blocks_to_node(vector<flowblock *> &blks, flowblock *start, flowblock *end);
@@ -1030,7 +1029,7 @@ struct funcdata {
     @end        循环展开的结束位置，不包含end，
                 当循环粘展开到最后一个节点，跳出循环时，终止节点就变成了exit节点
     */
-    flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags);
+    flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags, int &meet_exit);
     /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
     这个是为了方便调试以及还原
     */

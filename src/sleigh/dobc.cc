@@ -402,26 +402,13 @@ void dobc::plugin_dvmp360()
     char buf[16];
     int i;
 
-    // 56
-    for (i = 1; i <= 56; i++) {
+    for (i = 1; i <= 75; i++) {
         printf("loop unrolling %d times*************************************\n", i);
-        fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
+        fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist);
         fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
     }
 #endif
-
-    printf("loop unrolling %d times*************************************\n", i);
-    fd_main->loop_unrolling3(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
-    fd_main->dead_code_elimination(fd_main->bblocks.blist);
-    fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
-
-    for (i++; i <= 75; i++) {
-        printf("loop unrolling %d times*************************************\n", i);
-        fd_main->loop_unrolling2(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
-        fd_main->dead_code_elimination(fd_main->bblocks.blist);
-        fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
-    }
 
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
@@ -5199,98 +5186,16 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     return NULL;
 }
 
-bool       funcdata::loop_unrolling2(flowblock *h, int vm_caseindex, uint32_t flags)
+bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t flags)
 {
-    flowblock *cur = loop_unrolling(h, h, flags);
-    pcodeop *p;
-
-    cur->vm_caseindex = vm_caseindex;
-
-    if (flags & _DUMP_ORIG_CASE)
-        return 0;
-
-    vector<flowblock *> stack;
-    vector<flowblock *> v;
-
-    stack.push_back(cur);
-
-    cur->mark_unsplice();
-
-    while ((stack.back() != h) && !stack.empty()) {
-        flowblock *b = stack.back();
-        list<pcodeop *>::iterator it;
-
-        if (b->out.empty()) {
-            b->flags.f_cond_cbranch = 0;
-            stack.pop_back();
-            b->set_mark();
-            continue;
-        }
-
-        /* 是循环节点，进行循环展开 */
-        if (b->get_back_edge_count()) {
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
-            stack.pop_back();
-            dump_cfg(name, "check2", 1);
-            continue;
-        }
-        else if (b->flags.f_cond_cbranch) {
-            b->flags.f_cond_cbranch = 0;
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
-            stack.pop_back();
-            dump_cfg(name, "check1", 1);
-            continue;
-        }
-        else if (0) {
-            flowblock *d = NULL;
-            vector<flowblock *> cloneblks;
-        }
-        else {
-            /* 不是的话，检测块内 */
-            for (it = b->ops.begin(); it != b->ops.end(); it++) {
-                p = *it;
-                if (p->is_call() && d->test_cond_inline(d, p->get_call_offset()))
-                    break;
-            }
-
-            if (it == b->ops.end()) {
-                if (b->get_out(0)->is_mark()) {
-                    b->set_mark();
-                    stack.pop_back();
-                }
-                else 
-                    stack.push_back(b->get_out(0));
-                continue;
-            }
-
-            cond_inline(p->callfd, p);
-
-            b->mark_unsplice();
-            if (!cbrlist.empty())
-                cond_constant_propagation();
-
-            v.clear();
-            v.push_back(b);
-            dead_code_elimination(v);
-
-            dump_cfg(name, "check0", 1);
-        }
-
-        stack.push_back(b->get_out(0));
-    }
-
-    bblocks.clear_marks();
-
-    return true;
-}
-
-bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t flags)
-{
-    flowblock *cur = loop_unrolling(h, h, flags);
+    int meet_exit;
+    flowblock *cur = loop_unrolling(h, h, flags, meet_exit);
     vector<flowblock *> blks;
     pcodeop *p;
 
     cur->vm_caseindex = vm_caseindex;
+
+    if (meet_exit) return true;
 
     if (flags & _DUMP_ORIG_CASE)
         return 0;
@@ -5303,23 +5208,26 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
     cur->mark_unsplice();
     stack.push_back(cur);
 
-    while (stack.back() != h) {
+    while ((stack.back() != h) && !stack.empty()) {
         b = stack.back();
         it;
 
+        if (b->out.empty()) {
+            b->flags.f_cond_cbranch = 0;
+            stack.pop_back();
+            b->set_mark();
+        }
+        else if (b->get_back_edge_count()) {
         /* 是循环节点，进行循环展开 */
-        if (b->get_back_edge_count()) {
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
             stack.pop_back();
             dump_cfg(name, "check2", 1);
-            continue;
         }
         else if (b->flags.f_cond_cbranch) {
             b->flags.f_cond_cbranch = 0;
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE);
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
             stack.pop_back();
             dump_cfg(name, "check1", 1);
-            continue;
         }
         else if (p = get_vmcall(b)) {
             cond_inline(p->callfd, p);
@@ -5333,30 +5241,20 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
             dead_code_elimination(v);
 
             dump_cfg(name, "check0", 1);
-            continue;
         }
-        else if ((b->out.size() != 1)) {
-#if 0
-            for (i = 0; i < b->out.size(); i++) {
-                e = &b->out[i];
-
-                if (e->label & a_mark) continue;
-
-                if (e->point == h) e->label |= a_mark;
-
-                break;
-            }
-
-            if (i == b->out.size()) {
-                stack.pop_back();
-                if (!stack.empty()) {
-                    i = (bb = stack.back())->get_out_index(b);
-                    e = &bb->out[i];
-                    e->label |= a_mark;
-                }
-                continue;
-            }
-#endif
+        else if (b->get_out(0)->is_mark()) {
+            stack.pop_back();
+        }
+        else if (b->out.size() == 1) {
+            stack.push_back(b->get_out(0));
+        }
+        else if (b->get_out(0)->flags.f_cond_cbranch) {
+            stack.push_back(b->get_out(0));
+        }
+        else if (!b->get_out(0)->get_back_edge_count() && !b->get_out(1)->get_back_edge_count()) {
+            stack.push_back(b->get_out(0));
+        }
+        else {
             bb = bblocks.find_loop_exit(b, get_vmhead());
 
             clone_ifweb(b, b, bb, blks);
@@ -5376,8 +5274,6 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
 
             continue;
         }
-
-        stack.push_back(b->get_out(0));
     }
 
     bblocks.clear_marks();
@@ -5385,14 +5281,16 @@ bool        funcdata::loop_unrolling3(flowblock *h, int vm_caseindex, uint32_t f
     return true;
 }
 
-flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t flags)
+flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t flags, int &meet_exit)
 {
-    int i, inslot, ret, meet_exit = 0;
+    int i, inslot, ret;
     flowblock *start,  *cur, *prev, *br, *tmpb, *exit = NULL;
     list<pcodeop *>::const_iterator it;
     const SeqNum sq;
     pcodeop *p, *op;
     varnode *iv = NULL;
+
+    meet_exit = 0;
 
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
