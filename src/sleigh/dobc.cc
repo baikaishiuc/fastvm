@@ -372,43 +372,25 @@ void dobc::plugin_dvmp360()
     fd_main->inline_call("", 1);
     fd_main->inline_call("", 1);
 
-#if 1
     changed = 1;
     fd_main->heritage();
     fd_main->dump_cfg(fd_main->name, "orig", 1);
-    while (changed) {
-        changed = 0;
 
-        fd_main->constant_propagation2();
-
-        // 发现CBRANCH列表不为空，说明有条件判断语句为常量
-        if (!fd_main->cbrlist.empty()) {
-            fd_main->cond_constant_propagation();
-            /* 发生了条件常量传播以后，整个程序的结构发生了变化，整个结构必须得重来 */
-            changed = 1;
-        }
-
-        // 发现新地址
-        if (!fd_main->addrlist.empty()) {
-            fd_main->generate_ops();
-            fd_main->generate_blocks();
-            changed = 1;
-        }
-    }
-#endif
+    fd_main->constant_propagation2();
+    if (!fd_main->cbrlist.empty())
+        fd_main->cond_constant_propagation();
 
 
-#if 1
     char buf[16];
-    int i;
+    int i = 0;
 
-    for (i = 1; i <= 75; i++) {
+    while (fd_main->get_vmhead()) {
+        i++;
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
-        fd_main->dead_code_elimination(fd_main->bblocks.blist);
+        fd_main->dead_code_elimination(fd_main->bblocks.blist, RDS_UNROLL0);
         fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
     }
-#endif
 
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
@@ -2470,6 +2452,14 @@ flowblock*        funcdata::combine_multi_in_before_loop(vector<flowblock *> ins
     return b;
 }
 
+void        funcdata::dump_exe()
+{
+    bblocks.clear_all_unsplice();
+    cond_constant_propagation();
+    dead_code_elimination(bblocks.blist, 0);
+}
+
+
 Address    flowblock::get_return_addr()
 {
     pcodeop *p = last_op();
@@ -2482,6 +2472,13 @@ Address    flowblock::get_return_addr()
         throw LowlevelError("inline block last op output must be pc address");
 
     return Address(d->get_code_space(), p->output->get_val());
+}
+
+void        flowblock::clear_all_unsplice()
+{
+    for (int i = 0; i < blist.size(); i++) {
+        get_block(i)->flags.f_unsplice = 0;
+    }
 }
 
 void        funcdata::remove_dead_store(flowblock *b)
@@ -4378,7 +4375,7 @@ void        funcdata::inline_flow(funcdata *fd1, pcodeop *callop)
     generate_blocks();
 }
 
-flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
+flowblock*      funcdata::argument_inline(funcdata *inlinefd, pcodeop *callop)
 {
     funcdata fd(inlinefd->name.c_str(), inlinefd->get_addr(), 0, d);
     flowblock *pblk = callop->parent;
@@ -4405,7 +4402,7 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
     fd.dump_cfg(fd.name, buf, 1);
 #endif
 
-    fd.cond_pass();
+    fd.argument_pass();
 
 #if defined(DCFG_COND_INLINE)
     sprintf(buf, "cond_after");
@@ -4488,7 +4485,7 @@ flowblock*      funcdata::cond_inline(funcdata *inlinefd, pcodeop *callop)
 }
 
 
-void        funcdata::cond_pass(void)
+void        funcdata::argument_pass(void)
 {
     int changed = 1;
     pcodeop *p;
@@ -4504,7 +4501,7 @@ void        funcdata::cond_pass(void)
             cond_constant_propagation();
             /* 发生了条件常量传播以后，整个程序的结构发生了变化，整个结构必须得重来 */
             changed = 1;
-            dead_code_elimination(bblocks.blist);
+            dead_code_elimination(bblocks.blist, RDS_0);
 
             continue;
         }
@@ -4521,7 +4518,7 @@ void        funcdata::cond_pass(void)
                 heritage();
             }
 
-            cond_inline(p->callfd, p);
+            argument_inline(p->callfd, p);
             g_time++;
 
             continue;
@@ -4531,7 +4528,7 @@ void        funcdata::cond_pass(void)
     heritage_clear();
     heritage();
 
-    dead_code_elimination(bblocks.blist);
+    dead_code_elimination(bblocks.blist, RDS_0);
 }
 
 void        funcdata::set_caller(funcdata *caller1, pcodeop *callop1)
@@ -5230,7 +5227,7 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
             dump_cfg(name, "check1", 1);
         }
         else if (p = get_vmcall(b)) {
-            cond_inline(p->callfd, p);
+            argument_inline(p->callfd, p);
 
             b->mark_unsplice();
             if (!cbrlist.empty())
@@ -5238,7 +5235,7 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
 
             v.clear();
             v.push_back(b);
-            dead_code_elimination(v);
+            dead_code_elimination(v, RDS_UNROLL0);
 
             dump_cfg(name, "check0", 1);
         }
@@ -5438,7 +5435,7 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
     heritage_clear();
     heritage();
 
-    dead_code_elimination(cloneblks);
+    dead_code_elimination(cloneblks, RDS_UNROLL0);
 
     return cur;
 }
@@ -5484,7 +5481,7 @@ int         funcdata::collect_blocks_to_node(vector<flowblock *> &blks, flowbloc
     return 0;
 }
 
-void        funcdata::dead_code_elimination(vector<flowblock *> blks)
+void        funcdata::dead_code_elimination(vector<flowblock *> blks, uint32_t flags)
 {
     flowblock *b;
     list<pcodeop *>::iterator it;
@@ -5554,16 +5551,17 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks)
         }
 
         if (marks[op->parent->dfnum]) {
-            //printf("dce pcode: %d\n", op->start.getTime());
             op_destroy(op);
         }
     }
 
     flowblock *h;
-    if ((bblocks.get_size() > 100) && (h = get_vmhead_unroll())) 
-        remove_dead_store(h);
-    else
+
+    if (flags & RDS_0) 
         remove_dead_store(bblocks.get_block(0));
+
+    if ((flags & RDS_UNROLL0) && (h = get_vmhead_unroll())) 
+        remove_dead_store(h);
 }
 
 bool        funcdata::is_code(varnode *v) 

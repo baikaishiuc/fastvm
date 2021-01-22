@@ -540,6 +540,7 @@ struct flowblock {
     bool        is_unsplice() { return flags.f_unsplice; }
     bool        is_end() { return out.size() == 0;  }
     Address     get_return_addr();
+    void        clear_all_unsplice();
     pcodeop*    get_pcode(int pid) {
         list<pcodeop *>::iterator it;
         for (it = ops.begin(); it != ops.end(); it++) {
@@ -918,8 +919,8 @@ struct funcdata {
     然后这些opcode，理论上是可以放到一个大的switch里面处理掉的，有些写壳的作者会硬是把
     这个大的switch表拆成多个函数
     */
-    flowblock*  cond_inline(funcdata *inlinefd, pcodeop *fd);
-    void        cond_pass(void);
+    flowblock*  argument_inline(funcdata *inlinefd, pcodeop *fd);
+    void        argument_pass(void);
     void        set_caller(funcdata *caller, pcodeop *callop);
 
     void        inline_ezclone(funcdata *fd, const Address &calladdr);
@@ -933,7 +934,6 @@ struct funcdata {
     char*       block_color(flowblock *b);
     char*       edge_color(blockedge *e);
     int         edge_width(blockedge *e);
-    void        build_dom_tree();
     void        start_processing(void);
     void        follow_flow(void);
     void        add_callspec(pcodeop *p, funcdata *fd);
@@ -1030,10 +1030,11 @@ struct funcdata {
                 当循环粘展开到最后一个节点，跳出循环时，终止节点就变成了exit节点
     */
     flowblock*  loop_unrolling(flowblock *h, flowblock *end, uint32_t flags, int &meet_exit);
-    /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除
-    这个是为了方便调试以及还原
-    */
-    void        dead_code_elimination(vector<flowblock *> blks);
+    /* 这里的dce加了一个数组参数，用来表示只有当删除的pcode在这个数组里才允许删除 这个是为了方便调试以及还原 */
+#define RDS_0           1
+#define RDS_UNROLL0     2
+
+    void        dead_code_elimination(vector<flowblock *> blks, uint32_t flags);
     flowblock*  get_vmhead(void);
     flowblock*  get_vmhead_unroll(void);
     pcodeop*    get_vmcall(flowblock *b);
@@ -1123,6 +1124,7 @@ struct funcdata {
     @return     c
     */
     flowblock*  combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header);
+    void        dump_exe();
 };
 
 struct func_call_specs {
