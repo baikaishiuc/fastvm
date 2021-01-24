@@ -354,7 +354,8 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    int changed;
+    int changed, i;
+    char buf[16];
 
     funcdata *fd_main = find_func("_Z10__arm_a_21v");
     fd_main->set_alias("vm_func1");
@@ -381,16 +382,14 @@ void dobc::plugin_dvmp360()
         fd_main->cond_constant_propagation();
 
 
-    char buf[16];
-    int i = 0;
-
-    while (fd_main->get_vmhead()) {
-        i++;
+#if 1
+    for (i = 0; fd_main->get_vmhead(); i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist, RDS_UNROLL0);
         fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
     }
+#endif
 
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
@@ -447,10 +446,26 @@ funcdata* dobc::find_func(const char *name)
     return NULL;
 }
 
+void dobc::init_regs()
+{
+    map<VarnodeData, string> reglist;
+    map<VarnodeData, string>::iterator it;
+
+    trans->getAllRegisters(reglist);
+
+    for (it = reglist.begin(); it != reglist.end(); it++) {
+        string &name = it->second;
+        if (name.find("tmp") != string::npos) continue;
+        if (name.find("multi") != string::npos) continue;
+        cpu_regs.insert(it->first.getAddr());
+    }
+}
+
 void dobc::init()
 {
     LoadImageFunc sym;
 
+    init_regs();
     init_abbrev();
     init_plt();
 
@@ -959,6 +974,26 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     return i;
 }
 
+bool            pcodeop::in_sp_alloc_range(varnode *val)
+{
+    if (opcode != CPUI_INT_SUB)  return false;
+
+    Address &sp = parent->fd->d->sp_addr;
+
+    varnode *in0 = get_in(0);
+    varnode *in1 = get_in(1);
+
+    if (output && output->is_rel_constant()
+        && in0->is_rel_constant()
+        && in1->is_constant()
+        && (-val->get_val() > -in0->get_val()) 
+        && (-val->get_val() <= -output->get_val())) {
+        return true;
+    }
+
+    return false;
+}
+
 void            pcodeop::peephole(void)
 {
     switch (opcode) {
@@ -1072,7 +1107,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             r0(1) = mem[x]
             修改第2条指令会 cpy r0(1), r0(0)
             */
-#if 1
             if (!is_trace() && (_in2->get_addr() == out->get_addr()) && (_in2->version + 1) == (out->version)) {
                 while (num_input())
                     fd->op_remove_input(this, 0);
@@ -1080,7 +1114,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 fd->op_set_opcode(this, CPUI_COPY);
                 fd->op_set_input(this, _in2, 0);
             }
-#endif
         }
         else if ((inslot >= 0)) { // trace流中
             if (store = fd->trace_store_query(in1)) {
@@ -1090,7 +1123,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 out->type.height = a_top;
         }
         /* 假如这个值确认来自于外部，不要跟新他 */
-        else if (!flags.input)
+        else if (!flags.input && !flags.val_from_sp_alloc)
             out->type.height = a_top;
 
         if (out->is_constant()) {
@@ -1807,7 +1840,7 @@ void flowblock::structure_loops(vector<flowblock *> &rootlist)
 
     find_spanning_tree(preorder, rootlist);
     /* vm360的图是不可规约的，还不确认不可规约的图会对优化造成什么影响 */
-    find_irrereducible(preorder, irreduciblecount);
+    find_irreducible(preorder, irreduciblecount);
 }
 
 void flowblock::dump_spanning_tree(const char *filename, vector<flowblock *> &rootlist)
@@ -2459,6 +2492,13 @@ void        funcdata::dump_exe()
     dead_code_elimination(bblocks.blist, 0);
 }
 
+void        funcdata::detect_calced_loop()
+{
+    int i;
+
+    for (i = 0; i < bblocks.get_size(); i++) {
+    }
+}
 
 Address    flowblock::get_return_addr()
 {
@@ -2576,7 +2616,7 @@ Address     flowblock::get_start(void)
 /* 
 Testing Flow Graph Reducibility
 https://core.ac.uk/download/pdf/82032035.pdf */
-bool        flowblock::find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount)
+bool        flowblock::find_irreducible(const vector<flowblock *> &preorder, int &irreduciblecount)
 {
     vector<flowblock *> reachunder;
     bool needrebuild = false;
@@ -2607,6 +2647,10 @@ bool        flowblock::find_irrereducible(const vector<flowblock *> &preorder, i
                 flowblock *y = t->get_in(i);
                 flowblock *yprime = y->copymap;         // y' = FIND(y)
 
+                /* 
+                1. 
+                2. cross edge
+                */
                 if ((x->dfnum > yprime->dfnum) || ((x->dfnum + x->numdesc) <= yprime->dfnum)) {
                     printf("warn: dfnum[%d] irreducible to dfnum[%d]\n", x->dfnum, yprime->dfnum);
                     clear_marks();
@@ -4052,6 +4096,44 @@ void        funcdata::dump_cfg(const string &name, const char *postfix, int dump
     fclose(fp);
 }
 
+void        funcdata::dump_loop(const char *postfix)
+{
+    char obuf[512];
+
+    sprintf(obuf, "%s/loop_%s.dot", get_dir(obuf), postfix);
+
+    FILE *fp = fopen(obuf, "w");
+    if (NULL == fp) {
+        printf("fopen failure %s", obuf);
+        exit(0);
+    }
+
+    fprintf(fp, "digraph G {\n");
+    fprintf(fp, "node [fontname = \"helvetica\"]\n");
+
+    int i;
+    for (i = 0; i < bblocks.blist.size(); ++i) {
+        blockbasic *b = bblocks.blist[i];
+
+        dump_block(fp, b, 1);
+    }
+
+    blockbasic *loop_header;
+    for (i = 0; i < bblocks.blist.size(); ++i) {
+        blockbasic *b = bblocks.blist[i];
+        loop_header = b->loop_header ? b->loop_header : bblocks.get_block(0);
+
+#if 0
+        fprintf(fp, "loc_%x ->loc_%x [label = \"%s\" color=\"%s\" penwidth=%d]\n",
+            b->sub_id(), loop_header->sub_id(),  loop_header->is_true() ? "true":"false", edge_color(e), edge_width(e));
+#endif
+    }
+
+    fprintf(fp, "}");
+
+    fclose(fp);
+}
+
 varnode*    funcdata::new_coderef(const Address &m)
 {
     varnode *vn;
@@ -4790,6 +4872,12 @@ int     funcdata::constant_propagation2()
                 continue;
             }
 
+            if (store->opcode != CPUI_STORE) {
+                //load->output->set_val(0);
+                //load->flags.val_from_sp_alloc = 1;
+                continue;
+            }
+
             safe_aliaslist.push_back(load);
             w.push_back(load);
             if (store->parent->fd != this) {
@@ -5101,6 +5189,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
 
             if (!p->flags.inlined && have_side_effect(p, pos))
                 return NULL;
+            if (p->in_sp_alloc_range(pos)) return p;
             if (p->opcode != CPUI_STORE) continue;
 
             varnode *a = p->get_in(1);
@@ -5601,6 +5690,9 @@ void        funcdata::place_multiequal(void)
             continue;
 
         if (readvars.empty() && writevars.empty())
+            continue;
+
+        if (!d->is_cpu_reg(addr))
             continue;
 
         calc_phi_placement2(writevars);

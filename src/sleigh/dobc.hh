@@ -222,6 +222,14 @@ struct pcodeop {
         unsigned zero_load : 1;         // 0地址访问
         unsigned force_constant : 1;    // 强制常量，用来在某些地方硬编码时，不方便计算，人工计算后，强行填入
         unsigned trace : 1;
+            /* 
+            FIXME:
+            会影响load行为的有2种opcode
+            1. store
+            2. sp = sp - xxx
+            后面一种opcode，我们假设alloc出的内存空间值都是0，这个是有问题的?
+            */
+        unsigned val_from_sp_alloc : 1;     // 这个load的值并非来自于store，而是来自于sp的内存分配行为
     } flags = { 0 };
 
     OpCode opcode;
@@ -310,6 +318,8 @@ struct pcodeop {
     bool            is_trace() { return flags.trace;  }
     void            set_trace() { flags.trace = 1; }
     void            clear_trace() { flags.trace = 0;  }
+    /* in的地址是否在sp alloc内存的位置 */
+    bool            in_sp_alloc_range(varnode *in);
     void            peephole(void);
 };
 
@@ -404,6 +414,11 @@ struct flowblock {
     flowblock *parent = NULL;
     flowblock *immed_dom = NULL;
     /* 
+    1. 标明自己属于哪个loop
+    2. 假如自己哪个loop都不属于，就标空
+    3. 假如一个循环内有多个节点，找dfnum最小的节点*/
+    flowblock *loop_header = NULL;
+    /* 
     1. 测试可规约性
     2. clone web时有用
     */
@@ -467,7 +482,7 @@ struct flowblock {
     而这个算法是去掉，部分节点的回边而生成反向支配节点，用来在trace流中使用
     */
     flowblock*  find_post_tdom(flowblock *h);
-    bool        find_irrereducible(const vector<flowblock *> &preorder, int &irreduciblecount);
+    bool        find_irreducible(const vector<flowblock *> &preorder, int &irreduciblecount);
     void        calc_loop();
 
     int         get_size(void) { return blist.size();  }
@@ -877,6 +892,8 @@ struct funcdata {
     /* flag: 1: enable pcode */
     void        dump_cfg(const string &name, const char *postfix, int flag);
     void        dump_pcode(const char *postfix);
+    /* 打印loop的包含关系 */
+    void        dump_loop(const char *postfix);
     /* dump dom-joint graph */
     void        dump_djgraph(const char *postfix, int flag);
 
@@ -1125,6 +1142,8 @@ struct funcdata {
     */
     flowblock*  combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header);
     void        dump_exe();
+    /* 检测可计算循环 */
+    void        detect_calced_loop();
 };
 
 struct func_call_specs {
@@ -1168,10 +1187,12 @@ struct dobc {
     Address     lr_addr;
     Address     cy_addr;
     Address     pc_addr;
+    set<Address>      cpu_regs;
 
     dobc(const char *slafilename, const char *filename);
     ~dobc();
 
+    void init_regs();
     void init();
     /* 初始化位置位置无关代码，主要时分析原型 */
     void        init_plt(void);
@@ -1186,6 +1207,7 @@ struct dobc {
     funcdata*   find_func_by_alias(const string &name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
     AddrSpace *get_uniq_space() { return trans->getUniqueSpace();  }
+    bool        is_cpu_reg(Address &addr) { return cpu_regs.find(addr) != cpu_regs.end();  }
 
     void    plugin_dvmp360();
     void    vmp360_dump(pcodeop *p);
