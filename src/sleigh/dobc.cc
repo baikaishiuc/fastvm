@@ -354,8 +354,7 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    int changed, i;
-    char buf[16];
+    int changed;
 
     funcdata *fd_main = find_func("_Z10__arm_a_21v");
     fd_main->set_alias("vm_func1");
@@ -382,7 +381,9 @@ void dobc::plugin_dvmp360()
         fd_main->cond_constant_propagation();
 
 
-#if 1
+#if 0
+    char buf[16];
+    int i;
     for (i = 0; fd_main->get_vmhead(); i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
@@ -396,6 +397,7 @@ void dobc::plugin_dvmp360()
     fd_main->dump_djgraph("1", 1);
     //fd_main->dump_phi_placement(17, 5300);
     fd_main->dump_store_info("1");
+    fd_main->dump_loop("1");
 }
 
 void    dobc::vmp360_dump(pcodeop *p)
@@ -1769,6 +1771,10 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
 
         if (!tmpbl->out.size())
             exitlist.push_back(tmpbl);
+
+        tmpbl->loopheaders.clear();
+        tmpbl->irreducibles.clear();
+        tmpbl->loopnodes.clear();
     }
     assert(rootlist.size() == 1);
 
@@ -2619,25 +2625,31 @@ https://core.ac.uk/download/pdf/82032035.pdf */
 bool        flowblock::find_irreducible(const vector<flowblock *> &preorder, int &irreduciblecount)
 {
     vector<flowblock *> reachunder;
+    flowblock *y;
     bool needrebuild = false;
-    int xi = preorder.size() - 1, i;
+    int xi = preorder.size() - 1, i, loop, q;
 
     while (xi >= 0) {
         flowblock *x = preorder[xi];
         xi -= 1;
         int sizein = x->in.size();
-        for (i = 0; i < sizein; ++i) {
+        for (i = loop = 0; i < sizein; ++i) {
             if (!x->is_back_edge_in(i))
                 continue;
 
-            flowblock *y = x->get_in(i);
+            loop++;
+
+            y = x->get_in(i);
             if (y == x)
                 continue;
 
             reachunder.push_back(y->copymap);
             y->copymap->set_mark();
         }
-        int q = 0;
+        if (loop) 
+            add_loopheader(x);
+
+        q = 0;
         while (q < reachunder.size()) {
             flowblock *t = reachunder[q];
             q += 1;
@@ -2653,8 +2665,7 @@ bool        flowblock::find_irreducible(const vector<flowblock *> &preorder, int
                 */
                 if ((x->dfnum > yprime->dfnum) || ((x->dfnum + x->numdesc) <= yprime->dfnum)) {
                     printf("warn: dfnum[%d] irreducible to dfnum[%d]\n", x->dfnum, yprime->dfnum);
-                    clear_marks();
-                    return true;
+                    x->irreducibles.push_back(yprime);
                 }
                 else if (!yprime->is_mark() && (yprime != x)) {
                     reachunder.push_back(yprime);
@@ -2667,10 +2678,15 @@ bool        flowblock::find_irreducible(const vector<flowblock *> &preorder, int
             flowblock *s = reachunder[i];
             s->clear_mark();
             s->copymap = x;
+
+            s->loopheader = x;
+            x->loopnodes.push_back(s);
         }
 
         reachunder.clear();
     }
+
+    clear_marks();
 
     return false;
 }
@@ -4115,18 +4131,17 @@ void        funcdata::dump_loop(const char *postfix)
     for (i = 0; i < bblocks.blist.size(); ++i) {
         blockbasic *b = bblocks.blist[i];
 
-        dump_block(fp, b, 1);
+        dump_block(fp, b, 0);
     }
 
     blockbasic *loop_header;
     for (i = 0; i < bblocks.blist.size(); ++i) {
         blockbasic *b = bblocks.blist[i];
-        loop_header = b->loop_header ? b->loop_header : bblocks.get_block(0);
+        loop_header = b->loopheader ? b->loopheader : bblocks.get_block(0);
 
-#if 0
-        fprintf(fp, "loc_%x ->loc_%x [label = \"%s\" color=\"%s\" penwidth=%d]\n",
-            b->sub_id(), loop_header->sub_id(),  loop_header->is_true() ? "true":"false", edge_color(e), edge_width(e));
-#endif
+        if (b->loopheader) 
+            fprintf(fp, "loc_%x ->loc_%x [label = \"%s\"]\n",
+                b->sub_id(), loop_header->sub_id(), "");
     }
 
     fprintf(fp, "}");

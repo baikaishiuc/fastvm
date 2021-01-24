@@ -405,6 +405,8 @@ struct flowblock {
         e也在自己的路径上
         */
         unsigned f_exitpath : 1;
+        /* 这个循环*/
+        unsigned f_irreducible : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -417,7 +419,12 @@ struct flowblock {
     1. 标明自己属于哪个loop
     2. 假如自己哪个loop都不属于，就标空
     3. 假如一个循环内有多个节点，找dfnum最小的节点*/
-    flowblock *loop_header = NULL;
+    flowblock *loopheader = NULL;
+    /* 标明这个loop有哪些节点*/
+    vector<flowblock *> irreducibles;
+    vector<flowblock *> loopnodes;
+    /* 识别所有的循环头 */
+    vector<flowblock *> loopheaders;
     /* 
     1. 测试可规约性
     2. clone web时有用
@@ -529,6 +536,7 @@ struct flowblock {
 
     void        set_dead(void) { flags.f_dead = 1;  }
     int         is_dead(void) { return flags.f_dead;  }
+    bool        is_irreducible() { return flags.f_irreducible;  }
     void        remove_from_flow(flowblock *bl);
     void        remove_op(pcodeop *inst);
     void        remove_block(flowblock *bl);
@@ -556,6 +564,7 @@ struct flowblock {
     bool        is_end() { return out.size() == 0;  }
     Address     get_return_addr();
     void        clear_all_unsplice();
+    void        add_loopheader(flowblock *b) { loopheaders.push_back(b);  }
     pcodeop*    get_pcode(int pid) {
         list<pcodeop *>::iterator it;
         for (it = ops.begin(); it != ops.end(); it++) {
