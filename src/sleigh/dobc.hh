@@ -407,6 +407,7 @@ struct flowblock {
         unsigned f_exitpath : 1;
         /* 这个循环*/
         unsigned f_irreducible : 1;
+        unsigned f_loopheader : 1;
     } flags = { 0 };
 
     RangeList cover;
@@ -564,7 +565,18 @@ struct flowblock {
     bool        is_end() { return out.size() == 0;  }
     Address     get_return_addr();
     void        clear_all_unsplice();
-    void        add_loopheader(flowblock *b) { loopheaders.push_back(b);  }
+    void        add_loopheader(flowblock *b) { 
+        b->flags.f_loopheader = 1;
+        loopheaders.push_back(b);  
+    }
+    void        clear_loopinfo() {
+        loopheader = NULL;
+        loopheaders.clear();
+        loopnodes.clear();
+        irreducibles.clear();
+        flags.f_irreducible = 0;
+        flags.f_loopheader = 0;
+    }
     pcodeop*    get_pcode(int pid) {
         list<pcodeop *>::iterator it;
         for (it = ops.begin(); it != ops.end(); it++) {
@@ -1015,7 +1027,6 @@ struct funcdata {
     void        set_stack_value(intb offset, int size, intb val);
     void        add_to_codelist(pcodeop *op);
     void        remove_from_codelist(pcodeop *op);
-    void        calc_load_store_info();
 
     void        set_plt(int v) { flags.plt = v; };
     void        set_exit(int v) { flags.exit = v; }
@@ -1023,7 +1034,7 @@ struct funcdata {
     bool        is_first_op(pcodeop *op);
 
     /* 获取loop 的头节点的in 节点，假如有多个，按index顺序取一个 */
-    pcodeop*    loop_pre_get(flowblock *h, int index);
+    flowblock*  loop_pre_get(flowblock *h, int index);
     bool        trace_push(pcodeop *op);
     void        trace_push_op(pcodeop *op);
     void        trace_clear();
@@ -1152,7 +1163,11 @@ struct funcdata {
     flowblock*  combine_multi_in_before_loop(vector<flowblock *> ins, flowblock *header);
     void        dump_exe();
     /* 检测可计算循环 */
-    void        detect_calced_loop();
+    void        detect_calced_loops(vector<flowblock *> &loops);
+/* 找到某个循环出口活跃的变量集合 */
+    void        remove_loop_livein_varnode(flowblock *lheader);
+    void        remove_calculated_loop(flowblock *lheader);
+    void        remove_calculated_loops();
 };
 
 struct func_call_specs {

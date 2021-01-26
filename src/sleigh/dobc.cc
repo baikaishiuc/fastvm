@@ -1772,9 +1772,7 @@ void flowblock::find_spanning_tree(vector<flowblock *> &preorder, vector<flowblo
         if (!tmpbl->out.size())
             exitlist.push_back(tmpbl);
 
-        tmpbl->loopheaders.clear();
-        tmpbl->irreducibles.clear();
-        tmpbl->loopnodes.clear();
+        tmpbl->clear_loopinfo();
     }
     assert(rootlist.size() == 1);
 
@@ -2498,11 +2496,104 @@ void        funcdata::dump_exe()
     dead_code_elimination(bblocks.blist, 0);
 }
 
-void        funcdata::detect_calced_loop()
+void        funcdata::detect_calced_loops(vector<flowblock *> &loops)
 {
     int i;
+    flowblock *lheader;
 
-    for (i = 0; i < bblocks.get_size(); i++) {
+    for (i = 0; i < bblocks.loopheaders.size(); i++) {
+        lheader = bblocks.loopheaders[i];
+
+        /* 不处理大于等于2的循环 */
+        if (lheader->loopnodes.size() > 2) continue;
+
+        loops.push_back(lheader);
+    }
+}
+
+void        funcdata::remove_loop_livein_varnode(flowblock *lheader)
+{
+    int i;
+    flowblock *o;
+    list<pcodeop *>::iterator it;
+    list<pcodeop *>::iterator itu;
+    pcodeop *p, *p_use;
+    varnode *out;
+
+    /* 遍历循环内所有节点 */
+    for (i = 0; i < lheader->loopnodes.size(); i++) {
+        o = lheader->loopnodes[i];
+
+        for (it = o->ops.begin(); it != o->ops.end(); it++) {
+            p = *it;
+
+            if (!(out = p->output)) continue;
+
+            /* 查看循环内的varnode 是否有被循环歪的节点使用到，假如是的话，则把这个节点加入到outlist中去*/
+            for (itu = out->uses.begin(); itu != out->uses.end(); itu++) {
+                p_use = *itu;
+                if (p_use->parent->loopheader != lheader) break;
+            }
+
+            if (itu == out->uses.end()) 
+                op_destroy_ssa(p);
+        }
+    }
+}
+
+void        funcdata::remove_calculated_loop(flowblock *lheader)
+{
+    vector<varnode *> outlist;
+
+    if (lheader->loopnodes.size() != 2)
+        throw LowlevelError("now only support 2 nodes constant loop remove");
+
+    flowblock *pre = loop_pre_get(lheader, 0);
+    flowblock *cur = lheader, *branch;
+    pcodeop *p;
+    list<pcodeop *>::iterator it;
+    int inslot = lheader->get_inslot(pre), ret;
+
+    while (1) {
+        branch = NULL;
+
+        /* 因为这个计算可计算循环，不需要把节点重新拉出来，所以不加入trace列表 */
+        for (it = cur->ops.begin(); it != cur->ops.end(); it++) {
+            p = *it;
+
+            ret = p->compute(inslot, &branch);
+        }
+
+        if (branch->loopheader != lheader)
+            break;
+
+        pre = cur;
+        cur = branch;
+    }
+
+    remove_loop_livein_varnode(lheader);
+
+    /* FIXME:以下的合并节点的方式不对，我简化处理了 */
+    branch = lheader->loopnodes[1];
+    if (!branch->ops.empty())
+        throw LowlevelError("not support liveout ops live in loopsnode");
+
+    bblocks.remove_edge(branch, lheader);
+    bblocks.remove_edge(lheader, branch);
+    bblocks.remove_block(branch);
+
+    structure_reset();
+}
+
+void        funcdata::remove_calculated_loops()
+{
+    vector<flowblock *> loops;
+    int i;
+
+    detect_calced_loops(loops);
+
+    for (i = 0; i < loops.size(); i++) {
+        remove_calculated_loop(loops[i]);
     }
 }
 
@@ -2646,8 +2737,9 @@ bool        flowblock::find_irreducible(const vector<flowblock *> &preorder, int
             reachunder.push_back(y->copymap);
             y->copymap->set_mark();
         }
-        if (loop) 
+        if (loop) {
             add_loopheader(x);
+        }
 
         q = 0;
         while (q < reachunder.size()) {
@@ -4069,7 +4161,9 @@ char*       funcdata::block_color(flowblock *b)
     if (b->flags.f_entry_point)     return "red";
 
     /* 出口节点 */
-    if (b->out.empty())     return "blue";
+    if (b->out.empty())             return "blue";
+    if (b->irreducibles.size())     return "deeppink";
+    if (b->flags.f_loopheader)      return "green";
 
     return "white";
 }
@@ -4888,8 +4982,8 @@ int     funcdata::constant_propagation2()
             }
 
             if (store->opcode != CPUI_STORE) {
-                //load->output->set_val(0);
-                //load->flags.val_from_sp_alloc = 1;
+                load->output->set_val(0);
+                load->flags.val_from_sp_alloc = 1;
                 continue;
             }
 
@@ -5089,10 +5183,6 @@ void        funcdata::remove_from_codelist(pcodeop *op)
     }
 }
 
-void        funcdata::calc_load_store_info()
-{
-}
-
 bool        funcdata::test_hard_inline_restrictions(funcdata *inlinefd, pcodeop *op, Address &retaddr)
 {
     list<pcodeop *>::iterator iter = op->insertiter;
@@ -5121,7 +5211,7 @@ bool        funcdata::is_first_op(pcodeop *op)
     return *it == op;
 }
 
-pcodeop*    funcdata::loop_pre_get(flowblock *h, int index)
+flowblock*    funcdata::loop_pre_get(flowblock *h, int index)
 {
     flowblock *pre = NULL;
     int i, sizein = h->in.size();
@@ -5131,7 +5221,7 @@ pcodeop*    funcdata::loop_pre_get(flowblock *h, int index)
         pre = h->get_in(i);
         
         if (pre->dfnum < h->dfnum)
-            return pre->last_op();
+            return pre;
     }
 
     return NULL;
@@ -5396,7 +5486,7 @@ flowblock*       funcdata::loop_unrolling(flowblock *h, flowblock *end, uint32_t
     printf("\n\nloop_unrolling sub_%llx \n", h->get_start().getOffset());
 
     /* 取loop的进入节点*/
-    prev = start = loop_pre_get(h, 0)->parent;
+    prev = start = loop_pre_get(h, 0);
     /* FIXME:压入trace堆栈 
     这种压入方式有问题，无法识别 undefined bcond
     */
@@ -6041,7 +6131,7 @@ flowblock*  funcdata::get_vmhead_unroll(void)
 
     if (!h) return NULL;
 
-    flowblock *start = loop_pre_get(h, 0)->parent;
+    flowblock *start = loop_pre_get(h, 0);
 
     while ((start->in.size() == 1) && (start->get_in(0)->out.size() == 1))
         start = start->get_in(0);
