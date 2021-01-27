@@ -311,6 +311,7 @@ struct pcodeop {
     bool            is_prev_op(pcodeop *p);
     /* 当自己的结果值为output时，把自己整个转换成copy形式的constant */
     void            to_constant(void);
+    void            to_rel_constant(void);
     void            to_copy(varnode *in);
     /* 转换成nop指令 */
     void            to_nop(void);
@@ -419,7 +420,10 @@ struct flowblock {
     /* 
     1. 标明自己属于哪个loop
     2. 假如自己哪个loop都不属于，就标空
-    3. 假如一个循环内有多个节点，找dfnum最小的节点*/
+    3. 假如一个循环内有多个节点，找dfnum最小的节点
+    4. 对于一个循环内的除了loopheader的节点，这个指针指向loopheader，loopheader自己本身的
+       loopheader指向的起始是外层的loop的loopheader，这个一定要记住
+    */
     flowblock *loopheader = NULL;
     /* 标明这个loop有哪些节点*/
     vector<flowblock *> irreducibles;
@@ -568,7 +572,10 @@ struct flowblock {
     void        add_loopheader(flowblock *b) { 
         b->flags.f_loopheader = 1;
         loopheaders.push_back(b);  
+        b->loopnodes.push_back(b);
+        b->loopheader;
     }
+    bool        in_loop(flowblock *lheader, flowblock *node);
     void        clear_loopinfo() {
         loopheader = NULL;
         loopheaders.clear();
@@ -1038,7 +1045,7 @@ struct funcdata {
     bool        trace_push(pcodeop *op);
     void        trace_push_op(pcodeop *op);
     void        trace_clear();
-    pcodeop*    trace_store_query(varnode *vn);
+    pcodeop*    trace_store_query(pcodeop *load);
     /* 查询某个load是来自于哪个store，有2种查询方式，
     
     一种是直接指明load，后面的b可以填空，从这个load开始往上搜索
