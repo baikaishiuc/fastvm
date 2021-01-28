@@ -380,13 +380,13 @@ void dobc::plugin_dvmp360()
     if (!fd_main->cbrlist.empty())
         fd_main->cond_constant_propagation();
 
-    //fd_main->remove_calculated_loops();
+    fd_main->remove_calculated_loops();
 
 #if 1
     char buf[16];
     int i;
     for (i = 0; fd_main->get_vmhead(); i++) {
-    //for (i = 0; i < 56; i++) {
+    //for (i = 0; i < 59; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist, RDS_UNROLL0);
@@ -5347,10 +5347,6 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     if (load) {
         it = load->parent->get_rev_iterator(load);
         b = load->parent;
-
-        if (load->start.getTime() == 4167) {
-            printf("aaaa\n");
-        }
     }
     else {
         it = b->ops.rbegin();
@@ -5362,7 +5358,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
 
             if (!p->flags.inlined && have_side_effect(p, pos))
                 return NULL;
-            //if (p->in_sp_alloc_range(pos)) return p;
+            if (p->in_sp_alloc_range(pos)) return p;
             if (p->opcode != CPUI_STORE) continue;
 
             varnode *a = p->get_in(1);
