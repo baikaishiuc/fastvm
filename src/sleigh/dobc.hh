@@ -569,6 +569,7 @@ struct flowblock {
     bool        is_end() { return out.size() == 0;  }
     Address     get_return_addr();
     void        clear_all_unsplice();
+    void        clear_all_vminfo();
     void        add_loopheader(flowblock *b) { 
         b->flags.f_loopheader = 1;
         loopheaders.push_back(b);  
@@ -1092,7 +1093,7 @@ struct funcdata {
     void        splice_block_basic(blockbasic *bl);
     void        remove_empty_block(blockbasic *bl);
 
-    void        redundbranch_appy();
+    void        redundbranch_apply();
     void        dump_store_info(const char *postfix);
     void        dump_load_info(const char *postfix);
 
@@ -1150,7 +1151,15 @@ struct funcdata {
     char*       print_indent();
     /* 跟严格的别名测试 */
     bool        test_strict_alias(pcodeop *load, pcodeop *store);
+    /* 删除死去的store
+
+    以前的代码，一次只能删除一个死去的store
+
+    新的版本，会递归删除
+    */
+    void        remove_dead_store2(flowblock *b, map<valuetype, vector<pcodeop *> > &m);
     void        remove_dead_store(flowblock *b);
+    void        remove_dead_stores();
     bool        has_no_use_ex(varnode *vn);
     /* 打印某个节点的插入为止*/
     void        dump_phi_placement(int bid, int pid);

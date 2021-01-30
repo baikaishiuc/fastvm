@@ -31,7 +31,9 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#define DCFG_COND_INLINE                
+//#define DCFG_COND_INLINE                
+//#define DCFG_AFTER               
+//#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -390,9 +392,13 @@ void dobc::plugin_dvmp360()
         printf("loop unrolling %d times*************************************\n", i);
         fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
         fd_main->dead_code_elimination(fd_main->bblocks.blist, RDS_UNROLL0);
+#if defined(DCFG_CASE)
         fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
+#endif
     }
 #endif
+
+    fd_main->dump_exe();
 
     fd_main->dump_cfg(fd_main->name, "final", 1);
     fd_main->dump_pcode("1");
@@ -2514,8 +2520,12 @@ flowblock*        funcdata::combine_multi_in_before_loop(vector<flowblock *> ins
 
 void        funcdata::dump_exe()
 {
+    /* 删除所有splice 模块，不会导致ssa关系重构 */
     bblocks.clear_all_unsplice();
-    cond_constant_propagation();
+    bblocks.clear_all_vminfo();
+
+    redundbranch_apply();
+    remove_dead_stores();
     dead_code_elimination(bblocks.blist, 0);
 }
 
@@ -2669,9 +2679,22 @@ void        flowblock::clear_all_unsplice()
     }
 }
 
+void        flowblock::clear_all_vminfo()
+{
+    for (int i = 0; i < blist.size(); i++) {
+        flowblock *b = get_block(i);
+        b->vm_byteindex = -1;
+        b->vm_caseindex = -1;
+    }
+}
+
 bool        flowblock::in_loop(flowblock *lheader, flowblock *node)
 {
     return (node->loopheader == lheader) || (node == lheader);
+}
+
+void        funcdata::remove_dead_store2(flowblock *b, map<valuetype, vector<pcodeop *> > &m)
+{
 }
 
 void        funcdata::remove_dead_store(flowblock *b)
@@ -2710,6 +2733,15 @@ void        funcdata::remove_dead_store(flowblock *b)
 
 
         b = ((b->out.size() == 1) && (b->get_out(0)->in.size() == 1)) ? b->get_out(0) : NULL;
+    }
+}
+
+void        funcdata::remove_dead_stores()
+{
+    int i;
+
+    for (i = 0; i < bblocks.get_size(); i++) {
+        remove_dead_store(bblocks.get_block(i));
     }
 }
 
@@ -5144,7 +5176,7 @@ int         funcdata::cond_constant_propagation()
 
     //printf("%safter cbr remove, now blocks size = %d, dead is = %d\n", print_indent(), bblocks.get_size(), bblocks.deadlist.size());
 
-    redundbranch_appy();
+    redundbranch_apply();
     emptylist.clear();
 
     heritage_clear();
@@ -5474,15 +5506,21 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
         }
         else if (b->get_back_edge_count()) {
         /* 是循环节点，进行循环展开 */
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+            //loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+            loop_unrolling(b, h, _DONT_CLONE, meet_exit);
             stack.pop_back();
+#if defined(DCFG_AFTER)
             dump_cfg(name, "check2", 1);
+#endif
         }
         else if (b->flags.f_cond_cbranch) {
             b->flags.f_cond_cbranch = 0;
-            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+            //loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+            loop_unrolling(b, h, _DONT_CLONE, meet_exit);
             stack.pop_back();
+#if defined(DCFG_AFTER)
             dump_cfg(name, "check1", 1);
+#endif
         }
         else if (p = get_vmcall(b)) {
             argument_inline(p->callfd, p);
@@ -5495,7 +5533,9 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
             v.push_back(b);
             dead_code_elimination(v, RDS_UNROLL0);
 
+#if defined(DCFG_AFTER)
             dump_cfg(name, "check0", 1);
+#endif
         }
         else if (b->get_out(0)->is_mark()) {
             stack.pop_back();
@@ -5516,14 +5556,14 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
             blks.clear();
             structure_reset();
 
-            dump_cfg(name, "check3", 1);
-
             collect_blocks_to_node(blks, b, bb);
             c = combine_multi_in_before_loop(blks, bb);
             heritage_clear();
             heritage();
 
+#if defined(DCFG_AFTER)
             dump_cfg(name, "check3", 1);
+#endif
 
             stack.push_back(c);
 
@@ -5903,12 +5943,6 @@ void        funcdata::place_multiequal(void)
             for (; j < bl->in.size(); j++) {
                 vnin = new_varnode(size, addr);
                 op_set_input(multiop, vnin, j);
-            }
-
-            /* FIXME: 硬编码，用来标注虚拟机开头 */
-            if ((bl->get_start().getOffset() == 0xcbc0) && (addr == d->r3_addr)) {
-                multiop->output->set_rel_constant(d->sp_addr, -0x188);
-                multiop->flags.force_constant = 1;
             }
         }
     }
@@ -6406,7 +6440,7 @@ void        funcdata::remove_empty_block(blockbasic *bl)
     structure_reset();
 }
 
-void        funcdata::redundbranch_appy()
+void        funcdata::redundbranch_apply()
 {
     int i;
     flowblock *bb, *bl;
