@@ -155,6 +155,7 @@ struct varnode {
     void            set_def(pcodeop *op);
     pcodeop*        get_def() { return def; }
     bool            is_constant(void) const { return type.height == a_constant; }
+    bool            in_constant_space() { return get_addr().isConstant(); }
     void            set_val(intb v) { type.height = a_constant;  type.v = v; }
     bool            is_rel_constant(void) { return type.height == a_rel_constant; }
     bool            is_input(void) { return flags.input; }
@@ -218,7 +219,6 @@ struct pcodeop {
                                     // copy，这里要标识一下
         unsigned vm_vis : 1;        // 给vm做标记用的
         unsigned vm_eip : 1;
-        unsigned copy_from_load : 1;    // 这个copy命令来自于load
         unsigned zero_load : 1;         // 0地址访问
         unsigned force_constant : 1;    // 强制常量，用来在某些地方硬编码时，不方便计算，人工计算后，强行填入
         unsigned trace : 1;
@@ -256,6 +256,13 @@ struct pcodeop {
 
     void            set_opcode(OpCode op);
     varnode*        get_in(int slot) { return inrefs[slot];  }
+    varnode*        get_in(const Address &addr) {
+        for (int i = 0; i < inrefs.size(); i++) {
+            if (inrefs[i]->get_addr() == addr) return inrefs[i];
+        }
+
+        return NULL;
+    }
     varnode*        get_out() { return output;  }
     const Address&  get_addr() { return start.getAddr();  }
     /* dissasembly 时用到的地址 */
@@ -305,7 +312,7 @@ struct pcodeop {
     bool            is_dead(void) { return flags.dead;  }
     bool            have_virtualnode(void) { return inrefs.size() == 3;  }
     varnode*        get_virtualnode(void) { return inrefs.size() == 3 ? inrefs[2]:NULL;  }
-    bool            is_call(void) { return (opcode == CPUI_CALL) || callfd; }
+    bool            is_call(void) { return (opcode == CPUI_CALL) || (opcode == CPUI_CALLIND) || callfd; }
     void            set_input() { flags.input = 1;  }
     intb            get_call_offset() { return get_in(0)->get_addr().getOffset(); }
     bool            is_prev_op(pcodeop *p);
@@ -1116,7 +1123,6 @@ struct funcdata {
     flowblock*  split_block(flowblock *f, list<pcodeop *>::iterator it);
 
     char*       get_dir(char *buf);
-    int         get_input_sp_val();
 
     bool        have_side_effect(void) { return funcp.flags.side_effect;  }
     bool        have_side_effect(pcodeop *op, varnode *pos);

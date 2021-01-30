@@ -33,6 +33,7 @@ static dobc *g_dobc = NULL;
 
 //#define DCFG_COND_INLINE                
 //#define DCFG_AFTER               
+//#define DCFG_AFTER_PCODE        
 //#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
@@ -1586,6 +1587,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 && in0->def && in0->def->opcode == CPUI_MULTIEQUAL
                 && (_in1 = in0->def->get_in(1))
                 && _in1->is_constant() && (in1->get_val() == _in1->get_val())
+                && in1->def
                 && (in1->def->parent->in.size() == 1) 
                 && (b = in1->def->parent->get_in(0))
                 && (b->last_op()->opcode == CPUI_CBRANCH)
@@ -1630,15 +1632,48 @@ int             pcodeop::compute(int inslot, flowblock **branch)
     if ((this == parent->last_op()) && (parent->out.size() == 1))
         *branch = parent->get_out(0);
 
-    if (!is_trace() && output && output->is_constant() && (opcode != CPUI_COPY) && (opcode != CPUI_STORE)) {
-        if (opcode == CPUI_LOAD) flags.copy_from_load = 1;
-        if (opcode == CPUI_MULTIEQUAL) flags.copy_from_phi = 1;
-        while (num_input() > 0) {
-            fd->op_remove_input(this, 0);
-        }
+    /*
+    非trace条件才能开启常量持久化
+    */
+    if (!is_trace()) {
+        /* 
+        1. 当有output节点，且output节点为常量时，运行进行常量持久化 
+        2. opcode不能为copy，因为常量持久化就是把常量节点，改成copy操作 
+        3. opcode不能为store，因为store有副作用，它的use也不是特别好计算 */
+        if (output && output->is_constant() && (opcode != CPUI_COPY) && (opcode != CPUI_STORE)) {
+            /* phi节点转成 copy指令时，需要记录下这个copy节点来自于phi节点，在删除phi节点时，假如有需要可以删除这个copy  */
+            if (opcode == CPUI_MULTIEQUAL) flags.copy_from_phi = 1;
+            while (num_input() > 0) 
+                fd->op_remove_input(this, 0);
 
-        fd->op_set_opcode(this, CPUI_COPY);
-        fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
+            fd->op_set_opcode(this, CPUI_COPY);
+            fd->op_set_input(this, fd->create_constant_vn(out->get_val(), out->size), 0);
+        }
+        /* 
+        1. phi节点的in节点不能这么处理
+        2. call节点不能常量持久化in， */
+        else if ((opcode != CPUI_MULTIEQUAL) && !is_call()) {
+            for (i = 0; i < inrefs.size(); i++) {
+                vn = get_in(i);
+
+                if (vn->is_constant() && !vn->in_constant_space()) {
+                    fd->op_unset_input(this, i);
+                    fd->op_set_input(this, fd->create_constant_vn(vn->get_val(), vn->size), i);
+                }
+                /* 这里重点说下in的非constant转换规则 
+
+                output = op(in0, in1, ..., inN) 
+                上面的指令中，
+                1. 假如某个inN的def是一个copy的操作
+                2. 拷贝来自于另外一个cpu寄存器(rN)
+                3. 当前的pcode在那个rN的活跃范围内
+                我们直接修改上面的指令为 
+                output = op(in0, in1, ..., rN)
+                */
+                else if (vn->def && (vn->def->opcode == CPUI_COPY)) {
+                }
+            }
+        }
     }
 
     /* 计算sp */
@@ -4413,7 +4448,12 @@ varnode*    funcdata::set_input_varnode(varnode *vn)
     varnode *v1;
     if (vn->flags.input) return vn;
 
-    if (caller && (v1 = callop->callctx->get_vn(vn->get_addr()))) {
+    if (caller && (v1 = callop->get_in(vn->get_addr()))) {
+        vn->type = v1->type;
+    }
+    /* FIXME:这个地方要去掉，callctx的值有时候会不准
+    初步估计是callctx的值是在rename阶段进行跟新的，但是后面坐peephole的时候，没有跟新到callctx的值 */
+    else if (caller && (v1 = callop->callctx->get_vn(vn->get_addr()))) { 
         vn->type = v1->type;
     }
     else if (vn->get_addr() == d->sp_addr) {
@@ -5379,6 +5419,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     if (load) {
         it = load->parent->get_rev_iterator(load);
         b = load->parent;
+
     }
     else {
         it = b->ops.rbegin();
@@ -5388,8 +5429,9 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
         for (; it != b->ops.rend(); it++) {
             p = *it;
 
-            if (!p->flags.inlined && have_side_effect(p, pos))
+            if (!p->flags.inlined && have_side_effect(p, pos)) {
                 return NULL;
+            }
             if (p->in_sp_alloc_range(pos)) return p;
             if (p->opcode != CPUI_STORE) continue;
 
@@ -5506,8 +5548,11 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
         }
         else if (b->get_back_edge_count()) {
         /* 是循环节点，进行循环展开 */
-            //loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+#if defined(DCFG_AFTER_PCODE)
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+#else
             loop_unrolling(b, h, _DONT_CLONE, meet_exit);
+#endif
             stack.pop_back();
 #if defined(DCFG_AFTER)
             dump_cfg(name, "check2", 1);
@@ -5515,8 +5560,11 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
         }
         else if (b->flags.f_cond_cbranch) {
             b->flags.f_cond_cbranch = 0;
-            //loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+#if defined(DCFG_AFTER_PCODE)
+            loop_unrolling(b, h, _DUMP_PCODE | _DONT_CLONE, meet_exit);
+#else
             loop_unrolling(b, h, _DONT_CLONE, meet_exit);
+#endif
             stack.pop_back();
 #if defined(DCFG_AFTER)
             dump_cfg(name, "check1", 1);
@@ -6578,15 +6626,6 @@ char*       funcdata::get_dir(char *buf)
     return buf;
 }
 
-int         funcdata::get_input_sp_val()
-{
-    if (callop) {
-        return callop->callctx->sp->type.v;
-    }
-    else
-        return 0;
-}
-
 void        funcdata::alias_clear(void)
 {
     list<pcodeop *> w = storelist;
@@ -6624,9 +6663,11 @@ bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
 
     if (!fd) return false;
 
+    dobc *d = fd->d;
+
     if (fd->name == "memcpy") {
-        varnode *in0 = op->callctx->r0;
-        varnode *in2 = op->callctx->r2;
+        varnode *in0 = op->get_in(d->r0_addr);
+        varnode *in2 = op->get_in(d->r2_addr);
 
         //printf("op.id = %d, is_rel_const=%d, val.0=%lld, val.2=%lld, pos.val = %lld\n", op->start.getTime(), in0->is_rel_constant(), in0->get_val(), in2->get_val(), pos->get_val());
         if (in0->is_rel_constant() && in2->is_constant()) {
@@ -6644,8 +6685,8 @@ bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
         }
     }
     else if (fd->name == "dec_str") {
-        varnode *in0 = op->callctx->r0;
-        varnode *in2 = op->callctx->r1;
+        varnode *in0 = op->get_in(d->r0_addr);
+        varnode *in2 = op->get_in(d->r1_addr);
 
         //printf("op.id = %d, is_rel_const=%d, val.0=%lld, val.2=%lld, pos.val = %lld\n", op->start.getTime(), in0->is_rel_constant(), in0->get_val(), in2->get_val(), pos->get_val());
         if (in0->is_rel_constant() && in2->is_constant()) {
