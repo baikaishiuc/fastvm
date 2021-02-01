@@ -3481,7 +3481,8 @@ void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
         op_set_input(p, vn, p->inrefs.size());
     }
 
-    if ((fd->funcp.output) && !p->output) {
+    /* 我们认为函数一定会修改 r0 的值，不管它有无返回 */
+    if (!p->output) {
         varnode *vn = new_varnode(4, d->r0_addr);
         op_set_output(p, vn);
     }
@@ -4444,6 +4445,7 @@ varnode*    funcdata::set_input_varnode(varnode *vn)
     varnode *v1;
     if (vn->flags.input) return vn;
 
+    /* 假如发现有调用者，尝试从调用者中获取参数值，当执行 argument_inline 时需要 */
     if (caller && (v1 = callop->get_in(vn->get_addr()))) {
         vn->type = v1->type;
     }
