@@ -31,10 +31,10 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-//#define DCFG_COND_INLINE                
-//#define DCFG_AFTER               
-//#define DCFG_AFTER_PCODE        
-//#define DCFG_CASE
+#define DCFG_COND_INLINE                
+#define DCFG_AFTER               
+#define DCFG_AFTER_PCODE        
+#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -296,20 +296,20 @@ struct pltentry {
     int side_effect;
     u4 flags;
 } pltlist[] = {
-    { "__stack_chk_fail",   0x1a34, 0, 0, 1, 0 },
-    { "time",               0x1adc, 1, 1, 0, 0 },
-    { "lrand48",            0x1ad0, 0, 1, 0, 0 },
-    { "srand48",            0x1ac4, 0, 0, 0, 0 },
-    { "memcpy",             0x1ab8, 3, 1, 0, 1 },
-    { "dec_str",            0x7dfc, 2, 1, 0, 1 },
-    { "anti1",              0x1d68, 2, 1, 0, 0 },
-    { "anti2",              0x2000, 2, 1, 0, 0 },
-    { "vmp360_op1",         0x67ac, 3, 0, 0, 1 },
-    { "vmp360_mathop",      0x6248, 3, 0, 0, 1 },
-    { "vmp360_op3",         0x66ac, 3, 0, 0, 1 },
-    { "vmp360_op4",         0x61c0, 3, 0, 0, 1 },
-    { "vmp360_op5",         0x6204, 3, 0, 0, 1 },
-    { "vmp360_cbranch",        0x68cc, 3, 0, 0, 1 },
+    { "__stack_chk_fail",   0x1a34, 4, 0, 1, 0 },
+    { "time",               0x1adc, 4, 1, 0, 0 },
+    { "lrand48",            0x1ad0, 4, 1, 0, 0 },
+    { "srand48",            0x1ac4, 4, 0, 0, 0 },
+    { "memcpy",             0x1ab8, 4, 1, 0, 1 },
+    { "dec_str",            0x7dfc, 4, 1, 0, 1 },
+    { "anti1",              0x1d68, 4, 1, 0, 0 },
+    { "anti2",              0x2000, 4, 1, 0, 0 },
+    { "vmp360_op1",         0x67ac, 4, 0, 0, 1 },
+    { "vmp360_mathop",      0x6248, 4, 0, 0, 1 },
+    { "vmp360_op3",         0x66ac, 4, 0, 0, 1 },
+    { "vmp360_op4",         0x61c0, 4, 0, 0, 1 },
+    { "vmp360_op5",         0x6204, 4, 0, 0, 1 },
+    { "vmp360_cbranch",        0x68cc, 4, 0, 0, 1 },
 };
 
 void dobc::init_plt()
@@ -4813,6 +4813,8 @@ void        funcdata::argument_pass(void)
 {
     int changed = 1;
     pcodeop *p;
+    flowblock *b;
+    vector<flowblock *> v;
 
     constant_propagation2();
 
@@ -4834,7 +4836,7 @@ void        funcdata::argument_pass(void)
             changed = 1;
             /* FIXME:这里判断的过于粗糙，还需要判断整个p->parent是否再循环内*/
             if (bblocks.is_dowhile(p->parent)) {
-                vector<flowblock *> v;
+                v.clear();
                 v.push_back(p->parent);
                 dowhile2ifwhile(v);
                 p = bblocks.first_callop_vmp(NULL);
@@ -4846,6 +4848,21 @@ void        funcdata::argument_pass(void)
             g_time++;
 
             continue;
+        }
+
+        if (!bblocks.loopheaders.empty()) {
+            b = bblocks.loopheaders.front();
+            bblocks.loopheaders.erase(bblocks.loopheaders.begin());
+
+            changed = 1;
+            if (bblocks.is_dowhile(b)) {
+                v.clear();
+                v.push_back(b);
+                dowhile2ifwhile(v);
+
+                heritage_clear();
+                heritage();
+            }
         }
     }
 
@@ -5097,7 +5114,6 @@ int     funcdata::constant_propagation2()
                 pcodeop *use = *iter1;
                 w.push_back(use);
             }
-
         }
         else if ((op->opcode == CPUI_LOAD) && !op->get_virtualnode() && !op->flags.input) {
             pcodeop *maydef = NULL;
@@ -5411,6 +5427,111 @@ pcodeop*    funcdata::trace_store_query(pcodeop *load)
 }
 
 pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore)
+{
+    list<pcodeop *>::reverse_iterator it;
+    flowblock *bb;
+    pcodeop *p;
+
+    if (load) {
+        it = load->parent->get_rev_iterator(load);
+        b = load->parent;
+
+    }
+    else {
+        it = b->ops.rbegin();
+    }
+
+    while (1) {
+        for (; it != b->ops.rend(); it++) {
+            p = *it;
+
+            if (!p->flags.inlined && have_side_effect(p, pos)) {
+                return NULL;
+            }
+            if (p->in_sp_alloc_range(pos)) return p;
+            if (p->opcode != CPUI_STORE) continue;
+
+            varnode *a = p->get_in(1);
+
+            if (a->type.height == a_top) {
+                if (b->fd == this) *maystore = p;
+                return NULL;
+            }
+
+            if (a->type == pos->type)
+                return p;
+        }
+
+        if (b->is_entry_point()) {
+            if (b->fd->caller) {
+                pcodeop *p1 = b->fd->callop;
+                b =  b->fd->callop->parent;
+                it = b->get_rev_iterator(p1);
+                // skip , FIXME:没有处理当这个op已经为第一个的情况
+                ++it;
+            }
+            else
+                break;
+        }
+        else if (b->in.size() > 1){
+            flowblock *dom = b->immed_dom;
+            vector<flowblock *> stack;
+            vector<int> visited;
+
+            visited.clear();
+            visited.resize(b->fd->bblocks.get_size());
+
+            for (int i = 0; i < b->in.size(); i++) {
+                if (b->get_in(i) == dom) continue;
+                stack.push_back(b->get_in(i));
+            }
+
+            while (!stack.empty()) {
+                b = stack.back();
+                stack.pop_back();
+
+                if (visited[b->dfnum])
+                    continue;
+
+                visited[b->dfnum] = 1;
+
+                for (it = b->ops.rbegin(); it != b->ops.rend(); it++) {
+                    p = *it;
+
+                    if (have_side_effect(p, pos))
+                        return NULL;
+
+                    if (p->opcode == CPUI_STORE) {
+                        varnode *a = p->get_in(1);
+
+                        /* 在分支中找到了store节点，直接抛弃 */
+                        if (a->type == pos->type)
+                            return NULL;
+                    }
+                }
+
+                for (int i = 0; i < b->in.size(); i++) {
+                    bb = b->get_in(i);
+                    if (bb == dom)
+                        continue;
+
+                    stack.push_back(bb);
+                }
+            }
+
+            b = dom;
+            it = b->ops.rbegin();
+       }
+        else {
+            b = b->get_in(0);
+            it = b->ops.rbegin();
+        }
+    }
+
+    return NULL;
+}
+
+pcodeop*    funcdata::store_query2(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore)
 {
     list<pcodeop *>::reverse_iterator it;
     flowblock *bb;

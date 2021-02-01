@@ -1060,11 +1060,14 @@ struct funcdata {
     一种是不指明load，但是指明b，从这个block开始搜索
 
     @load       要从这条load开始搜索，pos也来自于这个load
-    @b          要从这个block开始搜搜，pos来自于外部提供
-    @pos        内存位置
+    @b          要从这个block开始搜搜，pos来自于外部提供，b的优先级低于load
+    @pos        要搜索位置
     @maystore   当发现无法判断的store，返回这个store
     */
     pcodeop*    store_query(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore);
+
+    /* 基于安全区域的store搜索 */
+    pcodeop*    store_query2(pcodeop *load, flowblock *b, varnode *pos, pcodeop **maystore);
 #define _DUMP_PCODE             0x01
 #define _DUMP_ORIG_CASE         0x02
     /* 循环展开的假如是 while switch case 里的分支则需要clone，假如不是的话则不需要复制后面的流 */
