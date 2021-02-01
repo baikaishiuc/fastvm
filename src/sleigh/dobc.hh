@@ -242,7 +242,6 @@ struct pcodeop {
 
     varnode *output = NULL;
     vector<varnode *> inrefs;
-    cpuctx* callctx = NULL;
 
     funcdata *callfd = NULL;   // 当opcode为call指令时，调用的
 
@@ -665,28 +664,6 @@ struct jmptable {
 };
 
 typedef funcdata* (*test_cond_inline_fn)(dobc *d, intb addr);
-
-struct cpuctx {
-    varnode*    r0 = NULL;
-    varnode*    r1 = NULL;
-    varnode*    r2 = NULL;
-    varnode*    r3 = NULL;
-    varnode*    sp = NULL;
-    varnode*    lr = NULL;
-
-    cpuctx() {}
-    ~cpuctx() {}
-
-    varnode *get_vn(const Address &a) {
-        if (r0 && (r0->get_addr() == a)) return r0;
-        if (r1 && (r1->get_addr() == a)) return r1;
-        if (r2 && (r2->get_addr() == a)) return r2;
-        if (r3 && (r3->get_addr() == a)) return r3;
-        if (sp && (sp->get_addr() == a)) return sp;
-        if (lr && (lr->get_addr() == a)) return lr;
-        return NULL;
-    }
-};
 
 struct funcdata {
     struct {
@@ -1236,7 +1213,8 @@ struct dobc {
     Address     lr_addr;
     Address     cy_addr;
     Address     pc_addr;
-    set<Address>      cpu_regs;
+    set<Address> cpu_regs;
+    vector<Address *>   argument_regs;
 
     dobc(const char *slafilename, const char *filename);
     ~dobc();

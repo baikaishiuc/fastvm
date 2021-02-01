@@ -31,10 +31,10 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#define DCFG_COND_INLINE                
-#define DCFG_AFTER               
-#define DCFG_AFTER_PCODE        
-#define DCFG_CASE
+//#define DCFG_COND_INLINE                
+//#define DCFG_AFTER               
+//#define DCFG_AFTER_PCODE        
+//#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -535,6 +535,11 @@ dobc::dobc(const char *sla, const char *bin)
     cy_addr = trans->getRegister("CY").getAddr();
     pc_addr = trans->getRegister("pc").getAddr();
 
+    argument_regs.push_back(&r0_addr);
+    argument_regs.push_back(&r1_addr);
+    argument_regs.push_back(&r2_addr);
+    argument_regs.push_back(&r3_addr);
+
     init();
 }
 
@@ -917,6 +922,7 @@ void    pcodeop::insert_input(int slot)
 int             pcodeop::dump(char *buf, uint32_t flags)
 {
     int i = 0, j, in_limit = 10000;
+    dobc *d = parent->fd->d;
     Translate *trans = parent->fd->d->trans;
 
     i += sprintf(buf + i, "    p%d:", start.getTime());
@@ -954,7 +960,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     if (flags & PCODE_DUMP_UD)
         i += print_udchain(buf + i, this, flags);
 
-    if (is_call() && callctx) {
+    if (is_call()) {
         if (flags & PCODE_HTML_COLOR)   i += sprintf(buf + i, "<font color=\"red\"> ");
 #if 0
         i += sprintf(buf + i, "[r0:");
@@ -971,7 +977,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
 #endif
 
         i += sprintf(buf + i, "[sp:");
-        i += print_vartype(trans, buf + i, callctx->sp);
+        i += print_vartype(trans, buf + i, get_in(d->sp_addr));
         i += sprintf(buf + i, "]");
         if (flags & PCODE_HTML_COLOR)   i += sprintf(buf + i, " </font>");
     }
@@ -3452,41 +3458,31 @@ void        funcdata::del_remaining_ops(list<pcodeop *>::const_iterator oiter)
 
 void        funcdata::add_callspec(pcodeop *p, funcdata *fd)
 {
+    Address *addr;
     varnode *vn;
-    int sug_input;
     p->callfd = fd;
     qlst.push_back(new func_call_specs(p, fd));
 
-    sug_input = (fd->funcp.inputs == -1) ? 3 : fd->funcp.inputs;
-
-    // call的地址也在参数0
-    sug_input += 1;
-
-    while (p->num_input() < sug_input) {
-        if (p->num_input() < 2) {
-            vn = new_varnode(4, d->r0_addr);
-            op_set_input(p, vn, 1);
-        }
-        else if (p->num_input() < 3) {
-            vn = new_varnode(4, d->r1_addr);
-            op_set_input(p, vn, 2);
-        }
-        else if (p->num_input() < 4) {
-            vn = new_varnode(4, d->r2_addr);
-            op_set_input(p, vn, 3);
-        }
-        else if (p->num_input() < 5) {
-            vn = new_varnode(4, d->r3_addr);
-            op_set_input(p, vn, 4);
+    for (int i = 0; i < d->argument_regs.size(); i++) {
+        addr = d->argument_regs[i];
+        if (!p->get_in(*addr)) {
+            vn = new_varnode(4, *addr);
+            op_set_input(p, vn, p->inrefs.size());
         }
     }
 
-    vn = new_varnode(4, d->lr_addr);
-    op_set_input(p, vn, p->inrefs.size());
+    if (!p->get_in(d->lr_addr)) {
+        vn = new_varnode(4, d->lr_addr);
+        op_set_input(p, vn, p->inrefs.size());
+    }
+
+    if (!p->get_in(d->sp_addr)) {
+        vn = new_varnode(4, d->sp_addr);
+        op_set_input(p, vn, p->inrefs.size());
+    }
 
     if ((fd->funcp.output) && !p->output) {
         varnode *vn = new_varnode(4, d->r0_addr);
-
         op_set_output(p, vn);
     }
 }
@@ -4449,11 +4445,6 @@ varnode*    funcdata::set_input_varnode(varnode *vn)
     if (vn->flags.input) return vn;
 
     if (caller && (v1 = callop->get_in(vn->get_addr()))) {
-        vn->type = v1->type;
-    }
-    /* FIXME:这个地方要去掉，callctx的值有时候会不准
-    初步估计是callctx的值是在rename阶段进行跟新的，但是后面坐peephole的时候，没有跟新到callctx的值 */
-    else if (caller && (v1 = callop->callctx->get_vn(vn->get_addr()))) { 
         vn->type = v1->type;
     }
     else if (vn->get_addr() == d->sp_addr) {
@@ -6176,32 +6167,6 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
                     delete_varnode(vnin);
                 }
             }
-        }
-
-        if (op->is_call()) {
-            if (op->callctx) delete op->callctx;
-
-            cpuctx *ctx = new cpuctx();
-            
-            vector<varnode *> *stack = &(varstack[d->r0_addr]);
-            if (!stack->empty()) ctx->r0 = stack->back();
-
-            stack = &(varstack[d->r1_addr]);
-            if (!stack->empty()) ctx->r1 = stack->back();
-
-            stack = &(varstack[d->r2_addr]);
-            if (!stack->empty()) ctx->r2 = stack->back();
-
-            stack = &(varstack[d->r3_addr]);
-            if (!stack->empty()) ctx->r3 = stack->back();
-
-            stack = &(varstack[d->lr_addr]);
-            if (!stack->empty()) ctx->lr = stack->back();
-
-            stack = &(varstack[d->sp_addr]);
-            if (!stack->empty()) ctx->sp = stack->back();
-
-            op->callctx = ctx;
         }
 
         vnout = op->output;
