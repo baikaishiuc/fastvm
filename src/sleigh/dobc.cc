@@ -20,6 +20,11 @@
 #define ENABLE_DUMP_INST                1
 #define ENABLE_DUMP_PCODE               0
 
+#define func_format_s					"%s"
+#define func_format()					""
+#undef print_level
+#define print_level		3
+
 static char help[] = {
     "dobc [.sla filename] [filename]"
 };
@@ -31,10 +36,10 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#define DCFG_COND_INLINE                
-#define DCFG_AFTER               
-#define DCFG_AFTER_PCODE        
-#define DCFG_CASE
+//#define DCFG_COND_INLINE                
+//#define DCFG_AFTER               
+//#define DCFG_AFTER_PCODE        
+//#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -379,7 +384,7 @@ void    funcdata::vmp360_marker(pcodeop *p)
     if (p->opcode == CPUI_LOAD) {
         varnode *in1 = p->get_in(1);
 
-        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -vmeip)) {
+        if ((in1->type.height == a_rel_constant) && (in1->get_val() == vmeip)) {
             p->flags.vm_eip = 1;
         }
     }
@@ -388,7 +393,7 @@ void    funcdata::vmp360_marker(pcodeop *p)
         varnode *in2 = p->get_in(2);
 
         /* 加入跟新 VMEIP 指针的值不是常量直接报错 */
-        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -vmeip)) {
+        if ((in1->type.height == a_rel_constant) && (in1->get_val() == vmeip)) {
             p->flags.vm_eip = 1;
             if (!p->flags.vm_vis && (in2->type.height == a_constant)) {
                 //printf("addr = %llx, p%d, store VMEIP = %lld\n", p->get_dis_addr().getOffset(), p->start.getTime(), in2->get_val());
@@ -5088,7 +5093,7 @@ void        funcdata::heritage(void)
     if (maxdepth == -1)
         build_adt();
 
-    printf("%sheritage scan node.... \n", print_indent());
+    print_info("%sheritage scan node.... \n", print_indent());
     for (i = 0; i < d->trans->numSpaces(); i++) {
         AddrSpace *space = d->trans->getSpace(i);
 
@@ -5126,7 +5131,7 @@ void        funcdata::heritage(void)
 
     constant_propagation2();
 
-    printf("%sheritage scan node end. CP spent [%lu]ms. \n", print_indent(), clock() - start);
+    print_info("%sheritage scan node end. CP spent [%lu]ms. \n", print_indent(), clock() - start);
 }
 
 void    funcdata::heritage_clear()
