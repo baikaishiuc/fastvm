@@ -600,6 +600,8 @@ struct flowblock {
 
         return NULL;
     }
+    /* 查找以这个变量为out的第一个pcode */
+    pcodeop*    find_pcode_def(const Address &out);
 };
 
 typedef struct priority_queue   priority_queue;
@@ -801,6 +803,11 @@ struct funcdata {
     /* 做条件inline时用到 */
     funcdata *caller = NULL;
     pcodeop *callop = NULL;
+
+    /* vmp360--------- */
+    intb     vmeip = 0;
+    /* vmp360  end--------- */
+
 
     struct {
         int     size;
@@ -1170,6 +1177,13 @@ struct funcdata {
     void        remove_loop_livein_varnode(flowblock *lheader);
     void        remove_calculated_loop(flowblock *lheader);
     void        remove_calculated_loops();
+
+    /* 针对不同的加壳程序生成不同的vmeip检测代码 */
+    bool        detect_vmp360_vmeip();
+    bool        vmp360_deshell();
+    /* 标注程序中的堆栈中，某些360的重要字段，方便分析，这个只是在前期的debug有用，
+    实际优化中是用不到的，所以它不属于硬编码 */
+    void        vmp360_marker(pcodeop *op);
 };
 
 struct func_call_specs {
@@ -1237,7 +1251,6 @@ struct dobc {
     bool        is_cpu_reg(Address &addr) { return cpu_regs.find(addr) != cpu_regs.end();  }
 
     void    plugin_dvmp360();
-    void    vmp360_dump(pcodeop *p);
 
     void gen_sh(void);
     void init_abbrev();

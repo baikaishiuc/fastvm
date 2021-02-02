@@ -31,10 +31,10 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-//#define DCFG_COND_INLINE                
-//#define DCFG_AFTER               
-//#define DCFG_AFTER_PCODE        
-//#define DCFG_CASE
+#define DCFG_COND_INLINE                
+#define DCFG_AFTER               
+#define DCFG_AFTER_PCODE        
+#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -357,9 +357,11 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    int changed;
-
     funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
+    //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
+    //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
+    //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
 
     set_func_alias("_Z9__arm_a_0v", "vm_enter");
@@ -369,52 +371,15 @@ void dobc::plugin_dvmp360()
 
     fd_main->set_safezone_base(STACKBASE);
     fd_main->set_safezone(-0x148, 4);
-
-    fd_main->follow_flow();
-
-    fd_main->inline_call("", 1);
-    fd_main->inline_call("", 1);
-
-    changed = 1;
-    fd_main->heritage();
-    fd_main->dump_cfg(fd_main->name, "orig", 1);
-
-    fd_main->constant_propagation2();
-    if (!fd_main->cbrlist.empty())
-        fd_main->cond_constant_propagation();
-
-    fd_main->remove_calculated_loops();
-
-#if 1
-    char buf[16];
-    int i;
-    for (i = 0; fd_main->get_vmhead(); i++) {
-    //for (i = 0; i < 59; i++) {
-        printf("loop unrolling %d times*************************************\n", i);
-        fd_main->loop_unrolling4(fd_main->get_vmhead(), i, _NOTE_VMBYTEINDEX);
-        fd_main->dead_code_elimination(fd_main->bblocks.blist, RDS_UNROLL0);
-#if defined(DCFG_CASE)
-        fd_main->dump_cfg(fd_main->name, _itoa(i, buf, 10), 1);
-#endif
-    }
-#endif
-
-    fd_main->dump_exe();
-
-    fd_main->dump_cfg(fd_main->name, "final", 1);
-    fd_main->dump_pcode("1");
-    fd_main->dump_djgraph("1", 1);
-    //fd_main->dump_phi_placement(17, 5300);
-    fd_main->dump_store_info("1");
-    fd_main->dump_loop("1");
+    fd_main->vmp360_deshell();
 }
 
-void    dobc::vmp360_dump(pcodeop *p)
+void    funcdata::vmp360_marker(pcodeop *p)
 {
     if (p->opcode == CPUI_LOAD) {
         varnode *in1 = p->get_in(1);
 
-        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -0x1bc)) {
+        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -vmeip)) {
             p->flags.vm_eip = 1;
         }
     }
@@ -423,7 +388,7 @@ void    dobc::vmp360_dump(pcodeop *p)
         varnode *in2 = p->get_in(2);
 
         /* 加入跟新 VMEIP 指针的值不是常量直接报错 */
-        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -0x1bc)) {
+        if ((in1->type.height == a_rel_constant) && (in1->get_val() == -vmeip)) {
             p->flags.vm_eip = 1;
             if (!p->flags.vm_vis && (in2->type.height == a_constant)) {
                 //printf("addr = %llx, p%d, store VMEIP = %lld\n", p->get_dis_addr().getOffset(), p->start.getTime(), in2->get_val());
@@ -1092,7 +1057,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         //      out                            in0              in1            
         // 66:(register,r1,4) = LOAD (const,0x11ed0f68,8) (const,0x840c,4)
     case CPUI_LOAD:
-        d->vmp360_dump(this);
+        fd->vmp360_marker(this);
 
         in1 = get_in(1);
         in2 = (inrefs.size() == 3) ? get_in(2):NULL;
@@ -1177,7 +1142,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
 
         //
     case CPUI_STORE:
-        d->vmp360_dump(this);
+        fd->vmp360_marker(this);
 
         in1 = get_in(1);
         in2 = get_in(2);
@@ -2699,6 +2664,83 @@ void        funcdata::remove_calculated_loops()
     heritage();
 }
 
+bool        funcdata::detect_vmp360_vmeip()
+{
+    flowblock *vmhead = get_vmhead(), *exit = NULL;
+    varnode *iv = detect_induct_variable(vmhead, exit), *pos;
+    pcodeop *op, *def;
+    char buf[128];
+
+    if (!iv)
+        throw LowlevelError("vmp360 not found VMEIP");
+
+    op = vmhead->find_pcode_def(iv->get_addr());
+
+    /**/
+    for (int i = 0; i < op->inrefs.size(); i++) {
+        /* 检测到归纳变量以后(也就是vmeip)，扫描它从哪个边进来的，假如不是来自于回边，直接退出 */
+        if (!(vmhead->in[i].label & a_back_edge)) continue;
+
+        def = op->get_in(i)->def;
+        if (def->opcode != CPUI_LOAD) continue;
+        pos = def->get_in(1);
+        if (pos->type.height == a_rel_constant) {
+            print_varnode(d->trans, buf, pos);
+
+            printf("****found VMEIP [%s]\n", buf);
+            vmeip = pos->get_val();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool        funcdata::vmp360_deshell()
+{
+    follow_flow();
+
+    inline_call("", 1);
+    inline_call("", 1);
+
+    heritage();
+    dump_cfg(name, "orig", 1);
+
+    if (!detect_vmp360_vmeip())
+        throw LowlevelError("vmp360_deshell not found vmeip");
+
+    constant_propagation2();
+    if (!cbrlist.empty())
+        cond_constant_propagation();
+
+    remove_calculated_loops();
+    if (!cbrlist.empty())
+        cond_constant_propagation();
+
+    char buf[16];
+    int i;
+    for (i = 0; get_vmhead(); i++) {
+    //for (i = 0; i < 59; i++) {
+        printf("loop unrolling %d times*************************************\n", i);
+        loop_unrolling4(get_vmhead(), i, _NOTE_VMBYTEINDEX);
+        dead_code_elimination(bblocks.blist, RDS_UNROLL0);
+#if defined(DCFG_CASE)
+        dump_cfg(name, _itoa(i, buf, 10), 1);
+#endif
+    }
+
+    dump_exe();
+
+    dump_cfg(name, "final", 1);
+    dump_pcode("1");
+    dump_djgraph("1", 1);
+    //fd_main->dump_phi_placement(17, 5300);
+    dump_store_info("1");
+    dump_loop("1");
+
+    return true;
+}
+
 Address    flowblock::get_return_addr()
 {
     pcodeop *p = last_op();
@@ -2732,6 +2774,20 @@ void        flowblock::clear_all_vminfo()
 bool        flowblock::in_loop(flowblock *lheader, flowblock *node)
 {
     return (node->loopheader == lheader) || (node == lheader);
+}
+
+pcodeop*    flowblock::find_pcode_def(const Address &outaddr)
+{
+    list<pcodeop *>::iterator it;
+    pcodeop *p;
+
+    for (it = ops.begin(); it != ops.end(); it++) {
+        p = *it;
+        if (p->output && p->output->get_addr() == outaddr)
+            return p;
+    }
+
+    return NULL;
 }
 
 void        funcdata::remove_dead_store2(flowblock *b, map<valuetype, vector<pcodeop *> > &m)
