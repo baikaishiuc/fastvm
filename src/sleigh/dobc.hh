@@ -106,6 +106,12 @@ struct pcodeop_cmp_def {
 
 typedef set<pcodeop *, pcodeop_cmp_def> pcodeop_def_set;
 
+struct pcodeop_cmp {
+    bool operator() ( const pcodeop *a, const pcodeop *b ) const;
+};
+
+typedef set<pcodeop *, pcodeop_cmp> pcodeop_set;
+
 struct varnode_cmp_gvn {
     bool operator()(const varnode *a, const varnode *b) const;
 };
@@ -998,6 +1004,7 @@ struct funcdata {
     1: 发现可以被别名分析的load store */
     int         constant_propagation(int listype);
     int         constant_propagation2();
+    int         constant_propagation3();
     int         cond_constant_propagation();
     int         in_cbrlist(pcodeop *op) {
         for (int i = 0; i < cbrlist.size(); i++) {
@@ -1179,8 +1186,34 @@ struct funcdata {
     void        remove_calculated_loops();
 
     /* 针对不同的加壳程序生成不同的vmeip检测代码 */
-    bool        detect_vmp360_vmeip();
-    bool        vmp360_deshell();
+    bool        vmp360_detect_vmeip();
+    /* FIXME:应该算是代码中最重的硬编码，有在尝试去理解整个VMP框架的堆栈部分，
+
+    360的vmp堆栈入口部分分为以下几部分:
+
+    1. call convection prilogue save
+       stmdb sp!,{r4 r5 r6 lr}
+       入口部分，保护寄存器
+    2. local variable 
+       sub sp,sp,#0x30
+       上面的0x30可能是任意值，应该是原始函数分配的堆栈大小，后面的0x100，应该是框架额外的扩展
+    3. vmp framework extend
+       sub sp,sp,#0x100
+       vmp框架扩展的
+    4. save sp 
+    5. save all regs except sp
+    6. save cpsr
+    7. save cpsr
+    8. call convections prilogue save
+       7, 8都处理了2次，不是很懂360想做什么
+    9. 开辟了vmp的 stack
+       sub sp,sp,#0x34
+
+    结束，大概vmp进入函数的堆栈基本就是这样
+    */
+    int         vmp360_detect_safezone();
+    int         vmp360_detect_framework_info();
+    int         vmp360_deshell();
     /* 标注程序中的堆栈中，某些360的重要字段，方便分析，这个只是在前期的debug有用，
     实际优化中是用不到的，所以它不属于硬编码 */
     void        vmp360_marker(pcodeop *op);

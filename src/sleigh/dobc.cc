@@ -369,8 +369,8 @@ void dobc::plugin_dvmp360()
 
     set_test_cond_inline_fn(test_vmp360_cond_inline);
 
-    fd_main->set_safezone_base(STACKBASE);
-    fd_main->set_safezone(-0x148, 4);
+    //fd_main->set_safezone_base(STACKBASE);
+    //fd_main->set_safezone(-0x148, 4);
     fd_main->vmp360_deshell();
 }
 
@@ -803,6 +803,12 @@ inline bool pcodeop_cmp_def::operator()(const pcodeop *a, const pcodeop *b) cons
     int c2 = b->output ? b->output->create_index : 0;
 
     return c1 < c2;
+    //return a->output->get_addr() < b->output->get_addr();
+}
+
+inline bool pcodeop_cmp::operator()(const pcodeop *a, const pcodeop *b) const
+{
+    return a->start.getTime() < b->start.getTime();
     //return a->output->get_addr() < b->output->get_addr();
 }
 
@@ -2664,7 +2670,7 @@ void        funcdata::remove_calculated_loops()
     heritage();
 }
 
-bool        funcdata::detect_vmp360_vmeip()
+bool        funcdata::vmp360_detect_vmeip()
 {
     flowblock *vmhead = get_vmhead(), *exit = NULL;
     varnode *iv = detect_induct_variable(vmhead, exit), *pos;
@@ -2696,7 +2702,17 @@ bool        funcdata::detect_vmp360_vmeip()
     return false;
 }
 
-bool        funcdata::vmp360_deshell()
+int         funcdata::vmp360_detect_safezone()
+{
+    return 0;
+}
+
+int         funcdata::vmp360_detect_framework_info()
+{
+    return 0;
+}
+
+int        funcdata::vmp360_deshell()
 {
     follow_flow();
 
@@ -2706,7 +2722,7 @@ bool        funcdata::vmp360_deshell()
     heritage();
     dump_cfg(name, "orig", 1);
 
-    if (!detect_vmp360_vmeip())
+    if (!vmp360_detect_vmeip())
         throw LowlevelError("vmp360_deshell not found vmeip");
 
     constant_propagation2();
@@ -2720,7 +2736,7 @@ bool        funcdata::vmp360_deshell()
     char buf[16];
     int i;
     for (i = 0; get_vmhead(); i++) {
-    //for (i = 0; i < 59; i++) {
+    //for (i = 0; i < 1; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         loop_unrolling4(get_vmhead(), i, _NOTE_VMBYTEINDEX);
         dead_code_elimination(bblocks.blist, RDS_UNROLL0);
@@ -2738,7 +2754,7 @@ bool        funcdata::vmp360_deshell()
     dump_store_info("1");
     dump_loop("1");
 
-    return true;
+    return 0;
 }
 
 Address    flowblock::get_return_addr()
@@ -5106,9 +5122,11 @@ void        funcdata::heritage(void)
     place_multiequal();
     rename();
 
+    long start = clock();
+
     constant_propagation2();
 
-    printf("%sheritage scan node end. \n", print_indent());
+    printf("%sheritage scan node end. CP spent [%lu]ms. \n", print_indent(), clock() - start);
 }
 
 void    funcdata::heritage_clear()
@@ -5129,6 +5147,8 @@ void    funcdata::heritage_clear()
 
 int     funcdata::constant_propagation2()
 {
+    return constant_propagation3();
+
     list<pcodeop *>::const_iterator iter;
     list<pcodeop *> w = deadlist;
     list<pcodeop *>::const_iterator iter1;
@@ -5214,6 +5234,99 @@ int     funcdata::constant_propagation2()
 
     return ret;
 }
+
+int         funcdata::constant_propagation3()
+{
+    list<pcodeop *>::const_iterator iter;
+    list<pcodeop *>::const_iterator iter1;
+    pcodeop_set::iterator it;
+    pcodeop_set set;
+    pcodeop *op, *use, *load, *store, *maystore;
+    int ret = 0, r;
+    flowblock *b;
+    varnode *out;
+
+    for (iter = deadlist.begin(); iter != deadlist.end(); iter++) {
+        op = *iter;
+        if (op->flags.dead) continue;
+        set.insert(op);
+    }
+
+    while (!set.empty()) {
+        it = set.begin();
+        op = *it;
+        set.erase(it);
+
+        if (op->flags.dead) continue;
+
+        if ((op->opcode == CPUI_STORE) && (op->get_in(1)->type.height != a_top)) {
+            for (iter1 = op->mayuses.begin(); iter1 != op->mayuses.end(); ++iter1) {
+                use = *iter1;
+                set.insert(use);
+            }
+            op->mayuses.clear();
+        }
+
+        r = op->compute(-1, &b);
+        if (r == ERR_FREE_SELF) continue;
+        ret |= r;
+
+        out = op->output;
+
+        if (!out) continue;
+
+        if (out->is_constant() || out->is_rel_constant()) {
+            for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
+                set.insert(*iter1);
+            }
+        }
+        else if ((op->opcode == CPUI_LOAD) && !op->get_virtualnode() && !op->flags.input) {
+            load = op;
+            maystore = NULL;
+            store = store_query(load, NULL, load->get_in(1), &maystore);
+
+            if (!store) {
+                if (maystore) {
+                    maystore->add_mayuse(load);
+                }
+                continue;
+            }
+
+            if (store->opcode != CPUI_STORE) {
+                load->output->set_val(0);
+                load->flags.val_from_sp_alloc = 1;
+                continue;
+            }
+
+            safe_aliaslist.push_back(load);
+            set.insert(load);
+            if (store->parent->fd != this) {
+                load->output->type = store->get_in(2)->type;
+                load->flags.input = 1;
+                continue;
+            }
+
+            varnode *in = store->get_in(1);
+            safe_aliaslist.push_back(store);
+
+            /* 假如这个store已经被分析过，直接把store的版本设置过来 */
+            if (store->output) {
+                op_set_input(load, store->output, 2);
+            }
+            else {
+                Address oaddr(d->get_uniq_space(), virtualbase += in->size);
+                out = new_varnode_out(in->size, oaddr, store);
+
+                op_resize(load, 3);
+                op_set_input(load, out, 2);
+                set.insert(store);
+            }
+        }
+    }
+
+    return ret;
+}
+
 
 int     funcdata::constant_propagation(int listype)
 {
