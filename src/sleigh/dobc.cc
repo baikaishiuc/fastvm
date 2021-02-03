@@ -10,6 +10,8 @@
 
 #define strdup _strdup 
 
+#define NOP             0xe1a00000
+
 #define GEN_SH          "#!/bin/bash\n"  \
     "for filename in `find . -type f -name \"*.dot\" | xargs`\n"  \
     "do\n" \
@@ -36,11 +38,13 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
+#if 1
 #define DCFG_COND_INLINE                
 #define DCFG_BEFORE               
 #define DCFG_AFTER               
 #define DCFG_AFTER_PCODE        
 #define DCFG_CASE
+#endif
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -363,8 +367,8 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    funcdata *fd_main = find_func("_Z10__arm_a_21v");
-    //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
+    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
     //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
     //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
     //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
@@ -3273,13 +3277,29 @@ void        funcdata::op_uninsert(pcodeop *op)
 void        funcdata::clear_block_phi(flowblock *b)
 {
     pcodeop *p;
-    list<pcodeop *>::iterator it;
+    list<pcodeop *>::iterator it, next;
 
+#if 0
     while ((p = b->ops.front())) {
         if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.copy_from_phi) break;
 
         op_destroy_ssa(p);
     }
+#else
+    for (it = b->ops.begin(); it != b->ops.end(); it = next) {
+        p = *it;
+        next = ++it;
+
+        if (p->opcode == CPUI_MULTIEQUAL) {
+            op_destroy_ssa(p);
+            continue;
+        }
+
+        if (p->flags.copy_from_phi) continue;
+
+        break;
+    }
+#endif
 }
 
 void        funcdata::clear_block_df_phi(flowblock *b)
@@ -5462,7 +5482,7 @@ bool        funcdata::in_safezone(intb a, int size)
 
     for (it = safezone.begin(); it != safezone.end(); it++) {
         n = *it;
-        if ((a >= n->start) && (a + size) < n->end())
+        if ((a >= n->start) && (a + size) <= n->end())
             return true;
     }
 
@@ -6310,7 +6330,7 @@ void        funcdata::place_multiequal(void)
     vector<varnode *> readvars;
     vector<varnode *> writevars;
     vector<varnode *> inputvars;
-    pcodeop *multiop;
+    pcodeop *multiop, *p;
     varnode *vnin;
     blockbasic *bl;
     int max, i, j;
@@ -6344,7 +6364,7 @@ void        funcdata::place_multiequal(void)
             varnode *vnout = NULL;
 
             for (multiop = NULL; it != bl->ops.end(); it++) {
-                pcodeop *p = *it;
+                p = *it;
 
                 if ((p->opcode != CPUI_MULTIEQUAL) && !p->flags.copy_from_phi) break;
                 if (p->output->get_addr() == addr) {
@@ -6352,6 +6372,11 @@ void        funcdata::place_multiequal(void)
                     break;
                 }
             }
+
+            /* 假如说某个PHI节点已经被转成了copy节点，则说明这个值已经被常量化，这个节点在下次heritage
+            时已经被需要在插入phi 了。 
+            FIXME:这个理解是否正确？*/
+            if ((it != bl->ops.end()) && p->flags.copy_from_phi) continue;
 
             if (!multiop) {
                 multiop = newop(bl->in.size(), bl->get_start());
@@ -6367,6 +6392,7 @@ void        funcdata::place_multiequal(void)
                         op_remove_input(multiop, 0);
 
                     op_set_opcode(multiop, CPUI_MULTIEQUAL);
+                    multiop->flags.copy_from_phi = 0;
                 }
 
                 j = multiop->num_input();
