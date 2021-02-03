@@ -36,11 +36,11 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-//#define DCFG_COND_INLINE                
-//#define DCFG_BEFORE               
-//#define DCFG_AFTER               
-//#define DCFG_AFTER_PCODE        
-//#define DCFG_CASE
+#define DCFG_COND_INLINE                
+#define DCFG_BEFORE               
+#define DCFG_AFTER               
+#define DCFG_AFTER_PCODE        
+#define DCFG_CASE
 
 #define MSB4(a)                 (a & 0x80000000)
 #define MSB2(a)                 (a & 0x8000)
@@ -375,7 +375,6 @@ void dobc::plugin_dvmp360()
 
     set_test_cond_inline_fn(test_vmp360_cond_inline);
 
-    //fd_main->set_safezone(-0x148, 4);
     fd_main->vmp360_deshell();
 }
 
@@ -1072,7 +1071,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
 
         in1 = get_in(1);
         in2 = (inrefs.size() == 3) ? get_in(2):NULL;
-        if (fd->is_code(in0) && in1->is_constant()) {
+        if (fd->is_code(in0, in1) && in1->is_constant()) {
             Address addr(d->trans->getDefaultCodeSpace(), in1->type.v);
 
             memset(buf, 0, sizeof(buf));
@@ -2770,7 +2769,7 @@ int        funcdata::vmp360_deshell()
     char buf[16];
     int i;
     for (i = 0; get_vmhead(); i++) {
-    //for (i = 0; i < 1; i++) {
+    //for (i = 0; i < 3; i++) {
         printf("loop unrolling %d times*************************************\n", i);
         loop_unrolling4(get_vmhead(), i, _NOTE_VMBYTEINDEX);
         dead_code_elimination(bblocks.blist, RDS_UNROLL0);
@@ -5635,7 +5634,8 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
 {
     list<pcodeop *>::reverse_iterator it;
     flowblock *bb;
-    pcodeop *p;
+    pcodeop *p, *tmpstore;
+    int i;
 
     if (load) {
         it = load->parent->get_rev_iterator(load);
@@ -5685,6 +5685,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
             visited.clear();
             visited.resize(b->fd->bblocks.get_size());
 
+            tmpstore = NULL;
             for (int i = 0; i < b->in.size(); i++) {
                 if (b->get_in(i) == dom) continue;
                 stack.push_back(b->get_in(i));
@@ -5708,9 +5709,18 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
                     if (p->opcode == CPUI_STORE) {
                         varnode *a = p->get_in(1);
 
-                        /* 在分支中找到了store节点，直接抛弃 */
-                        if (a->type == pos->type)
+                        /* 在分支中找到了store节点，假如是第一个就保存起来，
+                        假如不是第一个，则比较是否相等，不是的话返回NULL */
+                        if (a->type == pos->type) {
+#if 0
+                            if (NULL == tmpstore)
+                                tmpstore = p;
+                            else if (tmpstore->get_in(2) != p->get_in(2))
+                                return NULL;
+#else
                             return NULL;
+#endif
+                        }
                     }
                 }
 
@@ -5722,6 +5732,9 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
                     stack.push_back(bb);
                 }
             }
+
+            if (tmpstore)
+                return tmpstore;
 
             b = dom;
             it = b->ops.rbegin();
@@ -5842,7 +5855,7 @@ pcodeop*    funcdata::store_query2(pcodeop *load, flowblock *b, varnode *pos, pc
 
 bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t flags)
 {
-    int meet_exit;
+    int meet_exit, i, inslot;
     flowblock *cur = loop_unrolling(h, h, flags, meet_exit);
     vector<flowblock *> blks;
     pcodeop *p;
@@ -5864,13 +5877,43 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
     vector<flowblock *> v;
     flowblock *b, *bb, *c;
     list<pcodeop *>::iterator it;
+    varnode *iv, *vn, *vn1;
 
     cur->mark_unsplice();
     stack.push_back(cur);
 
+
     while ((stack.back() != h) && !stack.empty()) {
         b = stack.back();
-        it;
+
+#if 1
+        blks.clear();
+        collect_blocks_to_node(blks, b, h);
+        inslot = h->get_inslot(blks[0]);
+        iv = detect_induct_variable(h, c);
+        vn = iv->def->get_in(inslot);
+
+        if ((blks.size() == 1) && vn->is_constant()) 
+            break;
+
+        if ((blks.size() > 1) && vn->is_constant()) {
+            for (i = 1; i < blks.size(); i++) {
+                inslot = h->get_inslot(blks[i]);
+                vn1 = iv->def->get_in(inslot);
+
+                if (!vn1->is_constant() || (vn1->get_val() != vn->get_val()))
+                    break;
+            }
+
+            if (i == blks.size()) {
+                bb = combine_multi_in_before_loop(blks, h);
+                heritage_clear();
+                heritage();
+                stack.push_back(bb);
+                continue;
+            }
+        }
+#endif
 
         if (b->out.empty()) {
             b->flags.f_cond_cbranch = 0;
@@ -5931,10 +5974,11 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
         else {
             bb = bblocks.find_loop_exit(b, get_vmhead());
 
-            clone_ifweb(b, b, bb, blks);
             blks.clear();
+            clone_ifweb(b, b, bb, blks);
             structure_reset();
 
+            blks.clear();
             collect_blocks_to_node(blks, b, bb);
             c = combine_multi_in_before_loop(blks, bb);
             heritage_clear();
@@ -6241,9 +6285,18 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks, uint32_t f
         remove_dead_store(h);
 }
 
-bool        funcdata::is_code(varnode *v) 
+bool        funcdata::is_code(varnode *v0, varnode *v1) 
 { 
-    return (v->loc.getSpace()->getType() == IPTR_CONSTANT) && (v->loc.getOffset() == (uintb)(d->trans->getDefaultCodeSpace())); 
+    if ((v0->loc.getSpace()->getType() == IPTR_CONSTANT) && (v0->loc.getOffset() == (uintb)(d->trans->getDefaultCodeSpace())) && v1->is_constant()) {
+
+        /* FIXME: hardcode 直接编码了libjiagu.so 的 bss段位置，后面要去掉，从ida中获取到的 */
+        if ((v1->get_val() >= 0x855dc) && (v1->get_val() < 0x8576c))
+            return false;
+
+        return true;
+    }
+
+    return false;
 }
 
 bool        funcdata::is_sp_rel_constant(varnode *v)
@@ -6970,6 +7023,7 @@ bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
 
     dobc *d = fd->d;
 
+#if 0
     if (fd->name == "memcpy") {
         varnode *in0 = op->get_in(d->r0_addr);
         varnode *in2 = op->get_in(d->r2_addr);
@@ -7008,6 +7062,7 @@ bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
             }
         }
     }
+#endif
 
 #if 1
     if (in_safezone(pos->get_val(), pos->size) && !d->test_cond_inline(d, op->get_call_offset()))

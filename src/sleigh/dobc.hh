@@ -1030,7 +1030,7 @@ struct funcdata {
     2. constant_propagation 被执行过
     */
     void        compute_sp(void);
-    bool        is_code(varnode *v);
+    bool        is_code(varnode *v, varnode *v1);
     bool        is_sp_rel_constant(varnode *v);
 
     void        set_safezone(intb addr, int size);
