@@ -10,6 +10,7 @@ typedef struct dobc         dobc;
 typedef struct jmptable     jmptable;
 typedef struct cpuctx       cpuctx;
 typedef struct funcproto    funcproto;
+typedef struct rangenode    rangenode;
 typedef struct func_call_specs  func_call_specs;
 typedef map<Address, vector<varnode *> > variable_stack;
 typedef map<Address, int> version_map;
@@ -673,6 +674,16 @@ struct jmptable {
 
 typedef funcdata* (*test_cond_inline_fn)(dobc *d, intb addr);
 
+struct rangenode {
+    intb    start = 0;
+    int     size = 0;
+
+    rangenode();
+    ~rangenode();
+
+    intb    end() { return start + size;  }
+};
+
 struct funcdata {
     struct {
         unsigned blocks_generated : 1;
@@ -797,8 +808,11 @@ struct funcdata {
     int inst_max = 1000000;
 
     /* 这个区域内的所有可以安全做别名分析的点 */
-    RangeList   safezone;
-    intb        safezone_base;
+
+    /* vmp360--------- */
+    list<rangenode *> safezone;
+    intb     vmeip = 0;
+    /* vmp360  end--------- */
 
     vector<Address>     addrlist;
     /* 常量cbranch列表 */
@@ -809,10 +823,6 @@ struct funcdata {
     /* 做条件inline时用到 */
     funcdata *caller = NULL;
     pcodeop *callop = NULL;
-
-    /* vmp360--------- */
-    intb     vmeip = 0;
-    /* vmp360  end--------- */
 
 
     struct {
@@ -1023,7 +1033,6 @@ struct funcdata {
     bool        is_code(varnode *v);
     bool        is_sp_rel_constant(varnode *v);
 
-    void        set_safezone_base(intb base) { safezone_base = base; }
     void        set_safezone(intb addr, int size);
     bool        in_safezone(intb addr, int size);
     void        enable_safezone(void);

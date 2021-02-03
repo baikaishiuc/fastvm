@@ -31,7 +31,8 @@ void ElfLoadImage::loadFill(uint1 *ptr, int size, const Address &addr)
 {
     int start = (int)addr.getOffset();
     if ((start + size) > filelen) {
-        /* FIXME: 我们对所有访问的超过空间的地址都返回 0xaabbccdd */
+        /* FIXME: 我们对所有访问的超过空间的地址都返回 0xaabbccdd，这里不是BUG，是因为我们载入so的时候，是直接平铺着载入的
+        但是实际在程序加载so的时候，会填充很多结构，并做一些扩展 */
         if (size != 4) {
             throw LowlevelError("cant not access out of elf image file size excceed 4");
         }
@@ -39,6 +40,15 @@ void ElfLoadImage::loadFill(uint1 *ptr, int size, const Address &addr)
         ptr[1] = 0x22;
         ptr[2] = 0x33;
         ptr[3] = 0x44;
+        return;
+    }
+
+    /* FIXME: .got表我没有生成，这里直接根据IDA的结构，手动写了*/
+    if ((start == 0xfe8c) && (size == 4)) {
+        ptr[0] = 0x98;
+        ptr[1] = 0x57;
+        ptr[2] = 0x08;
+        ptr[3] = 0x00;
         return;
     }
 

@@ -37,6 +37,7 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_STACK_DEPTH           "green"
 
 //#define DCFG_COND_INLINE                
+//#define DCFG_BEFORE               
 //#define DCFG_AFTER               
 //#define DCFG_AFTER_PCODE        
 //#define DCFG_CASE
@@ -374,7 +375,6 @@ void dobc::plugin_dvmp360()
 
     set_test_cond_inline_fn(test_vmp360_cond_inline);
 
-    //fd_main->set_safezone_base(STACKBASE);
     //fd_main->set_safezone(-0x148, 4);
     fd_main->vmp360_deshell();
 }
@@ -1780,6 +1780,14 @@ void    jmptable::update(funcdata *fd)
     op = fd->find_op(opaddr);
 }
 
+rangenode::rangenode()
+{
+}
+
+rangenode::~rangenode()
+{
+}
+
 void blockgraph::add_block(blockbasic *b)
 {
     int min = b->index;
@@ -2709,11 +2717,26 @@ bool        funcdata::vmp360_detect_vmeip()
 
 int         funcdata::vmp360_detect_safezone()
 {
+    if (vmeip == -1)
+        throw LowlevelError("vmp360_detect_safezone need vmeip detect");
+
+    /* FIXME:硬编码一波 
+
+    */
+
+    set_safezone(vmeip - 0x24, 0xa0);
+
     return 0;
 }
 
 int         funcdata::vmp360_detect_framework_info()
 {
+    if (!vmp360_detect_vmeip())
+        throw LowlevelError("vmp360_detect_vmeip not found vmeip");
+
+    if (vmp360_detect_safezone())
+        throw LowlevelError("vmp360_detect_safezone() failure ");
+
     return 0;
 }
 
@@ -2724,11 +2747,14 @@ int        funcdata::vmp360_deshell()
     inline_call("", 1);
     inline_call("", 1);
 
+    /* 这里需要heritage一次，才能扫描到 vmp360的框架信息，
+    而没有这一次vmp360的框架信息扫描，它们后面的 heritage也是不完全的，所以在检测完360的框架以后
+    需要再来一次heritage*/
     heritage();
-    dump_cfg(name, "orig", 1);
-
-    if (!vmp360_detect_vmeip())
+    if (vmp360_detect_framework_info())
         throw LowlevelError("vmp360_deshell not found vmeip");
+
+    heritage();
 
     constant_propagation2();
     if (!cbrlist.empty())
@@ -2737,6 +2763,9 @@ int        funcdata::vmp360_deshell()
     remove_calculated_loops();
     if (!cbrlist.empty())
         cond_constant_propagation();
+
+    heritage();
+    dump_cfg(name, "orig1", 1);
 
     char buf[16];
     int i;
@@ -5414,22 +5443,31 @@ void    funcdata::compute_sp(void)
         throw LowlevelError("compute sp need block generated");
 }
 
-/* FIXME:set_safezone 函数和 in_safezone 都使用codespace作为空间，我是乱写的 
-因为实际上的AddrSpace基本不参与太具体的运算所以填啥基本都ok，只要不写NULL, 
-我这里实际上想写的是 StackSpace，但是我没找到这么一个StackSpace;
-*/
 void        funcdata::set_safezone(intb addr, int size)
 {
-    addr += safezone_base;
-    safezone.insertRange(d->get_code_space(), addr, addr + size);
+    rangenode *range = new rangenode();
+
+    /* 现在的safezone只能设置stack space上的 */
+    range->start = STACKBASE + addr;
+    range->size = size;
+
+    safezone.push_back(range);
 }
 
 bool        funcdata::in_safezone(intb a, int size)
 {
-    a += safezone_base;
+    rangenode *n;
+    list<rangenode *>::iterator  it;
 
-    Address addr(d->get_code_space(), a);
-    return safezone.inRange(addr, size);
+    a += STACKBASE;
+
+    for (it = safezone.begin(); it != safezone.end(); it++) {
+        n = *it;
+        if ((a >= n->start) && (a + size) < n->end())
+            return true;
+    }
+
+    return false;
 }
 
 void        funcdata::enable_safezone(void)
@@ -5602,7 +5640,6 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
     if (load) {
         it = load->parent->get_rev_iterator(load);
         b = load->parent;
-
     }
     else {
         it = b->ops.rbegin();
@@ -5612,7 +5649,7 @@ pcodeop*    funcdata::store_query(pcodeop *load, flowblock *b, varnode *pos, pco
         for (; it != b->ops.rend(); it++) {
             p = *it;
 
-            if (!p->flags.inlined && have_side_effect(p, pos)) {
+            if (!p->flags.inlined && b->fd->have_side_effect(p, pos)) {
                 return NULL;
             }
             if (p->in_sp_alloc_range(pos)) return p;
@@ -5809,6 +5846,7 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
     flowblock *cur = loop_unrolling(h, h, flags, meet_exit);
     vector<flowblock *> blks;
     pcodeop *p;
+    char buf[32];
 
     cur->vm_caseindex = vm_caseindex;
 
@@ -5816,6 +5854,11 @@ bool        funcdata::loop_unrolling4(flowblock *h, int vm_caseindex, uint32_t f
 
     if (flags & _DUMP_ORIG_CASE)
         return 0;
+
+#if defined(DCFG_BEFORE)
+    sprintf(buf, "%d_orig", vm_caseindex);
+    dump_cfg(name, buf, 1);
+#endif
 
     vector<flowblock *> stack;
     vector<flowblock *> v;
@@ -6966,7 +7009,14 @@ bool        funcdata::have_side_effect(pcodeop *op, varnode *pos)
         }
     }
 
+#if 1
+    if (in_safezone(pos->get_val(), pos->size) && !d->test_cond_inline(d, op->get_call_offset()))
+        return false;
+
+    return true;
+#else
     return fd->have_side_effect();
+#endif
 }
 
 flowblock*  funcdata::dowhile2ifwhile(vector<flowblock *> &dowhile)
