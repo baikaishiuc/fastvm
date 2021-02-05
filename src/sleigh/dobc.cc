@@ -38,7 +38,7 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#if 1
+#if 0
 #define DCFG_COND_INLINE                
 #define DCFG_BEFORE               
 #define DCFG_AFTER               
@@ -2575,7 +2575,7 @@ void        funcdata::remove_loop_livein_varnode(flowblock *lheader)
 {
     int i;
     flowblock *o;
-    list<pcodeop *>::iterator it;
+    list<pcodeop *>::iterator it, next;
     list<pcodeop *>::iterator itu;
     pcodeop *p, *p_use;
     varnode *out;
@@ -2584,8 +2584,9 @@ void        funcdata::remove_loop_livein_varnode(flowblock *lheader)
     for (i = 0; i < lheader->loopnodes.size(); i++) {
         o = lheader->loopnodes[i];
 
-        for (it = o->ops.begin(); it != o->ops.end(); it++) {
+        for (it = o->ops.begin(); it != o->ops.end(); it = next) {
             p = *it;
+			next = ++it;
 
             if (!(out = p->output)) continue;
 
@@ -2757,9 +2758,10 @@ int        funcdata::vmp360_deshell()
     if (vmp360_detect_framework_info())
         throw LowlevelError("vmp360_deshell not found vmeip");
 
+	heritage_clear();
     heritage();
 
-    constant_propagation2();
+    constant_propagation3();
     if (!cbrlist.empty())
         cond_constant_propagation();
 
@@ -2767,7 +2769,6 @@ int        funcdata::vmp360_deshell()
     if (!cbrlist.empty())
         cond_constant_propagation();
 
-    heritage();
     dump_cfg(name, "orig1", 1);
 
     char buf[16];
@@ -4934,7 +4935,7 @@ void        funcdata::argument_pass(void)
     flowblock *b;
     vector<flowblock *> v;
 
-    constant_propagation2();
+    constant_propagation3();
 
     int g_time = 0;
 
@@ -4961,6 +4962,8 @@ void        funcdata::argument_pass(void)
                 heritage_clear();
                 heritage();
             }
+
+			dump_cfg(name, "check0000", 1);
 
             argument_inline(p->callfd, p);
             g_time++;
@@ -5177,7 +5180,7 @@ void        funcdata::heritage(void)
 
     long start = clock();
 
-    constant_propagation2();
+    constant_propagation3();
 
     print_info("%sheritage scan node end. CP spent [%lu]ms. \n", print_indent(), clock() - start);
 }
@@ -5198,102 +5201,14 @@ void    funcdata::heritage_clear()
     pass = 0;
 }
 
-int     funcdata::constant_propagation2()
-{
-    return constant_propagation3();
-
-    list<pcodeop *>::const_iterator iter;
-    list<pcodeop *> w = deadlist;
-    list<pcodeop *>::const_iterator iter1;
-    int ret = 0, r;
-    flowblock *b;
-
-    while (!w.empty()) {
-        iter = w.begin();
-        pcodeop *op = *iter;
-        w.erase(iter);
-
-        if (op->flags.dead) continue;
-
-        if ((op->opcode == CPUI_STORE) && (op->get_in(1)->type.height != a_top)) {
-            for (iter1 = op->mayuses.begin(); iter1 != op->mayuses.end(); ++iter1) {
-                pcodeop *use = *iter1;
-                w.push_back(use);
-            }
-            op->mayuses.clear();
-        }
-
-        r = op->compute(-1, &b);
-        if (r == ERR_FREE_SELF) continue;
-        ret |= r;
-
-        varnode *out = op->output;
-
-        if (!out) continue;
-
-        if (out->is_constant() || out->is_rel_constant()) {
-            for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
-                pcodeop *use = *iter1;
-                w.push_back(use);
-            }
-        }
-        else if ((op->opcode == CPUI_LOAD) && !op->get_virtualnode() && !op->flags.input) {
-            pcodeop *maydef = NULL;
-            pcodeop *load = op;
- 
-            pcodeop *maystore = NULL;
-
-            pcodeop *store = store_query(load, NULL, load->get_in(1), &maystore);
-
-            if (!store) {
-                if (maystore) {
-                    maystore->add_mayuse(load);
-                }
-                continue;
-            }
-
-            if (store->opcode != CPUI_STORE) {
-                load->output->set_val(0);
-                load->flags.val_from_sp_alloc = 1;
-                continue;
-            }
-
-            safe_aliaslist.push_back(load);
-            w.push_back(load);
-            if (store->parent->fd != this) {
-                load->output->type = store->get_in(2)->type;
-                load->flags.input = 1;
-                continue;
-            }
-
-            varnode *in = store->get_in(1);
-            safe_aliaslist.push_back(store);
-
-            /* 假如这个store已经被分析过，直接把store的版本设置过来 */
-            if (store->output) {
-                op_set_input(load, store->output, 2);
-            }
-            else {
-                Address oaddr(d->get_uniq_space(), virtualbase += in->size);
-                varnode *out;
-                out = new_varnode_out(in->size, oaddr, store);
-
-                op_resize(load, 3);
-                op_set_input(load, out, 2);
-                w.push_back(store);
-            }
-        }
-    }
-
-    return ret;
-}
-
 int         funcdata::constant_propagation3()
 {
     list<pcodeop *>::const_iterator iter;
     list<pcodeop *>::const_iterator iter1;
+	list<pcodeop *> maystorelist;
     pcodeop_set::iterator it;
     pcodeop_set set;
+	pcodeop_set maystore_set;
     pcodeop *op, *use, *load, *store, *maystore;
     int ret = 0, r;
     flowblock *b;
@@ -5341,6 +5256,7 @@ int         funcdata::constant_propagation3()
             if (!store) {
                 if (maystore) {
                     maystore->add_mayuse(load);
+					maystore_set.insert(maystore);
                 }
                 continue;
             }
@@ -5376,6 +5292,16 @@ int         funcdata::constant_propagation3()
             }
         }
     }
+
+	while (!maystore_set.empty()) {
+        it = maystore_set.begin();
+        op = *it;
+        maystore_set.erase(it);
+
+		if (op->flags.dead) continue;
+
+		op->mayuses.clear();
+	}
 
     return ret;
 }
