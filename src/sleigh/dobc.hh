@@ -105,6 +105,10 @@ struct pcodeop_cmp_def {
     bool operator() ( const pcodeop *a, const pcodeop *b ) const;
 };
 
+struct pcodeop_domdepth_cmp {
+    bool operator() ( const pcodeop *a, const pcodeop *b ) const;
+};
+
 typedef set<pcodeop *, pcodeop_cmp_def> pcodeop_def_set;
 
 struct pcodeop_cmp {
@@ -237,6 +241,7 @@ struct pcodeop {
             后面一种opcode，我们假设alloc出的内存空间值都是0，这个是有问题的?
             */
         unsigned val_from_sp_alloc : 1;     // 这个load的值并非来自于store，而是来自于sp的内存分配行为
+		unsigned uncalculated_store : 1;	// 这个store节点是不可计算的
     } flags = { 0 };
 
     OpCode opcode;
@@ -484,7 +489,9 @@ struct flowblock {
         return NULL;
     }
     pcodeop*    first_op(void) { return *ops.begin();  }
-    pcodeop*    last_op(void) { return *--ops.end();  }
+    pcodeop*    last_op(void) { 
+		return ops.size() ? (*--ops.end()):NULL;  
+	}
     int         get_out_rev_index(int i) { return out[i].reverse_index;  }
 
     void        set_start_block(flowblock *bl);
@@ -697,6 +704,8 @@ struct funcdata {
         unsigned safezone : 1;
         unsigned plt : 1;               // 是否是外部导入符号
         unsigned exit : 1;              // 有些函数有直接结束整个程序的作用，比如stack_check_fail, exit, abort
+		/* 是否允许标记未识别store，让安全store可以跨过去这个pcode*/
+		unsigned enable_topstore_mark : 1;
     } flags = { 0 };
 
     enum {
@@ -1013,7 +1022,6 @@ struct funcdata {
     0: ok
     1: 发现可以被别名分析的load store */
     int         constant_propagation(int listype);
-    int         constant_propagation2();
     int         constant_propagation3();
     int         cond_constant_propagation();
     int         in_cbrlist(pcodeop *op) {
@@ -1111,6 +1119,7 @@ struct funcdata {
     最后的web包含start，不包含end */
     flowblock*  clone_web(flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
     flowblock*  clone_ifweb(flowblock *newstart, flowblock *start, flowblock *end, vector<flowblock *> &cloneblks);
+	flowblock*	inline_call(pcodeop *callop, funcdata *fd);
 #define F_OMIT_RETURN       1
     flowblock*  clone_block(flowblock *f, u4 flags);
     /* 把某个block从某个位置开始切割成2块，
@@ -1169,7 +1178,6 @@ struct funcdata {
     void        remove_dead_store2(flowblock *b, map<valuetype, vector<pcodeop *> > &m);
     void        remove_dead_store(flowblock *b);
     void        remove_dead_stores();
-    bool        has_no_use_ex(varnode *vn);
     /* 打印某个节点的插入为止*/
     void        dump_phi_placement(int bid, int pid);
     /* 搜索归纳变量 */

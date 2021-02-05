@@ -3,7 +3,7 @@
  
 ElfLoadImage::ElfLoadImage(const char *filename):LoadImageB(filename)
 {
-    filedata = (unsigned char *)file_load(filename, &filelen);
+    filedata = (unsigned char *)file_load(filename, (int *)&filelen);
     if (!filedata) {
         printf("ElfLoadImage() failed open [%s]", filename);
         exit(0);
@@ -29,13 +29,10 @@ ElfLoadImage::~ElfLoadImage()
 
 void ElfLoadImage::loadFill(uint1 *ptr, int size, const Address &addr) 
 {
-    int start = (int)addr.getOffset();
+    unsigned start = (unsigned)addr.getOffset();
     if ((start + size) > filelen) {
         /* FIXME: 我们对所有访问的超过空间的地址都返回 0xaabbccdd，这里不是BUG，是因为我们载入so的时候，是直接平铺着载入的
         但是实际在程序加载so的时候，会填充很多结构，并做一些扩展 */
-        if (size != 4) {
-            throw LowlevelError("cant not access out of elf image file size excceed 4");
-        }
         ptr[0] = 0x11;
         ptr[1] = 0x22;
         ptr[2] = 0x33;

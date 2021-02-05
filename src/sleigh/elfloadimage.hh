@@ -4,7 +4,7 @@
 class ElfLoadImage : public LoadImageB {
     long long baseaddr;
     unsigned char*  filedata;
-    int             filelen;
+    int				filelen;
 
     int is64bit;
     FILE *fp;
