@@ -843,6 +843,72 @@ inline bool varnode_cmp_gvn::operator()(const varnode *a, const varnode *b) cons
     return false;
 }
 
+void coverblock::set_begin(pcodeop *op) 
+{
+	start = op->start.getOrder();
+}
+
+void coverblock::set_end(pcodeop *op) 
+{
+	end = op->start.getOrder();
+}
+
+bool coverblock::contain(pcodeop *op)
+{
+	uintm p = op->start.getOrder();
+
+	if (empty())
+		return false;
+
+	return (p <= end) && (p >= start);
+}
+
+void cover::add_def_point(varnode *vn)
+{
+	pcodeop *def;
+
+	c.clear();
+
+	def = vn->get_def();
+	if (def) {
+		coverblock &block(c[def->parent->index]);
+		block.set_begin(def);
+		block.set_end(def);
+	}
+	else {
+		throw LowlevelError("not support input varnode");
+	}
+}
+
+void cover::add_ref_point(pcodeop *ref, varnode *vn)
+{
+	int i;
+	flowblock *bl;
+
+
+	bl = ref->parent;
+	coverblock &block(c[bl->index]);
+	if (block.empty()) {
+		block.set_end(ref);
+	}
+	else if (block.contain(ref)){
+		return;
+	}
+	else {
+		block.set_end(ref);
+		if (block.end >= block.start) {
+			return;
+		}
+	}
+
+	for (i = 0; i < bl->in.size(); i++)
+		add_ref_recurse(bl->get_in(i));
+}
+
+void cover::add_ref_recurse(flowblock *bl)
+{
+}
+
 pcodeop::pcodeop(int s, const SeqNum &sq)
     :start(sq), inrefs(s)
 {

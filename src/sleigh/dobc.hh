@@ -14,7 +14,9 @@ typedef struct rangenode    rangenode;
 typedef struct func_call_specs  func_call_specs;
 typedef map<Address, vector<varnode *> > variable_stack;
 typedef map<Address, int> version_map;
+typedef struct cover		cover;
 typedef struct valuetype    valuetype;
+typedef struct coverblock	coverblock;
 
 class pcodeemit2 : public PcodeEmit {
 public:
@@ -123,6 +125,35 @@ struct varnode_cmp_gvn {
 
 typedef map<varnode *, vector<pcodeop *>, varnode_cmp_gvn> varnode_gvn_map;
 
+struct coverblock {
+	flowblock *b;
+	/* 这个结构主要参考自Ghidra的CoverBlock，之所以start和end，没有采用pcodeop结构是因为
+	我们在优化时，会删除大量的pcodeop，这个pcode很容易失效 */
+	int		start = -1;
+	int		end = -1;
+
+	coverblock() {}
+	~coverblock() {}
+
+	void set_begin(pcodeop *op);
+	void set_end(pcodeop *op);
+	bool empty() {
+		return (start == -1) && (end == -1);
+	}
+
+	bool contain(pcodeop *op);
+
+};
+
+struct cover {
+	map<int, coverblock> c;
+
+	void clear() { c.clear(); }
+	void add_def_point(varnode *vn);
+	void add_ref_point(pcodeop *op, varnode *vn);
+	void add_ref_recurse(flowblock *bl);
+};
+
 struct varnode {
     /* varnode的值类型和值，在编译分析过后就不会被改*/
     valuetype   type;
@@ -179,6 +210,7 @@ struct varnode {
     bool            is_free() { return !flags.written && !flags.input; }
     /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
     bool            in_liverange(pcodeop *p);
+	void			add_liverange(pcodeop *p);
     /* 判断在某个start-end之间，这个varnode是否live, start, end必须得在同一个block内
 
     这2个判断liverange的代码都要重新写
