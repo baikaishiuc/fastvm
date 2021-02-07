@@ -861,6 +861,8 @@ struct funcdata {
     void        op_destroy_raw(pcodeop *op);
     void        op_destroy(pcodeop *op);
     void        op_destroy_ssa(pcodeop *op);
+	void		op_destroy(pcodeop *op, int remove);
+	void		remove_all_dead_op();
     void        reset_out_use(pcodeop *p);
 
     varnode*    new_varnode_out(int s, const Address &m, pcodeop *op);
@@ -1015,13 +1017,6 @@ struct funcdata {
         vector<varnode *> &write, vector<varnode *> &input);
     void        heritage(void);
     void        heritage_clear(void);
-    /* 
-    listtype:       常量传播分析的列表，0:默认的全oplist，1:新增加的safe_storelist
-    return:
-    -1: 严重错误
-    0: ok
-    1: 发现可以被别名分析的load store */
-    int         constant_propagation(int listype);
     int         constant_propagation3();
     int         cond_constant_propagation();
     int         in_cbrlist(pcodeop *op) {

@@ -38,7 +38,7 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#if 1
+#if 0
 #define DCFG_COND_INLINE                
 #define DCFG_BEFORE               
 #define DCFG_AFTER               
@@ -1068,9 +1068,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         in2 = (inrefs.size() == 3) ? get_in(2):NULL;
         if (fd->is_code(in0, in1) && in1->is_constant()) {
             Address addr(d->trans->getDefaultCodeSpace(), in1->type.v);
-
-			if (in1->type.v < 0)
-				fd->dump_cfg(fd->name, "222222", 1);
 
             memset(buf, 0, sizeof(buf));
             d->loader->loadFill(buf, out->size, addr);
@@ -2651,7 +2648,7 @@ void        funcdata::remove_calculated_loop(flowblock *lheader)
     bblocks.remove_edge(lheader, branch);
     bblocks.remove_block(branch);
     if ((lheader->out.size() == 1) && ((p = lheader->last_op())->opcode == CPUI_CBRANCH)) {
-        op_destroy(p);
+        op_destroy(p, 1);
     }
 
     for (it = lheader->ops.begin(); it != lheader->ops.end(); it++) {
@@ -2740,6 +2737,8 @@ int         funcdata::vmp360_detect_framework_info()
 
 int        funcdata::vmp360_deshell()
 {
+	unsigned int tick = mtime_tick();
+
     follow_flow();
 
     inline_call("", 1);
@@ -2786,6 +2785,8 @@ int        funcdata::vmp360_deshell()
     //fd_main->dump_phi_placement(17, 5300);
     dump_store_info("1");
     dump_loop("1");
+
+	printf("deshell spent %u ms\n", mtime_tick() - tick);
 
     return 0;
 }
@@ -2871,7 +2872,7 @@ void        funcdata::remove_dead_store(flowblock *b)
                 if (back->output && !back->output->has_no_use()) {
                     assert(0);
                 }
-                op_destroy(back);
+                op_destroy(back, 1);
             }
 
             stack.push_back(p);
@@ -4606,13 +4607,16 @@ void        funcdata::op_destroy_raw(pcodeop *op)
 {
     int i;
 
-    for (i = 0; i < op->inrefs.size(); i++)
-        destroy_varnode(op->inrefs[i]);
+	for (i = 0; i < op->inrefs.size(); i++) {
+		if (op->get_in(i))
+			destroy_varnode(op->get_in(i));
+	}
     if (op->output)
         destroy_varnode(op->output);
 
     optree.erase(op->start);
     deadlist.erase(op->insertiter);
+	remove_from_codelist(op);
 }
 
 void        funcdata::op_destroy(pcodeop *op)
@@ -4620,8 +4624,10 @@ void        funcdata::op_destroy(pcodeop *op)
     int i;
     flowblock *p;
 
-    if (op->output)
+	if (op->output) {
         destroy_varnode(op->output);
+		op->output = NULL;
+	}
 
     for (i = 0; i < op->num_input(); ++i) {
         varnode *vn = op->get_in(i);
@@ -4636,6 +4642,13 @@ void        funcdata::op_destroy(pcodeop *op)
         if (p->ops.empty()) 
             emptylist.push_back(op->parent);
     }
+}
+
+void		funcdata::op_destroy(pcodeop *op, int remove)
+{
+	op_destroy(op);
+	if (remove)
+		op_destroy_raw(op);
 }
 
 void        funcdata::reset_out_use(pcodeop *p)
@@ -4663,7 +4676,21 @@ void        funcdata::reset_out_use(pcodeop *p)
 void        funcdata::op_destroy_ssa(pcodeop *p)
 {
     reset_out_use(p);
-    op_destroy(p);
+    op_destroy(p, 1);
+}
+
+void		funcdata::remove_all_dead_op()
+{
+	list<pcodeop *>::iterator it, next;
+	pcodeop *p;
+
+	for (it = deadlist.begin(); it != deadlist.end(); it = next) {
+		p = *it;
+		next = ++it;
+		if (!p->flags.dead) continue;
+
+		op_destroy_raw(p);
+	}
 }
 
 void        funcdata::inline_clone(funcdata *inlinefd, const Address &retaddr)
@@ -4918,7 +4945,6 @@ flowblock*      funcdata::argument_inline(funcdata *inlinefd, pcodeop *callop)
     flowblock *p = callop->parent;
 
     op_destroy_ssa(callop);
-    //op_destroy(callop);
 
     structure_reset();
 
@@ -4962,8 +4988,6 @@ void        funcdata::argument_pass(void)
                 heritage_clear();
                 heritage();
             }
-
-			dump_cfg(name, "check0000", 1);
 
             argument_inline(p->callfd, p);
             g_time++;
@@ -5335,37 +5359,6 @@ cp_label1:
 }
 
 
-int     funcdata::constant_propagation(int listype)
-{
-    list<pcodeop *>::const_iterator iter;
-    list<pcodeop *> w = listype ? safe_aliaslist:deadlist;
-    list<pcodeop *>::const_iterator iter1;
-    int ret = 0;
-    flowblock *b;
-
-    while (!w.empty()) {
-        iter = w.begin();
-        pcodeop *op = *iter;
-        w.erase(iter);
-
-        if (op->flags.dead) continue;
-
-        ret |= op->compute(-1, &b);
-
-        varnode *out = op->output;
-        if (!out) continue;
-
-        if (out->is_constant() || out->is_rel_constant()) {
-            for (iter1 = out->uses.begin(); iter1 != out->uses.end(); ++iter1) {
-                pcodeop *use = *iter1;
-                w.push_back(use);
-            }
-        }
-    }
-
-    return ret;
-}
-
 int         funcdata::cond_constant_propagation()
 {
     flowblock *parent, *to;
@@ -5507,6 +5500,7 @@ void        funcdata::remove_from_codelist(pcodeop *op)
 
     case CPUI_STORE:
         storelist.erase(op->codeiter);
+		break;
     }
 }
 
@@ -6246,7 +6240,7 @@ void        funcdata::dead_code_elimination(vector<flowblock *> blks, uint32_t f
         }
 
         if (marks[op->parent->dfnum]) {
-            op_destroy(op);
+            op_destroy(op, 1);
         }
     }
 
@@ -6683,7 +6677,7 @@ void        funcdata::branch_remove_internal(blockbasic *bb, int num)
 
 	pcodeop *last = bb->last_op();
 	if (last && (last->opcode == CPUI_CBRANCH) && (bb->out.size() == 2))
-		op_destroy(last);
+		op_destroy(last, 1);
 
     bbout = (blockbasic *)bb->get_out(num);
     blocknum = bbout->get_in_index(bb);
@@ -6717,21 +6711,7 @@ void        funcdata::block_remove_internal(blockbasic *bb, bool unreachable)
     while (iter != bb->ops.end()) {
         op = *iter;
         iter++;
-#if 0
-        if (op->output) {
-            deadvn = op->output;
-            if (unreachable) {
-                use2undef(deadvn);
-            }
-
-            if (use_outside(deadvn))
-                throw LowlevelError("deleting op with use");
-        }
-
-        op_destroy(op);
-#else
         op_destroy_ssa(op);
-#endif
     }
     bblocks.remove_block(bb);
 }
@@ -6777,7 +6757,7 @@ void        funcdata::splice_block_basic(blockbasic *bl)
     if (!bl->ops.empty()) {
         pcodeop *jumpop = bl->last_op();
         if ((jumpop->opcode == CPUI_BRANCH) || (jumpop->opcode == CPUI_CBRANCH))
-            op_destroy(jumpop);
+            op_destroy(jumpop, 1);
     }
 
     if (!outbl->ops.empty()) {
@@ -6817,7 +6797,7 @@ void        funcdata::remove_empty_block(blockbasic *bl)
         bblocks.remove_edge(prev, prev->get_out(0));
 
         if (prev->last_op()->opcode == CPUI_CBRANCH) {
-            op_destroy(prev->last_op());
+            op_destroy(prev->last_op(), 1);
         }
     }
 
@@ -6871,6 +6851,7 @@ void        funcdata::dump_store_info(const char *postfix)
     pcodeop *op;
     varnode *vn;
     FILE *fp;
+	int i = 0;
 
     sprintf(obuf, "%s/%s/store_%s.txt", d->filename.c_str(), name.c_str(), postfix);
 
@@ -6879,7 +6860,7 @@ void        funcdata::dump_store_info(const char *postfix)
     for (it = storelist.begin(); it != storelist.end(); it++) {
         op = *it;
         if (op->is_dead()) {
-            printf("op store[%d] is dead\n", op->start.getTime());
+            printf("op store[%d] is dead, %d\n", op->start.getTime(), ++i);
             continue;
         }
         vn = op->get_in(1);
@@ -6892,6 +6873,8 @@ void        funcdata::dump_store_info(const char *postfix)
     }
 
     fclose(fp);
+
+	printf("oplist.size = %d\n", deadlist.size());
 }
 
 void        funcdata::dump_load_info(const char *postfix)
