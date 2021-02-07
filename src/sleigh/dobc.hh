@@ -137,11 +137,16 @@ struct coverblock {
 
 	void set_begin(pcodeop *op);
 	void set_end(pcodeop *op);
+	void set_end(int);
 	bool empty() {
 		return (start == -1) && (end == -1);
 	}
 
 	bool contain(pcodeop *op);
+	void set_all() {
+		start = 0;
+		end = INT_MAX;
+	}
 
 };
 

@@ -853,6 +853,11 @@ void coverblock::set_end(pcodeop *op)
 	end = op->start.getOrder();
 }
 
+void coverblock::set_end(int e)
+{
+	end = e;
+}
+
 bool coverblock::contain(pcodeop *op)
 {
 	uintm p = op->start.getOrder();
@@ -907,6 +912,18 @@ void cover::add_ref_point(pcodeop *ref, varnode *vn)
 
 void cover::add_ref_recurse(flowblock *bl)
 {
+	int i;
+	uintm ustart, ustop;
+
+	coverblock &block(c[bl->index]);
+	if (block.empty()) {
+		for (i = 0; i < bl->in.size(); i++)
+			add_ref_recurse(bl->get_in(i));
+	}
+	else {
+		if (block.end >= block.start)
+			block.set_end(INT_MAX);
+	}
 }
 
 pcodeop::pcodeop(int s, const SeqNum &sq)
@@ -6437,21 +6454,20 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
     /* 当前block内，被def过得varnode集合 */
     vector<varnode *> writelist;
     blockbasic *subbl;
-    list<pcodeop *>::iterator oiter, suboiter;
+    list<pcodeop *>::iterator oiter, suboiter, next;
     pcodeop *op, *multiop;
     varnode *vnout, *vnin, *vnnew;
-    int i, slot, j = 0, set_begin = 0;
+    int i, slot, set_begin = 0, order;
 
-    for (oiter = bl->ops.begin(); oiter != bl->ops.end(); (set_begin ? oiter = bl->ops.begin():oiter++)) {
+    for (oiter = bl->ops.begin(), order = 0; oiter != bl->ops.end(); oiter = next, order++) {
         op = *oiter ;
-        op->start.setOrder(j++);
-        set_begin = 0;
+		next = ++oiter;
+        op->start.setOrder(order);
 
         if (op->opcode != CPUI_MULTIEQUAL) {
             if ((op->opcode == CPUI_COPY) && (op->output->get_addr() == op->get_in(0)->get_addr())) {
-                if (oiter == bl->ops.begin())  set_begin = 1;
-                else oiter--;
                 op_destroy_ssa(op);
+				order--;
                 continue;
             }
 
