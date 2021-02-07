@@ -1105,6 +1105,7 @@ struct funcdata {
     bool        use_outside(varnode *vn);
     void        use2undef(varnode *vn);
     void        branch_remove(blockbasic *bb, int num);
+	/* 把bb和第num个节点的关系去除 */
     void        branch_remove_internal(blockbasic *bb, int num);
     void        block_remove_internal(blockbasic *bb, bool unreachable);
     bool        remove_unreachable_blocks(bool issuewarnning, bool checkexistence);

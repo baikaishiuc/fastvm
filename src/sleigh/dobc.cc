@@ -38,7 +38,7 @@ static dobc *g_dobc = NULL;
 #define COLOR_ASM_ADDR                  "#33A2FF"               
 #define COLOR_ASM_STACK_DEPTH           "green"
 
-#if 0
+#if 1
 #define DCFG_COND_INLINE                
 #define DCFG_BEFORE               
 #define DCFG_AFTER               
@@ -367,10 +367,10 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    funcdata *fd_main = find_func("_Z10__arm_a_21v");
     //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
     //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
-    funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
+    //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
     //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
 
@@ -6681,11 +6681,9 @@ void        funcdata::branch_remove_internal(blockbasic *bb, int num)
     list<pcodeop *>::iterator iter;
     int blocknum;
 
-    if (bb->out.size() == 2) {
-        pcodeop *last = bb->last_op();
-        assert(last->opcode == CPUI_CBRANCH);
-        op_destroy(last);
-    }
+	pcodeop *last = bb->last_op();
+	if (last && (last->opcode == CPUI_CBRANCH) && (bb->out.size() == 2))
+		op_destroy(last);
 
     bbout = (blockbasic *)bb->get_out(num);
     blocknum = bbout->get_in_index(bb);
