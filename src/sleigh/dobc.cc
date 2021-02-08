@@ -442,6 +442,11 @@ void dobc::init_regs()
         if (name.find("tmp") != string::npos) continue;
         if (name.find("multi") != string::npos) continue;
         cpu_regs.insert(it->first.getAddr());
+
+		/* 参考ARM.sinc, lr的地址是0x58 */
+		if (it->first.getAddr().getOffset() < 0x58)
+			cpu_base_regs.insert(it->first.getAddr());
+
     }
 }
 
@@ -885,16 +890,21 @@ void cover::add_def_point(varnode *vn)
 	}
 }
 
-void cover::add_ref_point(pcodeop *ref, varnode *vn)
+void cover::add_ref_point(pcodeop *ref, varnode *vn, int exclude)
 {
 	int i;
 	flowblock *bl;
 
-
 	bl = ref->parent;
 	coverblock &block(c[bl->index]);
 	if (block.empty()) {
-		block.set_end(ref);
+		uintm last = ref->start.getOrder();
+		if (exclude) {
+			if ((last - 1) >= 0)
+				block.set_end(last - 1);
+		}
+		else
+			block.set_end(ref);
 	}
 	else if (block.contain(ref)){
 		return;
@@ -913,10 +923,10 @@ void cover::add_ref_point(pcodeop *ref, varnode *vn)
 void cover::add_ref_recurse(flowblock *bl)
 {
 	int i;
-	uintm ustart, ustop;
 
 	coverblock &block(c[bl->index]);
 	if (block.empty()) {
+		block.set_all();
 		for (i = 0; i < bl->in.size(); i++)
 			add_ref_recurse(bl->get_in(i));
 	}
@@ -924,6 +934,24 @@ void cover::add_ref_recurse(flowblock *bl)
 		if (block.end >= block.start)
 			block.set_end(INT_MAX);
 	}
+}
+
+int cover::dump(char *buf)
+{
+	int n = 0;
+	map<int, coverblock>::iterator it;
+
+	n += sprintf(buf + n, "[");
+	for (it = c.begin(); it != c.end(); it++) {
+		coverblock &c(it->second);
+		if (c.end == INT_MAX)
+			n += sprintf(buf + n, "{blk:%d, %d-max}", it->first, c.start);
+		else
+			n += sprintf(buf + n, "{blk:%d, %d-%d}", it->first, c.start, c.end);
+	}
+	n += sprintf(buf + n, "]");
+
+	return n;
 }
 
 pcodeop::pcodeop(int s, const SeqNum &sq)
@@ -978,7 +1006,7 @@ int             pcodeop::dump(char *buf, uint32_t flags)
     dobc *d = parent->fd->d;
     Translate *trans = parent->fd->d->trans;
 
-    i += sprintf(buf + i, "    p%d:", start.getTime());
+    i += sprintf(buf + i, " p%-3d [%3d]:", start.getTime(), start.getOrder());
 
     if (output) {
         i += print_varnode(trans, buf + i, output);
@@ -2629,6 +2657,11 @@ void        funcdata::dump_exe()
     redundbranch_apply();
     remove_dead_stores();
     dead_code_elimination(bblocks.blist, 0);
+
+	heritage_clear();
+	heritage();
+	build_liverange();
+	dump_liverange("1");
 }
 
 void        funcdata::detect_calced_loops(vector<flowblock *> &loops)
@@ -2837,7 +2870,6 @@ int        funcdata::vmp360_deshell()
 	heritage_clear();
     heritage();
 
-    constant_propagation3();
     if (!cbrlist.empty())
         cond_constant_propagation();
 
@@ -4568,6 +4600,32 @@ void        funcdata::dump_loop(const char *postfix)
     }
 
     fprintf(fp, "}");
+
+    fclose(fp);
+}
+
+void        funcdata::dump_liverange(const char *postfix)
+{
+    char obuf[2048];
+
+    sprintf(obuf, "%s/liverange_%s.txt", get_dir(obuf), postfix);
+
+    FILE *fp = fopen(obuf, "w");
+    if (NULL == fp) {
+        printf("fopen failure %s", obuf);
+        exit(0);
+    }
+
+	list<pcodeop *>::iterator it = deadlist.begin();
+
+	for (; it != deadlist.end(); it++) {
+		pcodeop *p = *it;
+		if (p->is_dead() || !p->output) continue;
+
+		p->output->dump_cover(obuf);
+
+		fprintf(fp, "p%d %s\n", p->start.getTime(), obuf);
+	}
 
     fclose(fp);
 }
@@ -6560,6 +6618,88 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
     }
 }
 
+void		funcdata::build_liverange()
+{
+    variable_stack varstack;
+
+    build_liverange_recurse(bblocks.get_block(0), varstack);
+}
+
+void        funcdata::build_liverange_recurse(blockbasic *bl, variable_stack &varstack)
+{
+    /* 当前block内，被def过得varnode集合 */
+    vector<varnode *> writelist;
+	list<pcodeop *>::iterator oiter;
+	pcodeop *op;
+    varnode *vnout, *vnin, *vnnew;
+    int i, slot, order;
+
+    for (oiter = bl->ops.begin(), order = 0; oiter != bl->ops.end(); oiter++, order++) {
+        op = *oiter ;
+		op->start.setOrder(order);
+
+		for (slot = 0; slot < op->inrefs.size(); ++slot) {
+			vnin = op->get_in(slot);
+
+			if (vnin->flags.annotation || (vnin->is_constant() && vnin->get_addr().isConstant()))
+				continue;
+
+			/* 省略掉load的虚拟节点 */
+			if ((op->opcode == CPUI_LOAD) && (slot == 2))
+				continue;
+
+			vector<varnode *> &stack(varstack[vnin->get_addr()]);
+			if (stack.empty()) {
+				vnin->clear_cover();
+				vnin->add_ref_point(op);
+				stack.push_back(vnin);
+			}
+			else {
+				vnnew = stack.back();
+				vnnew->add_ref_point(op);
+			}
+		}
+
+        vnout = op->output;
+        if (vnout == NULL) continue;
+		if (op->opcode == CPUI_STORE) continue;
+
+		vector<varnode *> &stack(varstack[vnout->get_addr()]);
+		if (!stack.empty() && d->is_cpu_base_reg(vnout->get_addr())) {
+			vnnew = stack.back();
+			vnnew->add_ref_point(op);
+		}
+
+        stack.push_back(vnout);
+        writelist.push_back(vnout);
+		vnout->add_def_point();
+    }
+
+    i = bl->index;
+    for (slot = 0; slot < domchild[i].size(); ++slot)
+        build_liverange_recurse(domchild[i][slot], varstack);
+
+    if (bl->is_end()) {
+        variable_stack::iterator it;
+        for (it = varstack.begin(); it != varstack.end(); it++) {
+            vector<varnode *> &stack = it->second;
+            pair<pcodeop_def_set::iterator, bool> check;
+            varnode *v;
+			if (!stack.empty() && d->is_cpu_base_reg((v = stack.back())->get_addr())) {
+				v->add_ref_point(bl->last_op());
+			}
+        }
+    }
+
+    for (i = 0; i < writelist.size(); ++i) {
+        vnout = writelist[i];
+
+        vector<varnode *> &stack(varstack[vnout->get_addr()]);
+        varnode *v = stack.back();
+        stack.pop_back();
+    }
+}
+
 /* calc_multiequal 
 Algorithms for Computing the Static Single Assignment Form. P39 
 */
@@ -6924,6 +7064,8 @@ void        funcdata::redundbranch_apply()
             }
         }
     }
+
+	structure_reset();
 }
 
 void        funcdata::dump_store_info(const char *postfix)

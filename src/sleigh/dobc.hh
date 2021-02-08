@@ -126,7 +126,7 @@ struct varnode_cmp_gvn {
 typedef map<varnode *, vector<pcodeop *>, varnode_cmp_gvn> varnode_gvn_map;
 
 struct coverblock {
-	flowblock *b;
+	int blk_index;
 	/* 这个结构主要参考自Ghidra的CoverBlock，之所以start和end，没有采用pcodeop结构是因为
 	我们在优化时，会删除大量的pcodeop，这个pcode很容易失效 */
 	int		start = -1;
@@ -155,8 +155,9 @@ struct cover {
 
 	void clear() { c.clear(); }
 	void add_def_point(varnode *vn);
-	void add_ref_point(pcodeop *op, varnode *vn);
+	void add_ref_point(pcodeop *op, varnode *vn, int exclude);
 	void add_ref_recurse(flowblock *bl);
+	int dump(char *buf);
 };
 
 struct varnode {
@@ -190,6 +191,7 @@ struct varnode {
     varnode_loc_set::iterator lociter;  // sort by location
     varnode_def_set::iterator defiter;  // sort by definition
 
+	cover				cover;
     list<pcodeop *>     uses;    // descend, Ghidra把这个取名为descend，搞的我头晕，改成use
 
     varnode(int s, const Address &m);
@@ -222,6 +224,11 @@ struct varnode {
     */
     bool            in_liverange(pcodeop *start, pcodeop *end);
     bool            is_reg() { return get_addr().getSpace()->getType() == IPTR_PROCESSOR; }
+	void			add_def_point() { cover.add_def_point(this);  }
+	void			add_ref_point(pcodeop *p) { cover.add_ref_point(p, this, 0); }
+	void			add_until_point(pcodeop *p) { cover.add_ref_point(p, this, 1); }
+	void			clear_cover() { cover.clear();  }
+	int				dump_cover(char *buf) { return cover.dump(buf);  }
 };
 
 #define PCODE_DUMP_VAL              0x01
@@ -980,6 +987,7 @@ struct funcdata {
     void        dump_loop(const char *postfix);
     /* dump dom-joint graph */
     void        dump_djgraph(const char *postfix, int flag);
+	void        dump_liverange(const char *postfix);
 
     void        op_insert_before(pcodeop *op, pcodeop *follow);
     void        op_insert_after(pcodeop *op, pcodeop *prev);
@@ -1050,6 +1058,9 @@ struct funcdata {
     void        place_multiequal(void);
     void        rename();
     void        rename_recurse(blockbasic *bl, variable_stack &varstack, version_map &vermap);
+	void		build_liverange();
+    void        build_liverange_recurse(blockbasic *bl, variable_stack &varstack);
+
     int         collect(Address addr, int size, vector<varnode *> &read,
         vector<varnode *> &write, vector<varnode *> &input);
     void        heritage(void);
@@ -1311,6 +1322,8 @@ struct dobc {
     Address     cy_addr;
     Address     pc_addr;
     set<Address> cpu_regs;
+	/* r0-sp */
+    set<Address> cpu_base_regs;
     vector<Address *>   argument_regs;
 
     dobc(const char *slafilename, const char *filename);
@@ -1331,7 +1344,8 @@ struct dobc {
     funcdata*   find_func_by_alias(const string &name);
     AddrSpace *get_code_space() { return trans->getDefaultCodeSpace();  }
     AddrSpace *get_uniq_space() { return trans->getUniqueSpace();  }
-    bool        is_cpu_reg(Address &addr) { return cpu_regs.find(addr) != cpu_regs.end();  }
+    bool        is_cpu_reg(const Address &addr) { return cpu_regs.find(addr) != cpu_regs.end();  }
+    bool        is_cpu_base_reg(const Address &addr) { return cpu_base_regs.find(addr) != cpu_base_regs.end();  }
 
     void    plugin_dvmp360();
 
