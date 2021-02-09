@@ -367,11 +367,11 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    funcdata *fd_main = find_func("_Z10__arm_a_21v");
     //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
     //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
     //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
-    funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
+    //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
 
     set_func_alias("_Z9__arm_a_0v", "vm_enter");
@@ -981,10 +981,8 @@ void cover::add_ref_point(pcodeop *ref, varnode *vn, int exclude)
 		}
 	}
 
-#if 0
 	for (i = 0; i < bl->in.size(); i++)
 		add_ref_recurse(bl->get_in(i));
-#endif
 }
 
 void cover::add_ref_recurse(flowblock *bl)
@@ -1166,6 +1164,84 @@ void            pcodeop::peephole(void)
     case CPUI_COPY:
         break;
     }
+}
+
+int				pcodeop::compute_add_sub()
+{
+	varnode *in0, *in1, *_in0, *_in1, *out;
+	pcodeop *op;
+	funcdata *fd = parent->fd;
+
+	in0 = get_in(0);
+	in1 = get_in(1);
+	out = output;
+
+	op = in0->def;
+
+	if (!is_trace() && op && ((op->opcode == CPUI_INT_ADD) || (op->opcode == CPUI_INT_SUB))) {
+		_in0 = op->get_in(0);
+		_in1 = op->get_in(1);
+
+		/*
+		ma = ma + 4;
+		x = ma + 4;
+
+		转换成
+		x = ma + 8;
+
+		关于活跃范围判断有2种情况
+
+		1. r0 = r1 + 4
+		2. r1 = r4 + 4
+		3. sp = r0 + 4
+
+		假如你想优化 sp = r1 + 4，需要判断 指令3 是不是在r1的活动范围内
+
+		1. ma = ma + 4
+		2. sp = ma + 4
+
+		当前r0, r1位置的寄存器相等时，需要判断ma的范围
+		*/
+		while (
+			_in0->is_rel_constant()
+			&& (in0->uses.size() == 1) && _in1->is_constant() 
+			&& ((op->output->get_addr() == _in0->get_addr()) || _in0->in_liverange_simple(this))) {
+			intb v = in1->get_val();
+
+			if (opcode == CPUI_INT_ADD) {
+				if (op->opcode == CPUI_INT_ADD)
+					v = _in1->get_val() + v;
+				else
+					v = -_in1->get_val() + v;
+			}
+			else {
+				if (op->opcode == CPUI_INT_ADD)
+					v = -_in1->get_val() + v;
+				else
+					v = _in1->get_val() + v;
+			}
+
+			while (num_input() > 0)
+				fd->op_remove_input(this, 0);
+
+			fd->op_set_input(this, in0 = _in0, 0);
+			fd->op_set_input(this, in1 = fd->create_constant_vn(v, in1->size), 1);
+			fd->op_destroy(op);
+
+			op = _in0->def;
+			if ((op->opcode != CPUI_INT_ADD) && (op->opcode != CPUI_INT_SUB))
+				break;
+			_in0 = op->get_in(0);
+			_in1 = op->get_in(1);
+		}
+	}
+
+	if (opcode == CPUI_INT_ADD)
+		out->set_rel_constant(in0->get_rel(), in0->type.v + in1->type.v);
+	else
+		out->set_rel_constant(in0->get_rel(), in0->type.v - in1->type.v);
+
+	return 0;
 }
 
 int             pcodeop::compute(int inslot, flowblock **branch)
@@ -1496,6 +1572,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 out->set_val(in0->type.v + in1->type.v);
         }
         else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
+#if 0
             op = in0->def;
 
             if (!is_trace() && op && ((op->opcode == CPUI_INT_ADD) || (op->opcode == CPUI_INT_SUB))) {
@@ -1509,7 +1586,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 转换成
                 x = ma + 8;
                 */
-#if 1
                 while ((in0->uses.size() == 1) && _in1->is_constant()) {
                     intb v = in1->get_val();
 
@@ -1531,10 +1607,12 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                     _in0 = op->get_in(0);
                     _in1 = op->get_in(1);
                 }
-#endif
             }
 
             out->set_rel_constant(in0->get_rel(), in0->type.v + in1->type.v);
+#endif
+
+			compute_add_sub();
         }
         else if (in0->is_constant() && fd->is_sp_rel_constant(in1)) {
             out->set_rel_constant(in1->get_rel(), in0->type.v + in1->type.v);
@@ -1559,7 +1637,8 @@ int             pcodeop::compute(int inslot, flowblock **branch)
         /*      out                             0                   1       */
         /* 0:(register,mult_addr,4) = INT_SUB (register,sp,4) (const,0x4,4) */
         else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
-            out->set_rel_constant(in0->get_rel(), in0->type.v - in1->type.v);
+			compute_add_sub();
+            //out->set_rel_constant(in0->get_rel(), in0->type.v - in1->type.v);
         }
         else
             out->type.height = a_top;

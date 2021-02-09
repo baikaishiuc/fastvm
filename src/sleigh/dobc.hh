@@ -367,6 +367,7 @@ struct pcodeop {
     wlist:          工作表，当我们跟新某些节点的时候，发现另外一些节点也需要跟新，就把它加入到这个链表内
     */
     int             compute(int inslot, flowblock **branch);
+	int				compute_add_sub();
     /* FIXME:判断哪些指令是别名安全的 */
     bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
