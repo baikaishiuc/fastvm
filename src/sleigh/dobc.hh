@@ -126,7 +126,8 @@ struct varnode_cmp_gvn {
 typedef map<varnode *, vector<pcodeop *>, varnode_cmp_gvn> varnode_gvn_map;
 
 struct coverblock {
-	int blk_index;
+	short	version;
+	short	blk_index;
 	/* 这个结构主要参考自Ghidra的CoverBlock，之所以start和end，没有采用pcodeop结构是因为
 	我们在优化时，会删除大量的pcodeop，这个pcode很容易失效 */
 	int		start = -1;
@@ -147,7 +148,7 @@ struct coverblock {
 		start = 0;
 		end = INT_MAX;
 	}
-
+	int dump(char *buf);
 };
 
 struct cover {
@@ -192,6 +193,7 @@ struct varnode {
     varnode_def_set::iterator defiter;  // sort by definition
 
 	cover				cover;
+	coverblock			simple_cover;
     list<pcodeop *>     uses;    // descend, Ghidra把这个取名为descend，搞的我头晕，改成use
 
     varnode(int s, const Address &m);
@@ -217,7 +219,7 @@ struct varnode {
     bool            is_free() { return !flags.written && !flags.input; }
     /* 实现的简易版本的，判断某条指令是否在某个varnode的活跃范围内 */
     bool            in_liverange(pcodeop *p);
-	void			add_liverange(pcodeop *p);
+	bool			in_liverange_simple(pcodeop *p);
     /* 判断在某个start-end之间，这个varnode是否live, start, end必须得在同一个block内
 
     这2个判断liverange的代码都要重新写
@@ -226,9 +228,14 @@ struct varnode {
     bool            is_reg() { return get_addr().getSpace()->getType() == IPTR_PROCESSOR; }
 	void			add_def_point() { cover.add_def_point(this);  }
 	void			add_ref_point(pcodeop *p) { cover.add_ref_point(p, this, 0); }
-	void			add_until_point(pcodeop *p) { cover.add_ref_point(p, this, 1); }
+	void			add_def_point_simple();
+	void			add_ref_point_simple(pcodeop *p);
+	void			clear_cover_simple();
 	void			clear_cover() { cover.clear();  }
-	int				dump_cover(char *buf) { return cover.dump(buf);  }
+	int				dump_cover(char *buf) { 
+		int n = simple_cover.dump(buf);
+		return n + cover.dump(buf + n);
+	}
 };
 
 #define PCODE_DUMP_VAL              0x01
@@ -750,6 +757,11 @@ struct funcdata {
         unsigned exit : 1;              // 有些函数有直接结束整个程序的作用，比如stack_check_fail, exit, abort
 		/* 是否允许标记未识别store，让安全store可以跨过去这个pcode*/
 		unsigned enable_topstore_mark : 1;
+		/* liverange有2种计算类型
+		
+		1. 一种是快速但不完全，可以做peephole，不能做register allocation
+		2. 一种是慢速但完全，可以参与所有优化 */
+		unsigned enable_complete_liverange : 1;
     } flags = { 0 };
 
     enum {
@@ -759,6 +771,7 @@ struct funcdata {
     } symtype;
 
     int op_generated = 0;
+	int reset_version = 0;
 
     pcodeop_tree     optree;
     AddrSpace   *uniq_space = NULL;

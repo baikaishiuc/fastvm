@@ -367,11 +367,11 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
     //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
     //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
     //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
-    //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
+    funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
 
     set_func_alias("_Z9__arm_a_0v", "vm_enter");
@@ -705,6 +705,8 @@ void            varnode::del_use(pcodeop *op)
 
 bool            varnode::in_liverange(pcodeop *p)
 {
+	return in_liverange_simple(p);
+
     if (!def) return false;
 
     if ((p->output->get_addr() == get_addr()) && (p->output->version - 1) == version) return true;
@@ -726,6 +728,22 @@ bool            varnode::in_liverange(pcodeop *p)
     return true;
 }
 
+bool			varnode::in_liverange_simple(pcodeop *p)
+{
+	int v = p->parent->fd->reset_version;
+
+	if (v != simple_cover.version) return false;
+	if (p->parent->index != simple_cover.blk_index) return false;
+
+	int o = p->start.getOrder();
+	if ((o >= simple_cover.start) && (simple_cover.start > -1)) {
+		if ((o <= simple_cover.end) || (simple_cover.end == -1))
+			return true;
+	}
+
+	return false;
+}
+
 bool        varnode::in_liverange(pcodeop *start, pcodeop *end)
 {
     if (start->parent != end->parent)
@@ -741,6 +759,45 @@ bool        varnode::in_liverange(pcodeop *start, pcodeop *end)
     }
 
     return true;
+}
+
+void			varnode::add_def_point_simple()
+{
+	simple_cover.version = def->parent->fd->reset_version;
+	simple_cover.blk_index = def->parent->index;
+	simple_cover.start = def->start.getOrder() + 1;
+	simple_cover.end = -1;
+}
+
+void			varnode::add_ref_point_simple(pcodeop *p)
+{
+	short v = p->parent->fd->reset_version;
+
+	if (simple_cover.version != v) {
+		if (is_input()) {
+			simple_cover.version = v;
+			simple_cover.start = 0;
+			simple_cover.end = p->start.getOrder();
+		}
+		else
+			throw LowlevelError("un-input varnode version mismatch");
+	}
+	else {
+		/* 假如不是同一个块，则返回 */
+		if (p->parent->index != simple_cover.blk_index)
+			return;
+
+		/* 假如是同一个块，则设置为终点 */
+		simple_cover.end = p->start.getOrder();
+	}
+}
+
+void			varnode::clear_cover_simple()
+{
+	simple_cover.version = -1;
+	simple_cover.blk_index = -1;
+	simple_cover.start = -1;
+	simple_cover.end = -1;
 }
 
 intb            varnode::get_val(void)
@@ -873,6 +930,14 @@ bool coverblock::contain(pcodeop *op)
 	return (p <= end) && (p >= start);
 }
 
+int coverblock::dump(char *buf)
+{
+	if (end == -1)
+		return sprintf(buf, "{ver:%d,ind:%d,%d-max}", version, blk_index, start);
+	else
+		return sprintf(buf, "{ver:%d,ind:%d,%d-%d}", version, blk_index, start, end);
+}
+
 void cover::add_def_point(varnode *vn)
 {
 	pcodeop *def;
@@ -916,8 +981,10 @@ void cover::add_ref_point(pcodeop *ref, varnode *vn, int exclude)
 		}
 	}
 
+#if 0
 	for (i = 0; i < bl->in.size(); i++)
 		add_ref_recurse(bl->get_in(i));
+#endif
 }
 
 void cover::add_ref_recurse(flowblock *bl)
@@ -5189,6 +5256,7 @@ void funcdata::structure_reset()
     vector<flowblock *> rootlist;
 
     flags.blocks_unreachable = 0;
+	reset_version++;
 
     bblocks.structure_loops(rootlist);
     bblocks.calc_forward_dominator(rootlist);
@@ -5342,6 +5410,7 @@ void        funcdata::heritage(void)
     }
     place_multiequal();
     rename();
+	//build_liverange();
 
     long start = clock();
 
@@ -6545,8 +6614,7 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
                 else 
                     vnnew = stack.back();
 
-                if (vnnew->flags.written && (vnnew->def->opcode == CPUI_INDIRECT)) {
-                }
+				vnnew->add_ref_point_simple(op);
 
                 op_set_input(op, vnnew, slot);
                 if (vnin->has_no_use()) {
@@ -6558,8 +6626,16 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
         vnout = op->output;
         if (vnout == NULL) continue;
         vnout->version = ++vermap[vnout->get_addr()];
-        varstack[vnout->get_addr()].push_back(vnout);
+
+		vector<varnode *> &stack(varstack[vnout->get_addr()]);
+		if (!stack.empty() && d->is_cpu_base_reg(vnout->get_addr())) {
+			vnnew = stack.back();
+			vnnew->add_ref_point_simple(op);
+		}
+        stack.push_back(vnout);
         writelist.push_back(vnout);
+
+		vnout->add_def_point_simple();
     }
 
     for (i = 0; i < bl->out.size(); ++i) {
@@ -6584,6 +6660,8 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
             else
                 vnnew = stack.back();
 
+			vnnew->add_ref_point_simple(multiop);
+
             op_set_input(multiop, vnnew, slot);
             if (!vnin->uses.size()) {
                 delete_varnode(vnin);
@@ -6604,8 +6682,10 @@ void        funcdata::rename_recurse(blockbasic *bl, variable_stack &varstack, v
             vector<varnode *> &stack = it->second;
             pair<pcodeop_def_set::iterator, bool> check;
             varnode *v;
-            if (!stack.empty() && (v = stack.back())->is_reg() && v->def)
+			if (!stack.empty() && (v = stack.back())->is_reg() && v->def) {
                 topname.insert(v->def);
+				v->add_ref_point_simple(bl->last_op());
+			}
         }
     }
 
@@ -6634,9 +6714,9 @@ void        funcdata::build_liverange_recurse(blockbasic *bl, variable_stack &va
     varnode *vnout, *vnin, *vnnew;
     int i, slot, order;
 
-    for (oiter = bl->ops.begin(), order = 0; oiter != bl->ops.end(); oiter++, order++) {
+    for (oiter = bl->ops.begin(), order = 0; oiter != bl->ops.end(); oiter++) {
         op = *oiter ;
-		op->start.setOrder(order);
+		//op->start.setOrder(order);
 
 		for (slot = 0; slot < op->inrefs.size(); ++slot) {
 			vnin = op->get_in(slot);
