@@ -367,9 +367,9 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
     //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
-    //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
+    funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
     //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
     //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
@@ -1572,46 +1572,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 out->set_val(in0->type.v + in1->type.v);
         }
         else if (fd->is_sp_rel_constant(in0) && in1->is_constant()) {
-#if 0
-            op = in0->def;
-
-            if (!is_trace() && op && ((op->opcode == CPUI_INT_ADD) || (op->opcode == CPUI_INT_SUB))) {
-                _in0 = op->get_in(0);
-                _in1 = op->get_in(1);
-
-                /*
-                ma = ma + 4;
-                x = ma + 4;
-
-                转换成
-                x = ma + 8;
-                */
-                while ((in0->uses.size() == 1) && _in1->is_constant()) {
-                    intb v = in1->get_val();
-
-                    if (op->opcode == CPUI_INT_ADD)
-                        v += _in1->get_val();
-                    else
-                        v -= _in1->get_val();
-
-                    while (num_input() > 0)
-                        fd->op_remove_input(this, 0);
-
-                    fd->op_set_input(this, in0 = _in0, 0);
-                    fd->op_set_input(this, in1 = fd->create_constant_vn(v, in1->size), 1);
-                    fd->op_destroy(op);
-
-                    op = _in0->def;
-                    if ((op->opcode != CPUI_INT_ADD) && (op->opcode != CPUI_INT_SUB))
-                        break;
-                    _in0 = op->get_in(0);
-                    _in1 = op->get_in(1);
-                }
-            }
-
-            out->set_rel_constant(in0->get_rel(), in0->type.v + in1->type.v);
-#endif
-
 			compute_add_sub();
         }
         else if (in0->is_constant() && fd->is_sp_rel_constant(in1)) {
@@ -1889,9 +1849,12 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             for (i = 0; i < inrefs.size(); i++) {
                 vn = get_in(i);
 
-                if (vn->is_constant() && !vn->in_constant_space()) {
-                    fd->op_unset_input(this, i);
-                    fd->op_set_input(this, fd->create_constant_vn(vn->get_val(), vn->size), i);
+				/* 后面那个判断条件是防止冲入的*/
+                if (vn->is_constant()) {
+					if (!vn->in_constant_space()) {
+						fd->op_unset_input(this, i);
+						fd->op_set_input(this, fd->create_constant_vn(vn->get_val(), vn->size), i);
+					}
                 }
                 /* 这里重点说下in的非constant转换规则 
 
@@ -1903,7 +1866,9 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 我们直接修改上面的指令为 
                 output = op(in0, in1, ..., rN)
                 */
-                else if (vn->def && (vn->def->opcode == CPUI_COPY)) {
+                else if ((op = vn->def) && (op->opcode == CPUI_COPY) && op->get_in(0)->in_liverange_simple(this)) {
+					fd->op_unset_input(this, i);
+					fd->op_set_input(this, op->get_in(0), i);
                 }
             }
         }
@@ -1912,27 +1877,6 @@ int             pcodeop::compute(int inslot, flowblock **branch)
     /* 计算sp */
 
     return ret;
-}
-
-bool            pcodeop::is_safe_inst()
-{
-    funcdata *fd = parent->fd;
-
-    VisitStat &stat(fd->visited[start.getAddr()]);
-
-    return stat.inst_type == a_stmdb;
-}
-
-bool            pcodeop::is_prev_op(pcodeop *p) 
-{
-    list<pcodeop *>::iterator it = basiciter;
-
-    if ((parent->ops.begin() != basiciter) && ((*it)->parent == p->parent)) {
-        --it;
-        return (*it) == this;
-    }
-
-    return false;
 }
 
 void            pcodeop::to_constant(void)
@@ -1961,7 +1905,6 @@ void            pcodeop::to_rel_constant()
     intb sub = output->get_val() - in0->get_val();
     fd->op_set_input(this, fd->create_constant_vn(sub, output->size), 1);
 }
-
 
 void            pcodeop::to_copy(varnode *in)
 {
@@ -3958,6 +3901,7 @@ branch指令打上call_branch标记
         break;
 
         case CPUI_CALLIND:
+			add_callspec(op, NULL);
             break;
         }
 

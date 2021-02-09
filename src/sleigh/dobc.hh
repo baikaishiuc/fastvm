@@ -368,8 +368,6 @@ struct pcodeop {
     */
     int             compute(int inslot, flowblock **branch);
 	int				compute_add_sub();
-    /* FIXME:判断哪些指令是别名安全的 */
-    bool            is_safe_inst();
     void            set_output(varnode *vn) { output = vn;  }
 
     bool            is_dead(void) { return flags.dead;  }
@@ -378,7 +376,6 @@ struct pcodeop {
     bool            is_call(void) { return (opcode == CPUI_CALL) || (opcode == CPUI_CALLIND) || callfd; }
     void            set_input() { flags.input = 1;  }
     intb            get_call_offset() { return get_in(0)->get_addr().getOffset(); }
-    bool            is_prev_op(pcodeop *p);
     /* 当自己的结果值为output时，把自己整个转换成copy形式的constant */
     void            to_constant(void);
     void            to_rel_constant(void);
