@@ -367,9 +367,9 @@ funcdata* test_vmp360_cond_inline(dobc *d, intb addr)
 
 void dobc::plugin_dvmp360()
 {
-    //funcdata *fd_main = find_func("_Z10__arm_a_21v");
+    funcdata *fd_main = find_func("_Z10__arm_a_21v");
     //funcdata *fd_main = find_func("_Z9__arm_a_1P7_JavaVMP7_JNIEnvPvRi");
-    funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
+    //funcdata *fd_main = find_func("_Z9__arm_a_2PcjS_Rii");
     //funcdata *fd_main = find_func("_ZN10DynCryptor9__arm_c_0Ev");
     //funcdata *fd_main = find_func("_ZN9__arm_c_19__arm_c_0Ev");
     fd_main->set_alias("vm_func1");
@@ -775,6 +775,7 @@ void			varnode::add_ref_point_simple(pcodeop *p)
 
 	if (simple_cover.version != v) {
 		if (is_input()) {
+			simple_cover.blk_index = 0;
 			simple_cover.version = v;
 			simple_cover.start = 0;
 			simple_cover.end = p->start.getOrder();
@@ -1349,6 +1350,7 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             r0(1) = mem[x]
             修改第2条指令会 cpy r0(1), r0(0)
             */
+#if 1
             if (!is_trace() && (_in2->get_addr() == out->get_addr()) && (_in2->version + 1) == (out->version)) {
                 while (num_input())
                     fd->op_remove_input(this, 0);
@@ -1356,6 +1358,15 @@ int             pcodeop::compute(int inslot, flowblock **branch)
                 fd->op_set_opcode(this, CPUI_COPY);
                 fd->op_set_input(this, _in2, 0);
             }
+#else
+            if (!is_trace() && _in2->in_liverange_simple(this)) {
+                while (num_input())
+                    fd->op_remove_input(this, 0);
+
+                fd->op_set_opcode(this, CPUI_COPY);
+                fd->op_set_input(this, _in2, 0);
+            }
+#endif
         }
         else if ((inslot >= 0)) { // trace流中
             pcodeop *maystoer = NULL;
@@ -2980,6 +2991,8 @@ int        funcdata::vmp360_deshell()
         dump_cfg(name, _itoa(i, buf, 10), 1);
 #endif
     }
+
+    dump_cfg(name, "final0", 1);
 
     dump_exe();
 
@@ -4696,7 +4709,7 @@ void        funcdata::dump_loop(const char *postfix)
 
 void        funcdata::dump_liverange(const char *postfix)
 {
-    char obuf[2048];
+    char obuf[8192];
 
     sprintf(obuf, "%s/liverange_%s.txt", get_dir(obuf), postfix);
 
@@ -4854,6 +4867,7 @@ void        funcdata::op_destroy(pcodeop *op)
 {
     int i;
     flowblock *p;
+
 
 	if (op->output) {
         destroy_varnode(op->output);
