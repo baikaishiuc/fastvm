@@ -24,12 +24,15 @@ msbuild fastvm.sln
 
 ## sleigh run
 
-sleigh  ../../../Processors/ARM/data/languages/ARM8_le.sla ../../../data/vmp/360_1/libjiagu.so
+dobc  ../../../Processors/ARM/data/languages/ARM8_le.sla ../../../data/vmp/360_1/libjiagu.so
 
+That will generate ./libjiagu.so directory in current directory, and dot file in there. You can invoke gen.sh in directory to generate cfg.
+
+Default devmp function name hard code in dobc.cc::plugin_dvmp360 function, you can changed it to another。
 
 ## dobc Run
 
-dobc -df 407d libmakeurl2.4.9.so
+fastvm -df 407d libmakeurl2.4.9.so
 
 you could change df address to: 
 342d
