@@ -1,14 +1,11 @@
-# sleigh
-arm devmp compiler
+# First
 
-## build
+This github include 2 project.
 
-## run
+sleigh: vmp decompiler
+dobc: ollvm decompiler
 
-# fastvm
-arm deobfuse compiler
-
-## build 
+# build
 
 git clone https://github.com/baikaishiuc/fastvm
 
@@ -24,9 +21,14 @@ open vs2017 cmd in fastvm/build
 
 msbuild fastvm.sln
 
-## Run
+## sleigh run
 
-fastvm -df 407d libmakeurl2.4.9.so
+sleigh  ../../../Processors/ARM/data/languages/ARM8_le.sla ../../../data/vmp/360_1/libjiagu.so
+
+
+## dobc Run
+
+dobc -df 407d libmakeurl2.4.9.so
 
 you could change df address to: 
 342d
