@@ -1351,7 +1351,9 @@ int             pcodeop::compute(int inslot, flowblock **branch)
             修改第2条指令会 cpy r0(1), r0(0)
             */
 #if 1
-            if (!is_trace() && (_in2->get_addr() == out->get_addr()) && (_in2->version + 1) == (out->version)) {
+            if (!is_trace() && 
+				(((_in2->get_addr() == out->get_addr()) && (_in2->version + 1) == (out->version))
+					|| _in2->in_liverange_simple(this))) {
                 while (num_input())
                     fd->op_remove_input(this, 0);
 
@@ -2756,10 +2758,10 @@ void        funcdata::dump_exe()
 
     redundbranch_apply();
     remove_dead_stores();
-    dead_code_elimination(bblocks.blist, 0);
 
 	heritage_clear();
 	heritage();
+    dead_code_elimination(bblocks.blist, 0);
 	build_liverange();
 	dump_liverange("1");
 }

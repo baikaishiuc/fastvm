@@ -73,7 +73,6 @@
 
 #include "libdobc.h"
 #include "elf.h"
-#include "pcode.h"
 
 #define DOBC_TARGET_ARM         /* ARMv4 code generator */
 
@@ -91,8 +90,6 @@
     !defined(DOBC_TARGET_X86_64) && !defined(DOBC_TARGET_RISCV64)
 
 #endif
-
-#include "types.h"
 
 typedef struct CString {
     int size;
@@ -147,70 +144,6 @@ struct preproc_define {
     char *value;
 };
 
-#include "context.h"
-#include "opcodes.h"
-#include "slgh_compile.h"
-
-typedef struct DisassemblyCache         DisassemblyCache;
-typedef struct RelativeRecord           RelativeRecord;
-typedef struct PcodeData                PcodeData;
-typedef struct PcodeCacher              PcodeCacher;
-
-struct RelativeRecord {
-    VarnodeData *dataptr;
-    long calling_index;            // 产生相对偏移的指令索引
-    struct {
-        RelativeRecord *next;
-        RelativeRecord *prev;
-    } node;
-};
-
-struct PcodeData {                  // 构建一个pcode指令的数据结构
-    OpCode opc;
-    VarnodeData *outvar;            
-    VarnodeData *invar;
-    int size;                       // input 数量
-};
-
-struct PcodeCacher {
-    VarnodeData *poolstart;
-    VarnodeData *curpool;
-    VarnodeData *endpool;
-    struct dynarray isused;     // PcodeData
-    struct {
-        int counts;
-        RelativeRecord *list;
-    } label_refs;
-
-    struct dynarray     labels;
-};
-
-int             PcodeCacher_new(PcodeCacher *p);
-void            PcodeCacher_delete(PcodeCacher *p);
-VarnodeData*    PcodeCacher_allocateVarnodes(PcodeCacher *p, int size);
-PcodeData*      PcodeCacher_allocateInstruction(PcodeCacher *p);
-void            PcodeCacher_addLabelRef(PcodeCacher *p, VarnodeData *ptr);
-void            PcodeCacher_addLabel(PcodeCacher *p, int id);
-void            PcodeCacher_clear(PcodeCacher *p);
-void            PcodeCacher_resolveRelatives(PcodeCacher *p);
-
-struct DisassemblyCache {
-    ContextCache *contxtcache;
-    AddrSpace *constspace;
-    int minimumresue;
-    uint4 mask;
-    ParserContext **list;           // (circular) array of currently cached ParserContext objects
-    int nextfree;                   // currently end/begining of circular list
-    ParserContext **hashtable;      // Hashtable for looking up ParserContext via address
-};
-
-int         DisassemblyCache_new(DisassemblyCache *dc,
-                                ContextCache *ccache,
-                                AddrSpace *cspace,
-                                int cachesize,
-                                int windowsize);
-void        DisassemblyCache_delete(DisassemblyCache *dc);
-
 struct VMState {
 	unsigned long funcaddr;
 
@@ -263,20 +196,7 @@ struct VMState {
     Section *stab;
 
     struct dynarray sym_attrs;
-
-    struct pcode_ctx   pctx;
-
-    ContextDatabase *context_db;
-    ContextCache *cache;
-    DisassemblyCache *discache;
-
-    SleighCompile slgh;
-
-    int(*binload)(VMState *vm, char *buf, int len, Address *addr);
 };
-
-int     Sleigh_printAssembly(VMState *vm, Address *addr);
-int     Sleigh_instructionLength(VMState *vm, Address *addr);
 
 #define VM_SET_STATE(fn)    fn        
 
@@ -373,24 +293,5 @@ void str_free(char *);
 
 void xml_escape_out(FILE *o, const char *str);
 
-inline void a_v(FILE *o, const char *attr, const char *val)
-{
-    fprintf(o, " %s=\"%s\"", attr, val);
-}
-
-inline void a_v_i(FILE *o, const char *attr, intb val)
-{
-    fprintf(o, " %s=\"%lld\"", attr, val);
-}
-
-inline void a_v_u(FILE *o, const char *attr, uintb val)
-{
-    fprintf(o, " %s=\"0x%llx\"", attr, val);
-}
-
-inline void a_v_b(FILE *o, const char *attr, bool val)
-{
-    fprintf(o, " %s=\"%s\"", attr, val?"true":"false");
-}
 
 #endif

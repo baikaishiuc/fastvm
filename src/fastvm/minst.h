@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+#include "mcore/bitset.h"
+
 enum minst_type {
     mtype_null,
     mtype_b,
