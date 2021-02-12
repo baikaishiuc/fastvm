@@ -29,7 +29,7 @@ msbuild fastvm.sln
 
 dobc  ../../../Processors/ARM/data/languages/ARM8_le.sla ../../../data/vmp/360_1/libjiagu.so
 
-这个会在当前目录下生成一个 ./libjiagu.so的同名文件夹，里面带有final.dot后缀的文件，就是优化的结果。
+这个会在当前目录下生成一个 ./libjiagu.so的同名文件夹，里面带有final.dot后缀的文件，就是优化的结果。在目录下，执行../gen.sh会生成对应的svg文件
 
 默认提供了5个函数可以测试，都是libjiagu.so里的:
 
